@@ -2,7 +2,7 @@ use std::sync::Once;
 use uuid::Uuid;
 use pbtb_rust::domain::bot::{Bot, BotRepository};
 use pbtb_rust::infra::botrepository::DynamoBotRepository;
-use pbtb_rust::utils::setup_dynamodb;
+use pbtb_rust::infra::dynamodb::client::setup_dynamodb;
 
 // Initialize test environment once
 static INIT: Once = Once::new();

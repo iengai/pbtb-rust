@@ -1,7 +1,7 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::{Client, types::AttributeDefinition, types::KeySchemaElement, types::KeyType, types::ScalarAttributeType, types::BillingMode};
-use crate::config::{Settings, DynamoDBConfig};
-//
+use crate::config::configs::Configs;
+use crate::config::dynamodb::DynamoDBConfig;
 pub async fn create_dynamodb_client(config: &DynamoDBConfig) -> Client {
     let aws_config = aws_config::defaults(BehaviorVersion::latest())
         .region(aws_sdk_dynamodb::config::Region::new(config.region.clone()))
@@ -30,17 +30,17 @@ pub async fn ensure_table_exists(client: &Client, table_name: &str) -> Result<()
         .attribute_name("id")
         .key_type(KeyType::Hash)
         .build() {
-            Ok(ks) => ks,
-            Err(e) => return Err(format!("Failed to build key schema: {}", e)),
-        };
+        Ok(ks) => ks,
+        Err(e) => return Err(format!("Failed to build key schema: {}", e)),
+    };
 
     let attr_def = match AttributeDefinition::builder()
         .attribute_name("id")
         .attribute_type(ScalarAttributeType::S)
         .build() {
-            Ok(ad) => ad,
-            Err(e) => return Err(format!("Failed to build attribute definition: {}", e)),
-        };
+        Ok(ad) => ad,
+        Err(e) => return Err(format!("Failed to build attribute definition: {}", e)),
+    };
 
     match client.create_table()
         .table_name(table_name)
@@ -49,9 +49,9 @@ pub async fn ensure_table_exists(client: &Client, table_name: &str) -> Result<()
         .billing_mode(BillingMode::PayPerRequest)
         .send()
         .await {
-            Ok(_) => {},
-            Err(e) => return Err(format!("Failed to create table: {}", e)),
-        };
+        Ok(_) => {},
+        Err(e) => return Err(format!("Failed to create table: {}", e)),
+    };
 
     // Wait for table to be created by polling
     let max_attempts = 10;
@@ -87,13 +87,13 @@ pub async fn ensure_table_exists(client: &Client, table_name: &str) -> Result<()
 }
 
 pub async fn setup_dynamodb() -> Result<(Client, String), String> {
-    let settings = match Settings::new() {
+    let configs = match Configs::new() {
         Ok(s) => s,
-        Err(e) => return Err(format!("Failed to load settings: {}", e)),
+        Err(e) => return Err(format!("Failed to load configs: {}", e)),
     };
 
-    let client = create_dynamodb_client(&settings.dynamodb).await;
-    let table_name = settings.dynamodb.table_name.clone();
+    let client = create_dynamodb_client(&configs.dynamodb).await;
+    let table_name = configs.dynamodb.table_name.clone();
 
     ensure_table_exists(&client, &table_name).await?;
 
