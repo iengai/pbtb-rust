@@ -36,6 +36,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN useradd -m -u 10001 appuser
 WORKDIR /app
 
+ARG BIN_NAME=pbtb-rust
+
 # Copy from the fixed output directory instead of relying on target/release
 COPY --from=builder /out/bin/${BIN_NAME} /app/${BIN_NAME}
 
