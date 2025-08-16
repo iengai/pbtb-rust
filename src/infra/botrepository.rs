@@ -4,7 +4,7 @@ use aws_sdk_dynamodb::types::AttributeValue;
 use crate::domain::bot::{Bot, BotRepository};
 use async_trait::async_trait;
 
-/// infra 层的存储模型
+/// Storage model for the infra layer
 pub struct BotItem {
     pub id: String,
     pub user_id: String,

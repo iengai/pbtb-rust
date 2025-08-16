@@ -1,0 +1,45 @@
+{
+  "name": "pbtb-rust dev",
+  "dockerComposeFile": [
+    "./docker-compose.yaml"
+  ],
+  "service": "app-node",
+  "workspaceFolder": "/app",
+
+  // Use a non-root user to avoid host file permission issues (common-utils will create the vscode user)
+  "remoteUser": "vscode",
+
+  // Override the app service image/command to turn it into a "development container"
+  "overrideCommand": true,
+
+  // Bind local code to /app via mounts and use named volumes for Cargo caches to speed up builds
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/app,type=bind",
+    "type=volume,source=devcontainer-cargo-registry,target=/home/vscode/.cargo/registry",
+    "type=volume,source=devcontainer-cargo-git,target=/home/vscode/.cargo/git",
+    "type=volume,source=devcontainer-cargo-target,target=/app/target"
+  ],
+
+  // Start both DynamoDB Local and app-node (the development container)
+  "runServices": ["dynamodb-local", "app-node"],
+
+  // Run after the container is first created: install tools and prefetch dependencies
+  "postCreateCommand": "mkdir -p /home/vscode/.cargo/registry /home/vscode/.cargo/git /app/target && sudo chown -R vscode:vscode /app/target && rustup component add clippy rustfmt && cargo fetch",
+
+  // Optional: environment variables inside the container (the endpoint is set in compose, but can also be declared here)
+  "containerEnv": {
+    "APP__DYNAMODB__ENDPOINT_URL": "http://dynamodb-local:8000",
+    "CARGO_HOME": "/home/vscode/.cargo",
+    "RUSTUP_HOME": "/home/vscode/.rustup",
+    "CARGO_TARGET_DIR": "/app/target"
+  },
+
+  // Dev Containers official features: install Rust, common utilities, AWS CLI, etc.
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "1.88"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {}
+  },
+}

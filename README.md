@@ -4,26 +4,74 @@ A Rust project with DynamoDB integration.
 
 ## Prerequisites
 
-- Rust (latest stable version)
 - Docker and Docker Compose
+- (Optional) Rust toolchain on host if you don't use Dev Containers
 - AWS CLI (for local DynamoDB interaction)
 
-## Setup
+## Use Dev Containers (Recommended)
 
-1. Clone the repository:
-   ```
-   git clone <repository-url>
-   cd pbtb-rust
-   ```
+This project includes a .devcontainer setup that provides a consistent Rust development environment out of the box and runs DynamoDB Local on the same Docker network.
 
-2. Start the local DynamoDB instance:
-   ```
-   docker-compose up -d
-   ```
+- Entry file: `.devcontainer/devcontainer.json`
+- Dependent services: `.devcontainer/docker-compose.yaml` (contains `dynamodb-local` and `app-node`)
+- Build image: `.devcontainer/Dockerfile` (used for production runtime image; the Dev Container installs the Rust toolchain on top)
 
-3. Verify that the DynamoDB instance is running:
+### How to open
+
+1) VS Code + Dev Containers extension
+- Install extension: ms-vscode-remote.remote-containers
+- From the project root, run: Dev Containers: Reopen in Container
+- On the first build it will:
+  - Start both `dynamodb-local` and `app-node` services
+  - Bind-mount your source code to the container at `/app`
+  - Install Rust, clippy, rustfmt, and prefetch dependencies (see `postCreateCommand`)
+
+2) JetBrains RustRover / IntelliJ
+- Install Gateway or use the official Dev Containers plugin
+- Choose "Open using devcontainer" on the project root
+
+### Common commands inside the container
+
+- Build/check:
+  - `cargo check`
+  - `cargo build`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo fmt --all`
+- Run tests: `cargo test`
+- Interact with local DynamoDB (inside the container): `aws dynamodb list-tables --endpoint-url http://dynamodb-local:8000`
+
+### Configuration and networking
+
+- The app connects to DynamoDB Local via service name in the compose network: `http://dynamodb-local:8000`
+- The same endpoint is also exposed as an env var in devcontainer.json: `APP__DYNAMODB__ENDPOINT_URL`
+- Named volumes are used via `mounts` to cache Cargo registry/git and speed up builds
+- `remoteUser: vscode` avoids host file permission issues (created by the common-utils feature)
+
+### Best practices
+
+- Cache Cargo data in named volumes: devcontainer.json configures `/home/vscode/.cargo/registry` and `/home/vscode/.cargo/git`, significantly speeding up rebuilds.
+- Avoid writing as root: `remoteUser: vscode` keeps UID/GID consistent with the host and reduces permission issues.
+- Bind mount only the source: workspace `/app` is bound to host code to avoid rebuilding the image unnecessarily.
+- Use the same compose network for dependencies: containers communicate by service name (e.g., `dynamodb-local`).
+- Prefetch tools and dependencies on first create: `postCreateCommand` installs clippy/rustfmt and runs `cargo fetch`.
+- Use AWS CLI inside the container to avoid polluting the host environment.
+- Windows tip: ensure your drive is shared in Docker Desktop; for performance, consider the WSL2 backend.
+
+### Troubleshooting
+
+- Slow builds: verify named volumes are created (`docker volume ls` shows devcontainer-cargo-*) and your network/proxy is configured properly.
+- Permission issues: ensure the container user is `vscode` (`whoami`) and check host file permissions; recreate the container if needed.
+- Cannot reach DynamoDB Local: check container network and port usage, or access it from the host at `http://localhost:8000`; for data migration, see the `docker/dynamodb` directory.
+
+## Without Dev Containers (Optional)
+
+1. Start local DynamoDB:
    ```
-   aws dynamodb list-tables --endpoint-url http://localhost:8000
+   docker compose -f .devcontainer/docker-compose.yaml up -d dynamodb-local
+   ```
+2. On the host, run:
+   ```
+   cargo test
    ```
 
 ## Configuration
@@ -38,59 +86,29 @@ region = "us-east-1"
 table_name = "bots"
 ```
 
-## Running Tests
+## Running Tests (in container)
 
-### Using the Convenience Script
-
-The easiest way to run the tests is to use the provided script:
-
-```
-./run_tests.sh
-```
-
-This script will:
-1. Check if Docker is running
-2. Start the local DynamoDB instance if it's not already running
-3. Verify that the DynamoDB instance is accessible
-4. Run the tests
-
-### Manual Testing
-
-Alternatively, you can run the tests manually:
-
-1. Make sure the local DynamoDB instance is running:
-   ```
-   docker-compose up -d
-   ```
-
-2. Run the tests:
-   ```
-   cargo test
-   ```
-
-The tests will automatically create the necessary tables in the local DynamoDB instance.
-
-### Test Structure
-
-The tests for the `botrepository.rs` file are located in the `tests/botrepository_test.rs` file. They test the following functionality:
-
-1. Saving a bot and finding it by ID
-2. Finding a bot with a non-existent ID
-3. Updating an existing bot
+- In the Dev Container terminal, run:
+  ```
+  cargo test
+  ```
+- The tests will create the required table(s) in the local DynamoDB instance.
 
 ## Project Structure
 
-- `src/domain/bot.rs`: Domain model for bots
+- `src/domain/bot.rs`: Domain model and repository trait for bots
 - `src/infra/botrepository.rs`: DynamoDB implementation of the bot repository
-- `src/config.rs`: Configuration loading
-- `src/utils.rs`: Utility functions for DynamoDB setup
-- `tests/`: Test files
+- `src/infra/dynamodb/client.rs`: DynamoDB client creation, table ensure/setup utilities
+- `src/config/configs.rs`: Configuration loading and environment overrides
+- `src/config/dynamodb.rs`: DynamoDB configuration structure
+- `config/`: TOML config files (default.toml, local overrides)
+- `tests/`: Test files (integration-style tests using local DynamoDB)
 
 ## Development
 
 To add a new feature:
 
-1. Add the domain model to the `domain` directory
-2. Implement the repository in the `infra` directory
-3. Add tests to the `tests` directory
-4. Update the configuration if necessary
+1. Add or modify the domain model in `src/domain`
+2. Implement or extend the repository in `src/infra`
+3. Add tests under `tests`
+4. Update `config/` or code under `src/config` if configuration changes are needed

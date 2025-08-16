@@ -1,0 +1,28 @@
+services:
+  dynamodb-local:
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
+    image: "amazon/dynamodb-local:latest"
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./docker/dynamodb:/home/dynamodblocal/data"
+    working_dir: /home/dynamodblocal
+
+  app-node:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: app-node
+    depends_on:
+      - dynamodb-local
+    environment:
+      AWS_ACCESS_KEY_ID: 'DUMMYIDEXAMPLE'
+      AWS_SECRET_ACCESS_KEY: 'DUMMYEXAMPLEKEY'
+    # The devcontainer will overrideCommand and run as the vscode user
+    # You can add init: true here to avoid orphan processes
+    init: true
+    restart: unless-stopped
+
+volumes:
+  dynamodb-data:

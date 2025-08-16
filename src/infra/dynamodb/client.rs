@@ -94,6 +94,7 @@ pub async fn setup_dynamodb() -> Result<(Client, String), String> {
 
     let client = create_dynamodb_client(&configs.dynamodb).await;
     let table_name = configs.dynamodb.table_name.clone();
+    println!("{}", table_name);
 
     ensure_table_exists(&client, &table_name).await?;
 
