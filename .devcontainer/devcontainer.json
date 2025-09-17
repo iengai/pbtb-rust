@@ -25,6 +25,7 @@
 
   // Run after the container is first created: install tools and prefetch dependencies
   "postCreateCommand": "mkdir -p /home/vscode/.cargo/registry /home/vscode/.cargo/git /app/target && sudo chown -R vscode:vscode /app/target && rustup component add clippy rustfmt && cargo fetch",
+  "postStartCommand": "bash .devcontainer/scripts/init-dynamodb.sh",
 
   // Optional: environment variables inside the container (the endpoint is set in compose, but can also be declared here)
   "containerEnv": {
