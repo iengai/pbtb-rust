@@ -7,3 +7,5 @@ Cargo.lock
 .DS_Store
 /docker/dynamodb/
 /config/local.toml
+
+.env.local
