@@ -32,7 +32,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 ######## Runtime ########
 FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl1.1 && update-ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      pkg-config \
+      libssl-dev \
+      build-essential \
+ && update-ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 RUN useradd -m -u 10001 appuser
 WORKDIR /app
 
