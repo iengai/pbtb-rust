@@ -1,17 +1,21 @@
 // Rust
 use teloxide::{dispatching::Dispatcher, prelude::*};
-use crate::interface::telegram::{commands, callbacks, dialogue, middlewares, Deps};
+use teloxide::dispatching::dialogue::InMemStorage;
+use crate::interface::telegram::{commands, callbacks, dialogue, middlewares, Deps, states::DialogueState};
 
 pub async fn run(bot: Bot, deps: Deps) -> anyhow::Result<()> {
     // Inject dependencies into DependencyMap for extraction in handlers
-    let deps_map = dptree::deps![deps];
+    let deps_map = dptree::deps![
+        deps,
+        InMemStorage::<DialogueState>::new()
+    ];
 
     // Explicitly annotate schema type as UpdateHandler<DependencyMap>
     let schema: teloxide::dispatching::UpdateHandler<DependencyMap> = dptree::entry()
         .chain(middlewares::install())
-        .branch(dialogue::routes())
         .branch(commands::routes())
-        .branch(callbacks::routes());
+        .branch(callbacks::routes())
+        .branch(dialogue::routes());
 
     let mut dispatcher = Dispatcher::builder(bot, schema)
         .dependencies(deps_map)

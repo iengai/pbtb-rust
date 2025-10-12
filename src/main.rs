@@ -8,7 +8,7 @@ use std::sync::Arc;
 use teloxide::prelude::*;
 use infra::client::setup_dynamodb;
 use infra::botrepository::DynamoBotRepository;
-use usecase::ListBotsUseCase;
+use usecase::{ListBotsUseCase, AddBotUseCase};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,10 +30,12 @@ async fn main() -> anyhow::Result<()> {
 
     // Create use cases
     let list_bots_usecase = Arc::new(ListBotsUseCase::new(bot_repository.clone()));
+    let add_bot_usecase = Arc::new(AddBotUseCase::new(bot_repository.clone()));
 
     // Construct dependencies
     let deps = interface::telegram::Deps {
         list_bots_usecase,
+        add_bot_usecase,
     };
 
     interface::telegram::router::run(bot, deps).await

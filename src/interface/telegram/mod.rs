@@ -1,6 +1,6 @@
 // Rust
 use std::sync::Arc;
-use crate::usecase::ListBotsUseCase;
+use crate::usecase::{ListBotsUseCase, AddBotUseCase};
 
 pub mod router;
 pub mod middlewares;
@@ -10,12 +10,11 @@ pub mod commands;
 pub mod callbacks;
 pub mod dialogue;
 pub mod types;
+pub mod states;
 
-// 你的依赖聚合（示例：把 domain/service/仓储注入到 handlers）
-// 实际项目里，用 Arc<T> 包装具体服务，或使用构造函数传入
+// Dependencies aggregation for handlers
 #[derive(Clone)]
 pub struct Deps {
-    // pub bot_repo: Arc<dyn BotRepository>,
-    // pub user_service: Arc<UserService>,
     pub list_bots_usecase: Arc<ListBotsUseCase>,
+    pub add_bot_usecase: Arc<AddBotUseCase>,
 }
