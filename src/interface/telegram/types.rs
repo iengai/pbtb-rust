@@ -1,11 +1,9 @@
-// Rust
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "t", content = "p")]
 pub enum CallbackData {
     Action(CallbackAction),
-    // 可扩展其它类型，如分页、参数携带等
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,9 +13,10 @@ pub enum CallbackAction {
 
 impl CallbackData {
     pub fn encode(&self) -> String {
-        serde_json::to_string(self).unwrap_or_default()
+        serde_json::to_string(self).unwrap_or_else(|_| "unknown".to_string())
     }
-    pub fn decode(s: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str::<Self>(s)
+
+    pub fn decode(s: &str) -> Self {
+        serde_json::from_str(s).unwrap_or(CallbackData::Unknown)
     }
 }
