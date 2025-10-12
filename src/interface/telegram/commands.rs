@@ -34,7 +34,6 @@ async fn dispatch_command(
     deps: super::Deps,
 ) -> anyhow::Result<()> {
     match cmd {
-        // Command::Start => on_start(bot, msg, deps).await?,
         Command::Start => {
             bot.send_message(
                 msg.chat.id,
@@ -44,13 +43,52 @@ async fn dispatch_command(
                 .await?;
         }
         Command::List => {
-            // TODO: Implement listing all bots functionality
-            bot.send_message(
-                msg.chat.id,
-                "📋 Your bots:\n\n(No bots configured yet)",
-            )
-                .await?;
+            // Get user_id from telegram message
+            let user_id = msg.from()
+                .map(|user| user.id.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Call use case to get bots
+            match deps.list_bots_usecase.execute(&user_id).await {
+                Ok(bots) => {
+                    if bots.is_empty() {
+                        bot.send_message(
+                            msg.chat.id,
+                            "📋 Your bots:\n\n(No bots configured yet)",
+                        )
+                            .await?;
+                    } else {
+                        let bot_list = format_bot_list(&bots);
+                        bot.send_message(msg.chat.id, bot_list)
+                            .await?;
+                    }
+                }
+                Err(e) => {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("❌ Error fetching bots: {}", e),
+                    )
+                        .await?;
+                }
+            }
         }
     }
     Ok(())
+}
+
+fn format_bot_list(bots: &[crate::domain::bot::Bot]) -> String {
+    let mut message = String::from("📋 Your bots:\n\n");
+
+    for (index, bot) in bots.iter().enumerate() {
+        let status = if bot.enabled { "✅" } else { "⏸️" };
+        message.push_str(&format!(
+            "{}. {} {}\n   ID: {}\n\n",
+            index + 1,
+            status,
+            bot.name,
+            bot.id
+        ));
+    }
+
+    message
 }

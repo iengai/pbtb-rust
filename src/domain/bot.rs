@@ -29,7 +29,8 @@ impl Bot {
     }
 }
 #[async_trait]
-pub trait BotRepository {
+pub trait BotRepository: {
     async fn find_by_id(&self, id: &str) -> Option<Bot>;
     async fn save(&self, bot: &Bot);
+    async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot>;
 }

@@ -9,7 +9,6 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         vec![KeyboardButton::new("Add bot"), KeyboardButton::new("Choose config..."), KeyboardButton::new("Risk level")],
         vec![KeyboardButton::new("Run bot"), KeyboardButton::new("Stop bot"), KeyboardButton::new("Unstuck")],
         vec![KeyboardButton::new("Delete API key"), KeyboardButton::new("List")],
-        vec![KeyboardButton::new("/help")],
     ])
         .resize_keyboard(true)
         .one_time_keyboard(false)

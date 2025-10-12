@@ -1,2 +1,4 @@
+pub mod client;
 pub mod botrepository;
-pub mod dynamodb;
+
+pub use botrepository::DynamoBotRepository;

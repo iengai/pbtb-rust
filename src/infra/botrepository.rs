@@ -6,8 +6,8 @@ use async_trait::async_trait;
 
 /// Storage model for the infra layer
 pub struct BotItem {
-    pub id: String,
-    pub user_id: String,
+    pub pk: String,        // user_id#<user_id>
+    pub sk: String,        // <bot_id>
     pub name: String,
     pub api_key: String,
     pub secret_key: String,
@@ -15,10 +15,20 @@ pub struct BotItem {
 }
 
 impl BotItem {
+    /// Extract user_id from PK format: "user_id#<user_id>"
+    fn extract_user_id_from_pk(pk: &str) -> Option<String> {
+        pk.strip_prefix("user_id#").map(|s| s.to_string())
+    }
+
+    /// Construct PK from user_id
+    fn construct_pk(user_id: &str) -> String {
+        format!("user_id#{}", user_id)
+    }
+
     pub fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
         Some(Self {
-            id: item.get("id")?.as_s().ok()?.to_string(),
-            user_id: item.get("user_id")?.as_s().ok()?.to_string(),
+            pk: item.get("pk")?.as_s().ok()?.to_string(),
+            sk: item.get("sk")?.as_s().ok()?.to_string(),
             name: item.get("name")?.as_s().ok()?.to_string(),
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
@@ -28,8 +38,8 @@ impl BotItem {
 
     pub fn to_item(&self) -> HashMap<String, AttributeValue> {
         let mut map = HashMap::new();
-        map.insert("id".to_string(), AttributeValue::S(self.id.clone()));
-        map.insert("user_id".to_string(), AttributeValue::S(self.user_id.clone()));
+        map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
+        map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
         map.insert("name".to_string(), AttributeValue::S(self.name.clone()));
         map.insert("api_key".to_string(), AttributeValue::S(self.api_key.clone()));
         map.insert("secret_key".to_string(), AttributeValue::S(self.secret_key.clone()));
@@ -37,21 +47,23 @@ impl BotItem {
         map
     }
 
-    pub fn to_domain(&self) -> Bot {
-        Bot {
-            id: self.id.clone(),
-            user_id: self.user_id.clone(),
+    pub fn to_domain(&self) -> Option<Bot> {
+        let user_id = Self::extract_user_id_from_pk(&self.pk)?;
+
+        Some(Bot {
+            id: self.sk.clone(),  // bot_id from SK
+            user_id,
             name: self.name.clone(),
             api_key: self.api_key.clone(),
             secret_key: self.secret_key.clone(),
             enabled: self.enabled,
-        }
+        })
     }
 
     pub fn from_domain(bot: &Bot) -> Self {
         Self {
-            id: bot.id.clone(),
-            user_id: bot.user_id.clone(),
+            pk: Self::construct_pk(&bot.user_id),
+            sk: bot.id.clone(),
             name: bot.name.clone(),
             api_key: bot.api_key.clone(),
             secret_key: bot.secret_key.clone(),
@@ -74,17 +86,21 @@ impl DynamoBotRepository {
 #[async_trait]
 impl BotRepository for DynamoBotRepository {
     async fn find_by_id(&self, id: &str) -> Option<Bot> {
-        let output = self.client
-            .get_item()
+        // Note: We need user_id to construct PK, so this method uses scan (not efficient)
+        // In production, consider adding bot_id as GSI or passing user_id as well
+        let result = self.client
+            .scan()
             .table_name(&self.table_name)
-            .key("id", AttributeValue::S(id.to_string()))
+            .filter_expression("sk = :bot_id")
+            .expression_attribute_values(":bot_id", AttributeValue::S(id.to_string()))
             .send()
             .await
             .ok()?;
 
-        let item = output.item?;
-        let bot_item = BotItem::from_item(&item)?;
-        Some(bot_item.to_domain())
+        let items = result.items();
+        let item = items.first()?;
+        let bot_item = BotItem::from_item(item)?;
+        bot_item.to_domain()
     }
 
     async fn save(&self, bot: &Bot) {
@@ -99,6 +115,32 @@ impl BotRepository for DynamoBotRepository {
             .await
         {
             eprintln!("DynamoDB put_item error: {:?}", e);
+        }
+    }
+
+    async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
+        let pk_value = BotItem::construct_pk(user_id);
+
+        let result = self.client
+            .query()
+            .table_name(&self.table_name)
+            .key_condition_expression("pk = :pk")
+            .expression_attribute_values(":pk", AttributeValue::S(pk_value))
+            .send()
+            .await;
+
+        match result {
+            Ok(output) => {
+                output.items()
+                    .iter()
+                    .filter_map(|item| BotItem::from_item(item))
+                    .filter_map(|bot_item| bot_item.to_domain())
+                    .collect()
+            }
+            Err(e) => {
+                eprintln!("DynamoDB query error: {:?}", e);
+                Vec::new()
+            }
         }
     }
 }
