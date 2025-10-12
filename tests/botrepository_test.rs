@@ -36,6 +36,8 @@ fn create_test_bot() -> Bot {
         "test-api-key".to_string(),
         "test-secret-key".to_string(),
         true,
+        0,
+        0,
     )
 }
 

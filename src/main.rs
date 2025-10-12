@@ -1,3 +1,4 @@
+
 mod config;
 mod domain;
 mod infra;
@@ -9,6 +10,7 @@ use teloxide::prelude::*;
 use infra::client::setup_dynamodb;
 use infra::botrepository::DynamoBotRepository;
 use usecase::{ListBotsUseCase, AddBotUseCase};
+use domain::SystemClock;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -28,9 +30,12 @@ async fn main() -> anyhow::Result<()> {
     // Create repository
     let bot_repository = Arc::new(DynamoBotRepository::new(client, table_name));
 
+    // Create clock
+    let clock = Arc::new(SystemClock);
+
     // Create use cases
     let list_bots_usecase = Arc::new(ListBotsUseCase::new(bot_repository.clone()));
-    let add_bot_usecase = Arc::new(AddBotUseCase::new(bot_repository.clone()));
+    let add_bot_usecase = Arc::new(AddBotUseCase::new(bot_repository.clone(), clock));
 
     // Construct dependencies
     let deps = interface::telegram::Deps {

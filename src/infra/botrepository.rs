@@ -12,6 +12,8 @@ pub struct BotItem {
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
+    pub created_at: i64,   // Unix timestamp in seconds
+    pub updated_at: i64,   // Unix timestamp in seconds
 }
 
 impl BotItem {
@@ -33,6 +35,8 @@ impl BotItem {
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
             enabled: item.get("enabled")?.as_bool().ok().copied()?,
+            created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
+            updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
     }
 
@@ -44,6 +48,8 @@ impl BotItem {
         map.insert("api_key".to_string(), AttributeValue::S(self.api_key.clone()));
         map.insert("secret_key".to_string(), AttributeValue::S(self.secret_key.clone()));
         map.insert("enabled".to_string(), AttributeValue::Bool(self.enabled));
+        map.insert("created_at".to_string(), AttributeValue::N(self.created_at.to_string()));
+        map.insert("updated_at".to_string(), AttributeValue::N(self.updated_at.to_string()));
         map
     }
 
@@ -57,6 +63,8 @@ impl BotItem {
             api_key: self.api_key.clone(),
             secret_key: self.secret_key.clone(),
             enabled: self.enabled,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
         })
     }
 
@@ -68,6 +76,8 @@ impl BotItem {
             api_key: bot.api_key.clone(),
             secret_key: bot.secret_key.clone(),
             enabled: bot.enabled,
+            created_at: bot.created_at,
+            updated_at: bot.updated_at,
         }
     }
 }
