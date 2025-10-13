@@ -8,3 +8,9 @@ pub enum DialogueState {
     ReceiveApiKey { name: String },
     ReceiveSecretKey { name: String, api_key: String },
 }
+
+/// Main state that tracks selected bot (if any)
+#[derive(Clone, Default)]
+pub struct BotContext {
+    pub selected_bot_id: Option<String>,
+}

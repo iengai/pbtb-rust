@@ -54,8 +54,11 @@ async fn dispatch_command(
                             )
                                 .await?;
                         } else {
-                            let bot_list = format_bot_list(&bots);
-                            bot.send_message(msg.chat.id, bot_list)
+                            bot.send_message(
+                                msg.chat.id,
+                                "📋 Select a bot to view details or perform actions:",
+                            )
+                                .reply_markup(keyboards::bot_list_keyboard(&bots))
                                 .await?;
                         }
                     }

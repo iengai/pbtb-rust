@@ -13,3 +13,22 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         .resize_keyboard(true)
         .one_time_keyboard(false)
 }
+
+/// Create inline keyboard for bot list
+/// Each bot is shown as a button with callback data containing bot_id
+pub(crate) fn bot_list_keyboard(bots: &[crate::domain::bot::Bot]) -> InlineKeyboardMarkup {
+    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+
+    for bot in bots {
+        let status = if bot.enabled { "✅" } else { "⏸️" };
+        let button_text = format!("{} {}", status, bot.name);
+
+        // Callback data format: "select_bot:<bot_id>"
+        let callback_data = format!("select_bot:{}", bot.id);
+
+        let button = InlineKeyboardButton::callback(button_text, callback_data);
+        keyboard.push(vec![button]);
+    }
+
+    InlineKeyboardMarkup::new(keyboard)
+}

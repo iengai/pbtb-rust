@@ -1,15 +1,17 @@
 use teloxide::prelude::*;
 use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
 
-use super::{Deps, states::DialogueState};
+use super::{Deps, states::{DialogueState, BotContext}};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
+type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
 
 pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
     dptree::entry()
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
+                .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
                 .branch(dptree::case![DialogueState::Start].endpoint(handle_start_state))
                 .branch(dptree::case![DialogueState::ReceiveBotName].endpoint(receive_bot_name))
                 .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
@@ -20,6 +22,7 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
 async fn handle_start_state(
     bot: Bot,
     dialogue: MyDialogue,
+    bot_context: MyBotContext,
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
@@ -32,7 +35,16 @@ async fn handle_start_state(
         // Handle keyboard button text
         match text {
             "State" => {
-                bot.send_message(msg.chat.id, "📊 Bot State: Idle")
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                let bot_info = if let Some(ref bot_id) = ctx.selected_bot_id {
+                    format!("📊 Bot State: Idle\n🤖 Selected Bot: {}", bot_id)
+                } else {
+                    "📊 Bot State: Idle\n🤖 No bot selected".to_string()
+                };
+
+                bot.send_message(msg.chat.id, bot_info)
                     .await?;
             }
             "Balance" => {
@@ -53,12 +65,28 @@ async fn handle_start_state(
                     .await?;
             }
             "Run bot" => {
-                bot.send_message(msg.chat.id, "▶️ Starting bot... (Feature coming soon)")
-                    .await?;
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                if let Some(ref bot_id) = ctx.selected_bot_id {
+                    bot.send_message(msg.chat.id, format!("▶️ Starting bot {}...", bot_id))
+                        .await?;
+                } else {
+                    bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
+                        .await?;
+                }
             }
             "Stop bot" => {
-                bot.send_message(msg.chat.id, "⏹️ Stopping bot... (Feature coming soon)")
-                    .await?;
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                if let Some(ref bot_id) = ctx.selected_bot_id {
+                    bot.send_message(msg.chat.id, format!("⏹️ Stopping bot {}...", bot_id))
+                        .await?;
+                } else {
+                    bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
+                        .await?;
+                }
             }
             "Unstuck" => {
                 bot.send_message(msg.chat.id, "🔧 Unstuck operation... (Feature coming soon)")
@@ -84,8 +112,17 @@ async fn handle_start_state(
                             )
                                 .await?;
                         } else {
-                            let bot_list = format_bot_list(&bots);
-                            bot.send_message(msg.chat.id, bot_list)
+                            let ctx = bot_context.get().await?
+                                .unwrap_or_default();
+
+                            let header = if let Some(ref bot_id) = ctx.selected_bot_id {
+                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", bot_id)
+                            } else {
+                                "📋 Select a bot:\n\n(No bot selected)".to_string()
+                            };
+
+                            bot.send_message(msg.chat.id, header)
+                                .reply_markup(super::keyboards::bot_list_keyboard(&bots))
                                 .await?;
                         }
                     }
@@ -112,6 +149,7 @@ async fn handle_start_state(
 async fn receive_bot_name(
     bot: Bot,
     dialogue: MyDialogue,
+    _bot_context: MyBotContext,
     msg: Message,
 ) -> Result<(), DependencyMap> {
     let result = async {
@@ -137,6 +175,7 @@ async fn receive_bot_name(
 async fn receive_api_key(
     bot: Bot,
     dialogue: MyDialogue,
+    _bot_context: MyBotContext,
     name: String,
     msg: Message,
 ) -> Result<(), DependencyMap> {
@@ -164,6 +203,7 @@ async fn receive_api_key(
 async fn receive_secret_key(
     bot: Bot,
     dialogue: MyDialogue,
+    _bot_context: MyBotContext,
     (name, api_key): (String, String),
     msg: Message,
     deps: Deps,
@@ -218,21 +258,4 @@ async fn receive_secret_key(
     }.await;
 
     result.map_err(|_| DependencyMap::new())
-}
-
-fn format_bot_list(bots: &[crate::domain::bot::Bot]) -> String {
-    let mut message = String::from("📋 Your bots:\n\n");
-
-    for (index, bot) in bots.iter().enumerate() {
-        let status = if bot.enabled { "✅" } else { "⏸️" };
-        message.push_str(&format!(
-            "{}. {} {}\n   ID: {}\n\n",
-            index + 1,
-            status,
-            bot.name,
-            bot.id
-        ));
-    }
-
-    message
 }
