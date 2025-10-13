@@ -67,6 +67,10 @@ async fn main() -> anyhow::Result<()> {
         bot_config_repository.clone(),
         clock.clone(),
     ));
+    let update_risk_level_usecase = Arc::new(UpdateRiskLevelUseCase::new(
+        bot_config_repository.clone(),
+        clock.clone(),
+    ));
 
     // Construct dependencies
     let deps = interface::telegram::Deps {
@@ -80,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         apply_template_usecase,
         get_bot_config_usecase,
         update_bot_config_usecase,
+        update_risk_level_usecase,
     };
 
     interface::telegram::router::run(bot, deps).await

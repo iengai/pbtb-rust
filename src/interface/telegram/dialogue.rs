@@ -17,6 +17,7 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                 .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
                 .branch(dptree::case![DialogueState::ReceiveSecretKey { name, api_key }].endpoint(receive_secret_key))
                 .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
+                .branch(dptree::case![DialogueState::ReceiveRiskLevel].endpoint(receive_risk_level))
         )
 }
 
@@ -101,8 +102,69 @@ async fn handle_start_state(
                 }
             }
             "Risk level" => {
-                bot.send_message(msg.chat.id, "⚠️ Risk Level: Medium")
-                    .await?;
+                // Check if bot is selected
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                if ctx.selected_bot_id.is_none() {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ No bot selected. Please use 'List' to select a bot first."
+                    )
+                        .await?;
+                    return Ok(());
+                }
+
+                // Check if bot has config
+                let user_id = msg.from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let bot_id = ctx.selected_bot_id.as_ref().unwrap();
+
+                match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
+                    Ok(config) => {
+                        // Get current risk level
+                        let current_risk = config.risk_level()
+                            .map(|r| format!("Long: {:.2}, Short: {:.2}", r.long, r.short))
+                            .unwrap_or_else(|_| "Not set".to_string());
+
+                        let current_leverage = config.leverage()
+                            .map(|l| format!("{:.1}x", l.long))
+                            .unwrap_or_else(|_| "Not set".to_string());
+
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "⚠️ Risk Level Configuration\n\n\
+                                🤖 Bot: {}\n\
+                                📊 Current Risk Level: {}\n\
+                                📈 Current Leverage: {}\n\n\
+                                Please enter the new risk level values in the following format:\n\
+                                `<long_risk>/<short_risk>`\n\n\
+                                Example: `3.0/1.5`\n\n\
+                                Note:\n\
+                                - Values should be decimal numbers (0.0 - 10.0)\n\
+                                - Leverage will be automatically set to (max_risk + 1)\n\
+                                - Send 'cancel' to abort",
+                                bot_id,
+                                current_risk,
+                                current_leverage
+                            )
+                        )
+                            .await?;
+
+                        dialogue.update(DialogueState::ReceiveRiskLevel).await?;
+                    }
+                    Err(_) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ No configuration found for this bot.\n\n\
+                            Please apply a configuration template first using 'Choose config...'."
+                        )
+                            .await?;
+                    }
+                }
             }
             "Run bot" => {
                 let ctx = bot_context.get().await?
@@ -401,4 +463,139 @@ fn format_template_list(templates: &[String]) -> String {
     message.push_str("To apply a template, use the bot management interface.");
 
     message
+}
+
+async fn receive_risk_level(
+    bot: Bot,
+    dialogue: MyDialogue,
+    bot_context: MyBotContext,
+    msg: Message,
+    deps: Deps,
+) -> Result<(), DependencyMap> {
+    let result = async {
+        match msg.text() {
+            Some(text) => {
+                // Allow cancellation
+                if text.trim().eq_ignore_ascii_case("cancel") {
+                    bot.send_message(msg.chat.id, "🚫 Risk level update cancelled.")
+                        .await?;
+                    dialogue.update(DialogueState::Start).await?;
+                    return Ok(());
+                }
+
+                // Parse input: "3.0/1.5"
+                let parts: Vec<&str> = text.trim().split('/').collect();
+
+                if parts.len() != 2 {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Invalid format. Please enter two numbers separated by /\n\n\
+                        Example: `3.0/1.5`\n\
+                        Or send 'cancel' to abort."
+                    )
+                        .await?;
+                    return Ok(());
+                }
+
+                // Parse risk values
+                let risk_long: f64 = match parts[0].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ Invalid long risk value. Please enter a decimal number.\n\n\
+                            Example: `3.0/1.5`"
+                        )
+                            .await?;
+                        return Ok(());
+                    }
+                };
+
+                let risk_short: f64 = match parts[1].trim().parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ Invalid short risk value. Please enter a decimal number.\n\n\
+                            Example: `3.0/1.5`"
+                        )
+                            .await?;
+                        return Ok(());
+                    }
+                };
+
+                // Validate range
+                if risk_long < 0.0 || risk_long > 10.0 || risk_short < 0.0 || risk_short > 10.0 {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Risk values must be between 0.0 and 10.0.\n\n\
+                        Please try again or send 'cancel'."
+                    )
+                        .await?;
+                    return Ok(());
+                }
+
+                // Get user_id and bot_id
+                let user_id = msg.from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                let bot_id = match ctx.selected_bot_id {
+                    Some(id) => id,
+                    None => {
+                        bot.send_message(msg.chat.id, "❌ No bot selected.")
+                            .await?;
+                        dialogue.update(DialogueState::Start).await?;
+                        return Ok(());
+                    }
+                };
+
+                // Update risk level
+                match deps.update_risk_level_usecase.execute(&user_id, &bot_id, risk_long, risk_short).await {
+                    Ok(_) => {
+                        let max_risk = risk_long.max(risk_short);
+                        let leverage = max_risk + 1.0;
+
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "✅ Risk level updated successfully!\n\n\
+                                🤖 Bot: {}\n\
+                                📊 New Risk Level:\n\
+                                   • Long: {:.2}\n\
+                                   • Short: {:.2}\n\
+                                📈 Leverage automatically set to: {:.1}x\n\n\
+                                The configuration has been saved.",
+                                bot_id,
+                                risk_long,
+                                risk_short,
+                                leverage
+                            )
+                        )
+                            .await?;
+                    }
+                    Err(e) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("❌ Failed to update risk level:\n\n{}", e)
+                        )
+                            .await?;
+                    }
+                }
+
+                // Reset dialogue to start
+                dialogue.update(DialogueState::Start).await?;
+            }
+            None => {
+                bot.send_message(msg.chat.id, "❌ Please send text with risk level values.")
+                    .await?;
+            }
+        }
+        anyhow::Ok(())
+    }.await;
+
+    result.map_err(|_| DependencyMap::new())
 }

@@ -27,4 +27,5 @@ pub struct Deps {
     pub apply_template_usecase: Arc<ApplyTemplateUseCase>,
     pub get_bot_config_usecase: Arc<GetBotConfigUseCase>,
     pub update_bot_config_usecase: Arc<UpdateBotConfigUseCase>,
+    pub update_risk_level_usecase: Arc<UpdateRiskLevelUseCase>,
 }

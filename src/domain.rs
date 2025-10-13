@@ -5,5 +5,5 @@ pub mod configtemplate;
 
 pub use bot::{Bot, BotRepository};
 pub use clock::{Clock, SystemClock};
-pub use botconfig::{BotConfig, BotConfigRepository};
+pub use botconfig::{BotConfig, BotConfigRepository, RiskLevel};
 pub use configtemplate::{ConfigTemplate, ConfigTemplateRepository};

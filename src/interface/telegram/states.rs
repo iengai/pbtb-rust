@@ -8,6 +8,7 @@ pub enum DialogueState {
     ReceiveApiKey { name: String },
     ReceiveSecretKey { name: String, api_key: String },
     ConfirmDelete { bot_id: String },
+    ReceiveRiskLevel,
 }
 
 /// Main state that tracks selected bot (if any)
