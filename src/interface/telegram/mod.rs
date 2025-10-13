@@ -19,4 +19,12 @@ pub struct Deps {
     pub list_bots_usecase: Arc<ListBotsUseCase>,
     pub add_bot_usecase: Arc<AddBotUseCase>,
     pub delete_bot_usecase: Arc<DeleteBotUseCase>,
+
+    // Template management
+    pub list_templates_usecase: Arc<ListTemplatesUseCase>,
+
+    // Bot config management
+    pub apply_template_usecase: Arc<ApplyTemplateUseCase>,
+    pub get_bot_config_usecase: Arc<GetBotConfigUseCase>,
+    pub update_bot_config_usecase: Arc<UpdateBotConfigUseCase>,
 }
