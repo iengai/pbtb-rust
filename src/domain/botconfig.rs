@@ -295,7 +295,4 @@ pub trait BotConfigRepository: Send + Sync {
 
     /// Check if bot has a configuration
     async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, String>;
-
-    /// List all bot configs for a user
-    async fn list_by_user(&self, user_id: &str) -> Result<Vec<BotConfig>, String>;
 }
