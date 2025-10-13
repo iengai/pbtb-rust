@@ -8,7 +8,7 @@ mod usecase;
 use std::sync::Arc;
 use teloxide::prelude::*;
 use infra::client::{setup_dynamodb, setup_s3};
-use infra::{DynamoBotRepository, S3TemplateRepository, S3BotConfigRepository};
+use infra::{DynamoBotRepository, S3TemplateRepository, S3BotConfigRepository, S3ApiKeyRepository};
 use usecase::*;
 use domain::SystemClock;
 
@@ -35,15 +35,23 @@ async fn main() -> anyhow::Result<()> {
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
     let template_repository = Arc::new(S3TemplateRepository::new(s3_client.clone(), bucket_name.clone()));
-    let bot_config_repository = Arc::new(S3BotConfigRepository::new(s3_client, bucket_name));
+    let bot_config_repository = Arc::new(S3BotConfigRepository::new(s3_client.clone(), bucket_name.clone()));
+    let api_keys_repository = Arc::new(S3ApiKeyRepository::new(s3_client, bucket_name));
 
     // Create clock
     let clock = Arc::new(SystemClock);
 
     // Create use cases - Bot management
     let list_bots_usecase = Arc::new(ListBotsUseCase::new(bot_repository.clone()));
-    let add_bot_usecase = Arc::new(AddBotUseCase::new(bot_repository.clone(), clock.clone()));
-    let delete_bot_usecase = Arc::new(DeleteBotUseCase::new(bot_repository.clone()));
+    let add_bot_usecase = Arc::new(AddBotUseCase::new(
+        bot_repository.clone(),
+        api_keys_repository.clone(),
+        clock.clone(),
+    ));
+    let delete_bot_usecase = Arc::new(DeleteBotUseCase::new(
+        bot_repository.clone(),
+        api_keys_repository.clone(),
+    ));
 
     // Create use cases - Template management
     let list_templates_usecase = Arc::new(ListTemplatesUseCase::new(template_repository.clone()));
