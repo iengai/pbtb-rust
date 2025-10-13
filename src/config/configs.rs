@@ -1,11 +1,13 @@
 use std::env;
 use config::{Config, ConfigError, File};
 use serde::Deserialize;
+use super::s3::S3Config;
 use super::dynamodb::DynamoDBConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Configs {
     pub dynamodb: DynamoDBConfig,
+    pub s3: S3Config,
 }
 
 impl Configs {

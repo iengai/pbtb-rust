@@ -2,3 +2,8 @@
 endpoint_url = "http://localhost:8000"
 region = "us-east-1"
 table_name = "bots"
+
+[s3]
+endpoint_url = "http://localhost:9000"
+region = "us-east-1"
+bucket_name = "bot-configs"
