@@ -153,4 +153,19 @@ impl BotRepository for DynamoBotRepository {
             }
         }
     }
+    
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        let pk_value = BotItem::construct_pk(user_id);
+
+        self.client
+            .delete_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk_value))
+            .key("sk", AttributeValue::S(bot_id.to_string()))
+            .send()
+            .await
+            .map_err(|e| format!("Failed to delete bot: {:?}", e))?;
+
+        Ok(())
+    }
 }

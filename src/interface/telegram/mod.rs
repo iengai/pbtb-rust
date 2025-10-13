@@ -1,6 +1,6 @@
 // Rust
 use std::sync::Arc;
-use crate::usecase::{ListBotsUseCase, AddBotUseCase};
+use crate::usecase::{ListBotsUseCase, AddBotUseCase, DeleteBotUseCase};
 
 pub mod router;
 pub mod middlewares;
@@ -17,4 +17,5 @@ pub mod states;
 pub struct Deps {
     pub list_bots_usecase: Arc<ListBotsUseCase>,
     pub add_bot_usecase: Arc<AddBotUseCase>,
+    pub delete_bot_usecase: Arc<DeleteBotUseCase>,
 }

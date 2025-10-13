@@ -16,6 +16,7 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                 .branch(dptree::case![DialogueState::ReceiveBotName].endpoint(receive_bot_name))
                 .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
                 .branch(dptree::case![DialogueState::ReceiveSecretKey { name, api_key }].endpoint(receive_secret_key))
+                .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
         )
 }
 
@@ -93,8 +94,32 @@ async fn handle_start_state(
                     .await?;
             }
             "Delete API key" => {
-                bot.send_message(msg.chat.id, "🗑️ Delete API key... (Feature coming soon)")
-                    .await?;
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                if let Some(ref bot_id) = ctx.selected_bot_id {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!(
+                            "⚠️ Are you sure you want to delete this bot?\n\n\
+                            🤖 Bot ID: {}\n\n\
+                            ❗ This action cannot be undone!\n\n\
+                            Reply 'yes' to confirm or any other message to cancel.",
+                            bot_id
+                        )
+                    )
+                        .await?;
+
+                    dialogue.update(DialogueState::ConfirmDelete {
+                        bot_id: bot_id.clone()
+                    }).await?;
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ No bot selected. Please use 'List' to select a bot first."
+                    )
+                        .await?;
+                }
             }
             "List" => {
                 // Get user_id from telegram message
@@ -251,6 +276,67 @@ async fn receive_secret_key(
             }
             None => {
                 bot.send_message(msg.chat.id, "❌ Please send text for secret key.")
+                    .await?;
+            }
+        }
+        anyhow::Ok(())
+    }.await;
+
+    result.map_err(|_| DependencyMap::new())
+}
+
+async fn confirm_delete(
+    bot: Bot,
+    dialogue: MyDialogue,
+    bot_context: MyBotContext,
+    bot_id: String,
+    msg: Message,
+    deps: Deps,
+) -> Result<(), DependencyMap> {
+    let result = async {
+        match msg.text() {
+            Some(text) => {
+                if text.trim().eq_ignore_ascii_case("yes") {
+                    // User confirmed deletion
+                    let user_id = msg.from()
+                        .map(|user| user.id.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    match deps.delete_bot_usecase.execute(&user_id, &bot_id).await {
+                        Ok(_) => {
+                            // Clear the selected bot from context
+                            bot_context.update(BotContext {
+                                selected_bot_id: None,
+                            }).await?;
+
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("✅ Bot deleted successfully!\n\n🤖 Bot ID: {}", bot_id),
+                            )
+                                .await?;
+                        }
+                        Err(e) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("❌ Error deleting bot: {}", e),
+                            )
+                                .await?;
+                        }
+                    }
+                } else {
+                    // User cancelled
+                    bot.send_message(
+                        msg.chat.id,
+                        "🚫 Deletion cancelled.",
+                    )
+                        .await?;
+                }
+
+                // Reset dialogue to start
+                dialogue.update(DialogueState::Start).await?;
+            }
+            None => {
+                bot.send_message(msg.chat.id, "❌ Please send text to confirm.")
                     .await?;
             }
         }
