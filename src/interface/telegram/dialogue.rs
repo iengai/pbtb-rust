@@ -40,14 +40,140 @@ async fn handle_start_state(
                 let ctx = bot_context.get().await?
                     .unwrap_or_default();
 
-                let bot_info = if let Some(ref bot_id) = ctx.selected_bot_id {
-                    format!("📊 Bot State: Idle\n🤖 Selected Bot: {}", bot_id)
-                } else {
-                    "📊 Bot State: Idle\n🤖 No bot selected".to_string()
+                // Check if bot is selected
+                if ctx.selected_bot_id.is_none() {
+                    bot.send_message(
+                        msg.chat.id,
+                        "📊 Bot State\n\n🤖 No bot selected\n\nPlease use 'List' to select a bot first."
+                    )
+                        .await?;
+                    return Ok(());
+                }
+
+                let bot_id = ctx.selected_bot_id.as_ref().unwrap();
+                let user_id = msg.from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // Try to get bot info from repository
+                let bot_name = match deps.list_bots_usecase.execute(&user_id).await {
+                    Ok(bots) => {
+                        bots.iter()
+                            .find(|b| &b.id == bot_id)
+                            .map(|b| b.name.clone())
+                            .unwrap_or_else(|| bot_id.clone())
+                    }
+                    Err(_) => bot_id.clone(),
                 };
 
-                bot.send_message(msg.chat.id, bot_info)
-                    .await?;
+                // Try to get bot enabled status
+                let bot_enabled = match deps.list_bots_usecase.execute(&user_id).await {
+                    Ok(bots) => {
+                        bots.iter()
+                            .find(|b| &b.id == bot_id)
+                            .map(|b| b.enabled)
+                            .unwrap_or(false)
+                    }
+                    Err(_) => false,
+                };
+
+                // Get bot config
+                match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
+                    Ok(config) => {
+                        // 1. Get template name from config_data
+                        let template_name = config.config_data
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&config.template_name);
+
+                        // 2. Get risk level (long and short)
+                        let risk_info = match config.risk_level() {
+                            Ok(risk) => format!("   • Long: {:.2}\n   • Short: {:.2}", risk.long, risk.short),
+                            Err(_) => "   • Not configured".to_string(),
+                        };
+
+                        // 3. Get leverage
+                        let leverage_info = match config.leverage() {
+                            Ok(lev) => format!("{:.1}x", lev.long),
+                            Err(_) => "Not set".to_string(),
+                        };
+
+                        // 4. Get coins (long and short)
+                        let coins_info = match config.coins() {
+                            Ok(coins) => {
+                                let long_str = if coins.long.is_empty() {
+                                    "None".to_string()
+                                } else {
+                                    coins.long.join(", ")
+                                };
+                                let short_str = if coins.short.is_empty() {
+                                    "None".to_string()
+                                } else {
+                                    coins.short.join(", ")
+                                };
+                                format!("   • Long: {}\n   • Short: {}", long_str, short_str)
+                            }
+                            Err(_) => "   • Not configured".to_string(),
+                        };
+
+                        // 5. Bot running state (from bot.enabled)
+                        let state_icon = if bot_enabled { "🟢" } else { "🔴" };
+                        let state_text = if bot_enabled { "Running" } else { "Stopped" };
+
+                        // Build complete status message
+                        let status_message = format!(
+                            "📊 Bot Status\n\n\
+                            🤖 Bot Information:\n\
+                               • Name: {}\n\
+                               • ID: {}\n\
+                               • State: {} {}\n\n\
+                            📋 Configuration:\n\
+                               • Template: {}\n\
+                            {}\n\n\
+                            ⚠️ Risk Level:\n\
+                            {}\n\n\
+                            📈 Leverage: {}\n\n\
+                            💰 Trading Coins:\n\
+                            {}",
+                            bot_name,
+                            bot_id,
+                            state_icon,
+                            state_text,
+                            template_name,
+                            config.template_version
+                                .as_ref()
+                                .map(|v| format!("   • Version: {}", v))
+                                .unwrap_or_else(|| "   • Version: N/A".to_string()),
+                            risk_info,
+                            leverage_info,
+                            coins_info
+                        );
+
+                        bot.send_message(msg.chat.id, status_message)
+                            .await?;
+                    }
+                    Err(_) => {
+                        // No config found
+                        let bot_enabled_status = if bot_enabled { "🟢 Running" } else { "🔴 Stopped" };
+
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "📊 Bot Status\n\n\
+                                🤖 Bot Information:\n\
+                                   • Name: {}\n\
+                                   • ID: {}\n\
+                                   • State: {}\n\n\
+                                ⚠️ No configuration found for this bot.\n\n\
+                                Please apply a configuration template first using 'Choose config...'.",
+                                bot_name,
+                                bot_id,
+                                bot_enabled_status
+                            )
+                        )
+                            .await?;
+                    }
+                }
             }
             "Balance" => {
                 bot.send_message(msg.chat.id, "💰 Balance: $0.00")
