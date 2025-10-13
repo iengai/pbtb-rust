@@ -16,11 +16,18 @@ pub async fn create_dynamodb_client(config: &DynamoDBConfig) -> DynamoDbClient {
 }
 
 pub async fn create_s3_client(config: &S3Config) -> S3Client {
-    let aws_config = aws_config::defaults(BehaviorVersion::latest())
-        .region(aws_sdk_s3::config::Region::new(config.region.clone()))
-        .endpoint_url(&config.endpoint_url)
-        .load()
-        .await;
+    let mut config_builder = aws_config::defaults(BehaviorVersion::latest())
+        .region(aws_sdk_s3::config::Region::new(config.region.clone()));
+
+    // Only set endpoint_url if it's not the default AWS endpoint
+    // This allows AWS SDK to use credentials from ~/.aws/credentials
+    if !config.endpoint_url.is_empty()
+        && !config.endpoint_url.starts_with("https://s3.")
+        && !config.endpoint_url.starts_with("https://s3-") {
+        config_builder = config_builder.endpoint_url(&config.endpoint_url);
+    }
+
+    let aws_config = config_builder.load().await;
 
     S3Client::new(&aws_config)
 }

@@ -32,3 +32,28 @@ pub(crate) fn bot_list_keyboard(bots: &[crate::domain::bot::Bot]) -> InlineKeybo
 
     InlineKeyboardMarkup::new(keyboard)
 }
+
+
+/// Create inline keyboard for template list
+/// Each template is shown as a button with callback data containing template_name
+pub(crate) fn template_list_keyboard(templates: &[String]) -> InlineKeyboardMarkup {
+    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+
+    for template_name in templates {
+        let button_text = format!("📄 {}", template_name);
+
+        // Callback data format: "select_template:<template_name>"
+        let callback_data = format!("select_template:{}", template_name);
+
+        let button = InlineKeyboardButton::callback(button_text, callback_data);
+        keyboard.push(vec![button]);
+    }
+
+    // Add a cancel button at the end
+    keyboard.push(vec![
+        InlineKeyboardButton::callback("❌ Cancel", "cancel_template_selection")
+    ]);
+
+    InlineKeyboardMarkup::new(keyboard)
+}
+

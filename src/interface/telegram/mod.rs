@@ -1,7 +1,4 @@
 // Rust
-use std::sync::Arc;
-use crate::usecase::{ListBotsUseCase, AddBotUseCase, DeleteBotUseCase};
-
 pub mod router;
 pub mod middlewares;
 pub mod keyboards;
@@ -13,8 +10,12 @@ pub mod types;
 pub mod states;
 
 // Dependencies aggregation for handlers
+use std::sync::Arc;
+use crate::usecase::*;
+
 #[derive(Clone)]
 pub struct Deps {
+    // Bot management
     pub list_bots_usecase: Arc<ListBotsUseCase>,
     pub add_bot_usecase: Arc<AddBotUseCase>,
     pub delete_bot_usecase: Arc<DeleteBotUseCase>,

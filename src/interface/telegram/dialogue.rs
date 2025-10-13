@@ -58,8 +58,47 @@ async fn handle_start_state(
                 dialogue.update(DialogueState::ReceiveBotName).await?;
             }
             "Choose config..." => {
-                bot.send_message(msg.chat.id, "⚙️ Choose config... (Feature coming soon)")
-                    .await?;
+                // Check if bot is selected
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                if ctx.selected_bot_id.is_none() {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ No bot selected. Please use 'List' to select a bot first."
+                    )
+                        .await?;
+                    return Ok(());
+                }
+
+                // Get available templates
+                match deps.list_templates_usecase.execute().await {
+                    Ok(templates) => {
+                        if templates.is_empty() {
+                            bot.send_message(
+                                msg.chat.id,
+                                "📋 No configuration templates available.\n\n\
+                                Please contact administrator to add templates."
+                            )
+                                .await?;
+                        } else {
+                            bot.send_message(
+                                msg.chat.id,
+                                "⚙️ Choose a configuration template:\n\n\
+                                Select one of the predefined templates below to view details."
+                            )
+                                .reply_markup(super::keyboards::template_list_keyboard(&templates))
+                                .await?;
+                        }
+                    }
+                    Err(e) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("❌ Error fetching templates: {}", e)
+                        )
+                            .await?;
+                    }
+                }
             }
             "Risk level" => {
                 bot.send_message(msg.chat.id, "⚠️ Risk Level: Medium")
@@ -344,4 +383,22 @@ async fn confirm_delete(
     }.await;
 
     result.map_err(|_| DependencyMap::new())
+}
+
+/// Format template list for display
+fn format_template_list(templates: &[String]) -> String {
+    let mut message = String::from("⚙️ Available Configuration Templates:\n\n");
+
+    for (index, template_name) in templates.iter().enumerate() {
+        message.push_str(&format!(
+            "{}. 📄 {}\n",
+            index + 1,
+            template_name
+        ));
+    }
+
+    message.push_str("\n💡 Tip: These are predefined trading bot configurations.\n");
+    message.push_str("To apply a template, use the bot management interface.");
+
+    message
 }

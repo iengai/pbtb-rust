@@ -6,4 +6,4 @@ table_name = "bots"
 [s3]
 endpoint_url = "http://localhost:9000"
 region = "us-east-1"
-bucket_name = "bot-configs"
+bucket_name = "local-bot-configs"

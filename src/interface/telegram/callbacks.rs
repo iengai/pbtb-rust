@@ -20,7 +20,6 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                 }),
         )
 }
-
 async fn handle_callback(
     bot: Bot,
     q: CallbackQuery,
@@ -33,6 +32,18 @@ async fn handle_callback(
     // Check if this is a bot selection callback
     if data.starts_with("select_bot:") {
         handle_bot_selection(bot, q, dialogue, bot_context).await?;
+        return Ok(());
+    }
+
+    // Check if this is a template selection callback
+    if data.starts_with("select_template:") {
+        handle_template_selection(bot, q, dialogue, bot_context).await?;
+        return Ok(());
+    }
+
+    // Check if this is a cancel template selection callback
+    if data == "cancel_template_selection" {
+        handle_cancel_template_selection(bot, q).await?;
         return Ok(());
     }
 
@@ -108,6 +119,66 @@ async fn handle_bot_selection(
                     .await?;
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Handle template selection callback (placeholder for now)
+async fn handle_template_selection(
+    bot: Bot,
+    q: CallbackQuery,
+    _dialogue: MyDialogue,
+    _bot_context: MyBotContext,
+) -> anyhow::Result<()> {
+    if let Some(data) = &q.data {
+        if data.starts_with("select_template:") {
+            let template_name = data.strip_prefix("select_template:").unwrap_or("");
+
+            // Answer callback to remove loading state
+            bot.answer_callback_query(&q.id)
+                .text("📄 Template selected!")
+                .await?;
+
+            // For now, just show the template name
+            // TODO: Implement template application logic
+            if let Some(Message { chat, .. }) = q.message {
+                bot.send_message(
+                    chat.id,
+                    format!(
+                        "✅ Template selected: {}\n\n\
+                        📝 Template Name: {}\n\n\
+                        🚧 Applying template functionality coming soon...",
+                        template_name,
+                        template_name
+                    )
+                )
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle cancel template selection callback
+async fn handle_cancel_template_selection(
+    bot: Bot,
+    q: CallbackQuery,
+) -> anyhow::Result<()> {
+    // Answer callback
+    bot.answer_callback_query(&q.id)
+        .text("❌ Cancelled")
+        .await?;
+
+    // Update message
+    if let Some(Message { id, chat, .. }) = q.message {
+        bot.edit_message_text(
+            chat.id,
+            id,
+            "❌ Template selection cancelled."
+        )
+            .await?;
     }
 
     Ok(())
