@@ -42,10 +42,15 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .map_err(|e| format!("Failed to read template body: {:?}", e))?
             .into_bytes();
 
-        let template: ConfigTemplate = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Failed to parse template JSON: {:?}", e))?;
+        let json_value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("Failed to parse bot config JSON: {:?}", e))?;
 
-        Ok(template)
+        Ok(ConfigTemplate {
+            name: template_name.to_string(),
+            description: Option::from("".to_string()),
+            version:Option::from("".to_string()),
+            config_data:json_value,
+        })
     }
 
     async fn list(&self) -> Result<Vec<String>, String> {

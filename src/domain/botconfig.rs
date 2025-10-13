@@ -111,7 +111,7 @@ pub struct BotConfig {
     pub template_name: String,
 
     /// Template version when applied
-    pub template_version: String,
+    pub template_version: Option<String>,
 
     /// Custom configuration data (can override template values)
     /// This contains the full passivbot configuration
@@ -267,7 +267,7 @@ impl BotConfig {
         format!(
             "Bot Config Summary:\n\
             Type: {:?}\n\
-            Template: {} (v{})\n\
+            Template: {} (v{:?})\n\
             Risk Level: {}\n\
             Leverage: {}\n\
             Coins: {}",

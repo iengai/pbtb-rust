@@ -37,7 +37,7 @@ async fn handle_callback(
 
     // Check if this is a template selection callback
     if data.starts_with("select_template:") {
-        handle_template_selection(bot, q, dialogue, bot_context).await?;
+        handle_template_selection(bot, q, dialogue, bot_context, deps).await?;
         return Ok(());
     }
 
@@ -124,36 +124,77 @@ async fn handle_bot_selection(
     Ok(())
 }
 
-/// Handle template selection callback (placeholder for now)
+/// Handle template selection callback
 async fn handle_template_selection(
     bot: Bot,
     q: CallbackQuery,
     _dialogue: MyDialogue,
-    _bot_context: MyBotContext,
+    bot_context: MyBotContext,
+    deps: Deps,
 ) -> anyhow::Result<()> {
     if let Some(data) = &q.data {
         if data.starts_with("select_template:") {
             let template_name = data.strip_prefix("select_template:").unwrap_or("");
 
+            // Get user_id and bot_id from context
+            let user_id = q.from.id.to_string();
+
+            let ctx = bot_context.get().await?
+                .unwrap_or_default();
+
+            let bot_id = match ctx.selected_bot_id {
+                Some(id) => id,
+                None => {
+                    bot.answer_callback_query(&q.id)
+                        .text("❌ No bot selected")
+                        .show_alert(true)
+                        .await?;
+                    return Ok(());
+                }
+            };
+
             // Answer callback to remove loading state
             bot.answer_callback_query(&q.id)
-                .text("📄 Template selected!")
+                .text("⏳ Applying template...")
                 .await?;
 
-            // For now, just show the template name
-            // TODO: Implement template application logic
-            if let Some(Message { chat, .. }) = q.message {
-                bot.send_message(
-                    chat.id,
-                    format!(
-                        "✅ Template selected: {}\n\n\
-                        📝 Template Name: {}\n\n\
-                        🚧 Applying template functionality coming soon...",
-                        template_name,
-                        template_name
-                    )
-                )
-                    .await?;
+            // Apply template: copy to {user_id}/{bot_id}.json and override live.user
+            match deps.apply_template_usecase.execute(&user_id, &bot_id, template_name).await {
+                Ok(_) => {
+                    // Success message
+                    if let Some(Message { chat, .. }) = q.message {
+                        bot.send_message(
+                            chat.id,
+                            format!(
+                                "✅ Configuration template applied successfully!\n\n\
+                                📄 Template: {}\n\
+                                🤖 Bot ID: {}\n\
+                                📁 Saved to: {}/{}.json\n\n\
+                                The configuration has been customized for this bot.",
+                                template_name,
+                                bot_id,
+                                user_id,
+                                bot_id
+                            )
+                        )
+                            .await?;
+                    }
+                }
+                Err(e) => {
+                    // Error message
+                    if let Some(Message { chat, .. }) = q.message {
+                        bot.send_message(
+                            chat.id,
+                            format!(
+                                "❌ Failed to apply template\n\n\
+                                Error: {}\n\n\
+                                Please try again or contact support.",
+                                e
+                            )
+                        )
+                            .await?;
+                    }
+                }
             }
         }
     }
@@ -183,3 +224,4 @@ async fn handle_cancel_template_selection(
 
     Ok(())
 }
+

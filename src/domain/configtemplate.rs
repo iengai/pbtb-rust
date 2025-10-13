@@ -8,7 +8,7 @@ pub struct ConfigTemplate {
     pub name: String,
     pub description: Option<String>,
     pub config_data: serde_json::Value,
-    pub version: String,
+    pub version: Option<String>,
 }
 
 /// Repository interface for configuration templates
