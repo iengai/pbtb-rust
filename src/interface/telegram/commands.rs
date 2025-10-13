@@ -1,8 +1,13 @@
+
 // Rust
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
+use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
 
-use super::{keyboards, Deps};
+use super::{keyboards, Deps, states::{DialogueState, BotContext}};
+
+type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
+type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
 
 #[derive(BotCommands, Clone)]
 #[command(description = "Available commands", rename_rule = "lowercase")]
@@ -18,6 +23,8 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
         .branch(
             Update::filter_message()
                 .filter_command::<Command>()
+                .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
+                .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
                 .endpoint(dispatch_command),
         )
 }
@@ -27,14 +34,31 @@ async fn dispatch_command(
     msg: Message,
     cmd: Command,
     deps: Deps,
+    dialogue: MyDialogue,
+    bot_context: MyBotContext,
 ) -> Result<(), DependencyMap> {
     let result = async {
         match cmd {
             Command::Start => {
-                bot.send_message(
-                    msg.chat.id,
-                    "👋 Welcome! Choose an action from the menu below.",
-                )
+                // Reset dialogue state to Start (clears any ongoing conversation)
+                dialogue.update(DialogueState::Start).await?;
+
+                // Get current bot context to show selected bot info
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                let welcome_msg = if let Some(ref bot_id) = ctx.selected_bot_id {
+                    format!(
+                        "👋 Welcome! Choose an action from the menu below.\n\n\
+                        🤖 Selected Bot: {}",
+                        bot_id
+                    )
+                } else {
+                    "👋 Welcome! Choose an action from the menu below.\n\n\
+                    🤖 No bot selected".to_string()
+                };
+
+                bot.send_message(msg.chat.id, welcome_msg)
                     .reply_markup(keyboards::main_menu_keyboard())
                     .await?;
             }
@@ -54,10 +78,16 @@ async fn dispatch_command(
                             )
                                 .await?;
                         } else {
-                            bot.send_message(
-                                msg.chat.id,
-                                "📋 Select a bot to view details or perform actions:",
-                            )
+                            let ctx = bot_context.get().await?
+                                .unwrap_or_default();
+
+                            let header = if let Some(ref bot_id) = ctx.selected_bot_id {
+                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", bot_id)
+                            } else {
+                                "📋 Select a bot:\n\n(No bot selected)".to_string()
+                            };
+
+                            bot.send_message(msg.chat.id, header)
                                 .reply_markup(keyboards::bot_list_keyboard(&bots))
                                 .await?;
                         }
@@ -76,21 +106,4 @@ async fn dispatch_command(
     }.await;
 
     result.map_err(|_| DependencyMap::new())
-}
-
-fn format_bot_list(bots: &[crate::domain::bot::Bot]) -> String {
-    let mut message = String::from("📋 Your bots:\n\n");
-
-    for (index, bot) in bots.iter().enumerate() {
-        let status = if bot.enabled { "✅" } else { "⏸️" };
-        message.push_str(&format!(
-            "{}. {} {}\n   ID: {}\n\n",
-            index + 1,
-            status,
-            bot.name,
-            bot.id
-        ));
-    }
-
-    message
 }
