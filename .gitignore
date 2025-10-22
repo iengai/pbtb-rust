@@ -9,3 +9,6 @@ Cargo.lock
 /config/local.toml
 
 .env.local
+/infra/envs/dev/.terraform/
+/infra/envs/dev/terraform.tfstate
+/infra/envs/dev/terraform.tfstate.backup
