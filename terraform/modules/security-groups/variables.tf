@@ -13,6 +13,10 @@ variable "vpc_id" {
   type        = string
 }
 
+variable "vpc_cidr_block" {
+  type        = string
+}
+
 variable "common_tags" {
   description = "Common tags for all resources"
   type        = map(string)

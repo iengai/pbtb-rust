@@ -1,4 +1,4 @@
-# 创建 VPC
+# create VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr_block
   enable_dns_hostnames = true
@@ -12,7 +12,7 @@ resource "aws_vpc" "main" {
   )
 }
 
-# 创建公有子网
+# create public subnet
 resource "aws_subnet" "public" {
   count = length(var.public_subnet_cidrs)
 
@@ -30,7 +30,7 @@ resource "aws_subnet" "public" {
   )
 }
 
-# 创建私有子网
+# create private subnet
 resource "aws_subnet" "private" {
   count = length(var.private_subnet_cidrs)
 
@@ -47,7 +47,7 @@ resource "aws_subnet" "private" {
   )
 }
 
-# 创建互联网网关
+# create internet gateway
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -59,38 +59,7 @@ resource "aws_internet_gateway" "main" {
   )
 }
 
-# 为 NAT 网关创建弹性 IP
-resource "aws_eip" "nat" {
-  count = length(var.public_subnet_cidrs)
-
-  domain = "vpc"
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project}-${var.env}-nat-eip-${count.index + 1}"
-    }
-  )
-}
-
-# 创建 NAT 网关（每个公有子网一个）
-resource "aws_nat_gateway" "main" {
-  count = length(var.public_subnet_cidrs)
-
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project}-${var.env}-nat-${count.index + 1}"
-    }
-  )
-
-  depends_on = [aws_internet_gateway.main]
-}
-
-# 创建公有路由表
+# create public route table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -107,7 +76,7 @@ resource "aws_route_table" "public" {
   )
 }
 
-# 关联公有子网到公有路由表
+# associate public subnet to route table
 resource "aws_route_table_association" "public" {
   count = length(aws_subnet.public)
 
@@ -115,29 +84,92 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# 创建私有路由表（每个 NAT 网关一个）
+# create private route table
 resource "aws_route_table" "private" {
-  count = length(aws_nat_gateway.main)
-
   vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
-  }
 
   tags = merge(
     var.tags,
     {
-      Name = "${var.project}-${var.env}-private-rt-${count.index + 1}"
+      Name = "${var.project}-${var.env}-private-rt"
     }
   )
 }
 
-# 关联私有子网到私有路由表
+# associate private subnet to route table
 resource "aws_route_table_association" "private" {
   count = length(aws_subnet.private)
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[count.index % length(aws_route_table.private)].id
+  route_table_id = aws_route_table.private.id
+}
+
+# elastic ip for nat
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-nat-eip"
+    }
+  )
+}
+
+#  Amazon Linux 2 AMI
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-arm64-gp2"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["arm64"]
+  }
+}
+
+# create nat instance
+resource "aws_instance" "nat" {
+  ami                         = data.aws_ami.amazon_linux_2.id
+  instance_type               = "t4g.nano"
+  subnet_id                   = aws_subnet.public[0].id
+  vpc_security_group_ids      = [var.nat_sg_id]
+  associate_public_ip_address = true
+  source_dest_check           = false
+
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo sysctl -w net.ipv4.ip_forward=1
+              sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+              echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.conf
+              sudo yum update -y
+              sudo yum install iptables-services -y
+              sudo service iptables save
+              EOF
+
+  tags = {
+    Name = "nat-instance"
+  }
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+resource "aws_eip_association" "nat" {
+  instance_id   = aws_instance.nat.id
+  allocation_id = aws_eip.nat.id
+}
+
+resource "aws_route" "private_nat" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  network_interface_id   = aws_instance.nat.primary_network_interface_id
 }
