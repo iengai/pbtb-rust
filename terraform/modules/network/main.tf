@@ -116,14 +116,13 @@ resource "aws_eip" "nat" {
   )
 }
 
-#  Amazon Linux 2 AMI
-data "aws_ami" "amazon_linux_2" {
+data "aws_ami" "amazon_linux_2023" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-*-arm64-gp2"]
+    values = ["al2023-ami-*-kernel-6.1-arm64"]
   }
 
   filter {
@@ -139,7 +138,7 @@ data "aws_ami" "amazon_linux_2" {
 
 # create nat instance
 resource "aws_instance" "nat" {
-  ami                         = data.aws_ami.amazon_linux_2.id
+  ami                         = data.aws_ami.amazon_linux_2023.id
   instance_type               = "t4g.nano"
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [var.nat_sg_id]

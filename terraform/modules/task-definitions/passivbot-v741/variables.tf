@@ -32,13 +32,13 @@ variable "task_role_arn" {
 variable "container_name" {
   description = "Container name"
   type        = string
-  default     = "bot-processor-container"
+  default     = "passivbot-v741-container"
 }
 
 variable "container_image" {
   description = "Container image URI"
   type        = string
-  default     = "your-registry/bot-processor:latest"
+  default     = "your-registry/passivbot:v7.4.1"
 }
 
 variable "cpu" {
