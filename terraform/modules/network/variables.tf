@@ -30,11 +30,6 @@ variable "azs" {
   type        = list(string)
 }
 
-variable "nat_sg_id" {
-  description = "security group id for nat instance"
-  type        = string
-}
-
 # 标签变量
 variable "tags" {
   description = "Common tags for all resources"

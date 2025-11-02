@@ -12,6 +12,18 @@ resource "aws_vpc" "main" {
   )
 }
 
+# create internet gateway
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-igw"
+    }
+  )
+}
+
 # create public subnet
 resource "aws_subnet" "public" {
   count = length(var.public_subnet_cidrs)
@@ -42,19 +54,8 @@ resource "aws_subnet" "private" {
     var.tags,
     {
       Name = "${var.project}-${var.env}-private-subnet-${count.index + 1}"
+      # Name = "${var.project}-${var.env}-private-subnet"
       Type = "private"
-    }
-  )
-}
-
-# create internet gateway
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project}-${var.env}-igw"
     }
   )
 }
@@ -62,11 +63,6 @@ resource "aws_internet_gateway" "main" {
 # create public route table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
 
   tags = merge(
     var.tags,
@@ -76,10 +72,15 @@ resource "aws_route_table" "public" {
   )
 }
 
+resource "aws_route" "public_default_to_igw" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.main.id
+}
+
 # associate public subnet to route table
 resource "aws_route_table_association" "public" {
   count = length(aws_subnet.public)
-
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
@@ -99,22 +100,63 @@ resource "aws_route_table" "private" {
 # associate private subnet to route table
 resource "aws_route_table_association" "private" {
   count = length(aws_subnet.private)
-
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
 
-# elastic ip for nat
-resource "aws_eip" "nat" {
-  domain = "vpc"
 
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.project}-${var.env}-nat-eip"
-    }
-  )
+# ---- Security groups ----
+resource "aws_security_group" "nat_sg" {
+  name        = "${var.project}-${var.env}-nat-instance-sg"
+  description = "Security group for nat instance"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.vpc_cidr_block]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "admin ssh"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "${var.project}-${var.env}-nat-instance-sg" }
 }
+
+resource "aws_security_group" "app_sg" {
+  name        = "${var.project}-${var.env}-ecs-sg"
+  description = "Security group for ECS container instances"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.vpc_cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = { Name = "${var.project}-${var.env}-ecs-sg" }
+}
+
 
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
@@ -141,19 +183,11 @@ resource "aws_instance" "nat" {
   ami                         = data.aws_ami.amazon_linux_2023.id
   instance_type               = "t4g.nano"
   subnet_id                   = aws_subnet.public[0].id
-  vpc_security_group_ids      = [var.nat_sg_id]
+  vpc_security_group_ids      = [aws_security_group.nat_sg.id]
   associate_public_ip_address = true
   source_dest_check           = false
 
-  user_data = <<-EOF
-              #!/bin/bash
-              sudo sysctl -w net.ipv4.ip_forward=1
-              sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-              echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.conf
-              sudo yum update -y
-              sudo yum install iptables-services -y
-              sudo service iptables save
-              EOF
+  user_data = file("../../modules/network/nat-userdata-al2023.sh")
 
   tags = {
     Name = "nat-instance"
@@ -162,13 +196,37 @@ resource "aws_instance" "nat" {
   depends_on = [aws_internet_gateway.main]
 }
 
+# elastic ip for nat
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-nat-eip"
+    }
+  )
+}
+
 resource "aws_eip_association" "nat" {
-  instance_id   = aws_instance.nat.id
   allocation_id = aws_eip.nat.id
+  instance_id   = aws_instance.nat.id
 }
 
 resource "aws_route" "private_nat" {
   route_table_id         = aws_route_table.private.id
   destination_cidr_block = "0.0.0.0/0"
   network_interface_id   = aws_instance.nat.primary_network_interface_id
+  depends_on = [aws_instance.nat]
+}
+
+resource "aws_instance" "ecs-test" {
+  ami                    = data.aws_ami.amazon_linux_2023.id
+  instance_type          = "t4g.nano"
+  count = length(aws_subnet.private)
+  subnet_id              = aws_subnet.private[count.index].id
+  # subnet_id = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.app_sg.id]
+  associate_public_ip_address = false
+  tags = { Name = "ecs-test" }
 }
