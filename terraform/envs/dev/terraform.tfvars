@@ -30,9 +30,9 @@ common_tags = {
 }
 
 ecs_cluster_name = "ecs-self-scaling-cluster"
-ecs_instance_type = "t4g.small"
+ecs_instance_type = "t3.small"
 min_size = 0
-max_size = 0
+max_size = 3
 passivbot_v741_image  = "025418542265.dkr.ecr.ap-northeast-1.amazonaws.com/passivbot-live:v7.4.1"  # 替换为你的实际镜像
 passivbot_v741_cpu    = 256
 passivbot_v741_memory = 512

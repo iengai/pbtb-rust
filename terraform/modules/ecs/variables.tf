@@ -51,5 +51,5 @@ variable "enable_spot_draining" {
 variable "target_capacity" {
   description = "Size of the EBS volume in GB"
   type        = number
-  default     = 80
+  default     = 100
 }

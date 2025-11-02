@@ -24,26 +24,14 @@ provider "aws" {
 }
 
 module "network" {
-  source = "../../modules/network"
-  project = var.project
-  env = var.env
-  vpc_cidr_block = var.vpc_cidr_block
-  azs = var.azs
-  public_subnet_cidrs = var.public_subnet_cidrs
+  source               = "../../modules/network"
+  project              = var.project
+  env                  = var.env
+  vpc_cidr_block       = var.vpc_cidr_block
+  azs                  = var.azs
+  public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
-  tags = var.common_tags
-  nat_sg_id = module.security_groups.nat_sg_id
-}
-
-module "security_groups" {
-  source = "../../modules/security-groups"
-
-  project = var.project
-  env  = var.env
-  vpc_id       = module.network.vpc_id
-
-  common_tags = var.common_tags
-  vpc_cidr_block = var.vpc_cidr_block
+  tags                 = var.common_tags
 }
 
 module "ecs" {
@@ -53,7 +41,7 @@ module "ecs" {
   env                = var.env
   common_tags        = var.common_tags
   private_subnet_ids = module.network.private_subnet_ids
-  ecs_sg_id          = module.security_groups.ecs_sg_id
+  ecs_sg_id          = module.network.app_sg_id
   ec2_instance_type  = var.ecs_instance_type
   min_capacity       = var.min_size
   max_capacity       = var.max_size
@@ -82,5 +70,3 @@ module "passivbot_v741_task" {
   memory               = var.passivbot_v741_memory
   log_retention_days   = var.log_retention_days
 }
-
-

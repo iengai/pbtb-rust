@@ -219,14 +219,14 @@ resource "aws_route" "private_nat" {
   network_interface_id   = aws_instance.nat.primary_network_interface_id
   depends_on = [aws_instance.nat]
 }
-
-resource "aws_instance" "ecs-test" {
-  ami                    = data.aws_ami.amazon_linux_2023.id
-  instance_type          = "t4g.nano"
-  count = length(aws_subnet.private)
-  subnet_id              = aws_subnet.private[count.index].id
-  # subnet_id = aws_subnet.private.id
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
-  associate_public_ip_address = false
-  tags = { Name = "ecs-test" }
-}
+#
+# resource "aws_instance" "ecs-test" {
+#   ami                    = data.aws_ami.amazon_linux_2023.id
+#   instance_type          = "t4g.nano"
+#   count = length(aws_subnet.private)
+#   subnet_id              = aws_subnet.private[count.index].id
+#   # subnet_id = aws_subnet.private.id
+#   vpc_security_group_ids = [aws_security_group.app_sg.id]
+#   associate_public_ip_address = false
+#   tags = { Name = "ecs-test" }
+# }

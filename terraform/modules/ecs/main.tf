@@ -56,7 +56,7 @@ data "aws_ami" "ecs_optimized_al2023" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-ecs-*-arm64"]
+    values = ["al2023-ami-ecs-*-x86_64"]
   }
 
   filter {
@@ -66,14 +66,10 @@ data "aws_ami" "ecs_optimized_al2023" {
 
   filter {
     name   = "architecture"
-    values = ["arm64"]
-  }
-
-  filter {
-    name   = "root-device-type"
-    values = ["ebs"]
+    values = ["x86_64"]
   }
 }
+
 # Launch Template for ECS instances
 resource "aws_launch_template" "ecs" {
   name_prefix   = "${var.project}-${var.env}-ecs-"
@@ -149,7 +145,6 @@ resource "aws_autoscaling_group" "ecs" {
 
   protect_from_scale_in = true
 
-  # 实例刷新配置
   instance_refresh {
     strategy = "Rolling"
     preferences {
