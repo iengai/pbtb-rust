@@ -41,18 +41,6 @@ variable "container_image" {
   default     = "your-registry/passivbot:v7.4.1"
 }
 
-variable "cpu" {
-  description = "CPU units for the task"
-  type        = number
-  default     = 256
-}
-
-variable "memory" {
-  description = "Memory for the task (MB)"
-  type        = number
-  default     = 512
-}
-
 variable "log_retention_days" {
   description = "CloudWatch log retention in days"
   type        = number
@@ -71,24 +59,6 @@ variable "port_mappings" {
     hostPort      = 0
     protocol      = "tcp"
   }]
-}
-
-variable "health_check" {
-  description = "Container health check configuration"
-  type = object({
-    command     = list(string)
-    interval    = number
-    timeout     = number
-    retries     = number
-    startPeriod = number
-  })
-  default = {
-    command     = ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-    interval    = 30
-    timeout     = 5
-    retries     = 3
-    startPeriod = 60
-  }
 }
 
 variable "s3_bucket_name" {

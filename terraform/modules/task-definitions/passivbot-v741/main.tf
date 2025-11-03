@@ -17,8 +17,8 @@ resource "aws_ecs_task_definition" "main" {
   family                   = "${var.project}-${var.env}-passivbot-v741"
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
-  cpu                      = var.cpu
-  memory                   = var.memory
+  cpu                      = 128
+  memory                   = 512
   execution_role_arn       = var.execution_role_arn
   task_role_arn            = var.task_role_arn
 
@@ -26,8 +26,9 @@ resource "aws_ecs_task_definition" "main" {
     {
       name      = var.container_name
       image     = var.container_image
-      cpu       = var.cpu
-      memory    = var.memory
+      cpu       = 128
+      memory    = 512
+      memoryReservation = 200
       essential = true
 
       portMappings = var.port_mappings
@@ -59,7 +60,7 @@ resource "aws_ecs_task_definition" "main" {
           value = var.project
         },
         {
-          name  = "S3_BUCKET_NAME"
+          name  = "BUCKET"
           value = var.s3_bucket_name
         },
       ])

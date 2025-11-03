@@ -73,16 +73,6 @@ variable "passivbot_v741_image" {
   type        = string
 }
 
-variable "passivbot_v741_cpu" {
-  description = "CPU units for the container (1024 = 1 vCPU)"
-  type        = number
-}
-
-variable "passivbot_v741_memory" {
-  description = "Memory for the container (in MiB)"
-  type        = number
-}
-
 variable "log_retention_days" {
   type        = number
 }

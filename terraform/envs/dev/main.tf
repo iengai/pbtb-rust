@@ -66,8 +66,6 @@ module "passivbot_v741_task" {
   execution_role_arn   = module.task_base.task_execution_role_arn
   task_role_arn        = module.task_base.task_role_arn
   container_image      = var.passivbot_v741_image
-  cpu                  = var.passivbot_v741_cpu
-  memory               = var.passivbot_v741_memory
   log_retention_days   = var.log_retention_days
 
   s3_bucket_name    = module.s3_bucket.bucket_name
