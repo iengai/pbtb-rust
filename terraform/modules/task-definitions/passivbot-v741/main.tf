@@ -42,6 +42,14 @@ resource "aws_ecs_task_definition" "main" {
         }
       }
 
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+
       environment = concat([
         {
           name  = "DEFAULT_USER_ID"
