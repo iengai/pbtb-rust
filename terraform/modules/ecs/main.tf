@@ -135,10 +135,10 @@ resource "aws_autoscaling_group" "ecs" {
     version = "$Latest"
   }
 
-  vpc_zone_identifier  = var.private_subnet_ids
+  vpc_zone_identifier = var.private_subnet_ids
 
-  min_size         = var.min_capacity
-  max_size         = var.max_capacity
+  min_size = var.min_capacity
+  max_size = var.max_capacity
 
   health_check_type         = "EC2"
   health_check_grace_period = 300
@@ -195,8 +195,9 @@ resource "aws_ecs_capacity_provider" "ec2" {
     managed_termination_protection = "ENABLED"
 
     managed_scaling {
-      status                    = "ENABLED"
-      target_capacity           = var.target_capacity
+      status                 = "ENABLED"
+      target_capacity        = var.target_capacity
+      instance_warmup_period = 300
     }
   }
 
