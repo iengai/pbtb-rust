@@ -34,6 +34,7 @@ impl AddBotUseCase {
         let bot = Bot {
             id: name.clone(),  // Use name as id
             user_id: user_id.to_string(),
+            exchange: crate::domain::exchange::Exchange::Bybit,
             name,
             api_key: api_key.clone(),
             secret_key: secret_key.clone(),
@@ -47,7 +48,7 @@ impl AddBotUseCase {
 
         // Save API keys to S3 api-keys.json
         self.api_keys_repository
-            .upsert_bot_key(&bot.id, &api_key, &secret_key)
+            .save(&bot)
             .await
             .map_err(|e| format!("Failed to save API keys to S3: {}", e))?;
 

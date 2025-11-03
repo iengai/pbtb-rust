@@ -36,7 +36,7 @@ impl DeleteBotUseCase {
 
         // Delete API keys from S3
         self.api_keys_repository
-            .remove_bot_key(bot_id)
+            .delete(user_id, bot_id)
             .await
             .map_err(|e| format!("Failed to remove API keys from S3: {}", e))?;
 

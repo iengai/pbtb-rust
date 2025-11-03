@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use crate::domain::botconfig::{BotConfig, BotConfigRepository, BotType};
 
 pub struct S3BotConfigRepository {
@@ -20,7 +18,7 @@ impl S3BotConfigRepository {
 
     /// Helper: construct S3 key for bot config
     fn bot_config_key(user_id: &str, bot_id: &str) -> String {
-        format!("{}/{}.json", user_id, bot_id)
+        format!("{}/{}/{}.json", user_id, bot_id, bot_id)
     }
 
     /// Helper: construct S3 prefix for user's configs

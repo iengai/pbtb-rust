@@ -3,12 +3,14 @@ use aws_sdk_dynamodb::{Client};
 use aws_sdk_dynamodb::types::AttributeValue;
 use crate::domain::bot::{Bot, BotRepository};
 use async_trait::async_trait;
+use crate::domain::exchange::Exchange;
 
 /// Storage model for the infra layer
 pub struct BotItem {
     pub pk: String,        // user_id#<user_id>
     pub sk: String,        // <bot_id>
     pub name: String,
+    pub exchange: String,
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
@@ -31,6 +33,7 @@ impl BotItem {
         Some(Self {
             pk: item.get("pk")?.as_s().ok()?.to_string(),
             sk: item.get("sk")?.as_s().ok()?.to_string(),
+            exchange: item.get("exchange")?.as_s().ok()?.to_string(),
             name: item.get("name")?.as_s().ok()?.to_string(),
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
@@ -44,6 +47,7 @@ impl BotItem {
         let mut map = HashMap::new();
         map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
         map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
+        map.insert("exchange".to_string(), AttributeValue::S(self.exchange.clone()));
         map.insert("name".to_string(), AttributeValue::S(self.name.clone()));
         map.insert("api_key".to_string(), AttributeValue::S(self.api_key.clone()));
         map.insert("secret_key".to_string(), AttributeValue::S(self.secret_key.clone()));
@@ -55,10 +59,11 @@ impl BotItem {
 
     pub fn to_domain(&self) -> Option<Bot> {
         let user_id = Self::extract_user_id_from_pk(&self.pk)?;
-
+        let exchange = Exchange::from_str(self.exchange.as_str())?;
         Some(Bot {
             id: self.sk.clone(),  // bot_id from SK
             user_id,
+            exchange,
             name: self.name.clone(),
             api_key: self.api_key.clone(),
             secret_key: self.secret_key.clone(),
@@ -72,6 +77,7 @@ impl BotItem {
         Self {
             pk: Self::construct_pk(&bot.user_id),
             sk: bot.id.clone(),
+            exchange: bot.exchange.as_str().to_string(),
             name: bot.name.clone(),
             api_key: bot.api_key.clone(),
             secret_key: bot.secret_key.clone(),

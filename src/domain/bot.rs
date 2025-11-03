@@ -1,8 +1,11 @@
 use async_trait::async_trait;
+use crate::domain::exchange::Exchange;
 
+#[derive(Debug, Clone)]
 pub struct Bot {
     pub id: String,
     pub user_id: String,
+    pub exchange: Exchange,
     pub name: String,
     pub api_key: String,
     pub secret_key: String,
@@ -15,6 +18,7 @@ impl Bot {
     pub fn new(
         id: String,
         user_id: String,
+        exchange: Exchange,
         name: String,
         api_key: String,
         secret_key: String,
@@ -25,6 +29,7 @@ impl Bot {
         Self {
             id,
             user_id,
+            exchange,
             name,
             api_key,
             secret_key,
