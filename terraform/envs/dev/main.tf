@@ -69,4 +69,17 @@ module "passivbot_v741_task" {
   cpu                  = var.passivbot_v741_cpu
   memory               = var.passivbot_v741_memory
   log_retention_days   = var.log_retention_days
+
+  s3_bucket_name    = module.s3_bucket.bucket_name
+}
+
+module "s3_bucket" {
+  source = "../../modules/s3"
+
+  project     = var.project
+  env         = var.env
+  common_tags = var.common_tags
+  bucket_name = var.s3_bucket_name
+
+  ecs_task_role_arn = module.task_base.task_role_arn
 }

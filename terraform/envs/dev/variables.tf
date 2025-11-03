@@ -86,3 +86,9 @@ variable "passivbot_v741_memory" {
 variable "log_retention_days" {
   type        = number
 }
+
+variable "s3_bucket_name" {
+  description = "S3 bucket name suffix"
+  type        = string
+  default     = "bot-configs"
+}

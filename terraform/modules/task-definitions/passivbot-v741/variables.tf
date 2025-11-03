@@ -90,3 +90,8 @@ variable "health_check" {
     startPeriod = 60
   }
 }
+
+variable "s3_bucket_name" {
+  description = "S3 bucket name for file downloads"
+  type        = string
+}

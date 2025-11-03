@@ -38,3 +38,5 @@ passivbot_v741_cpu    = 256
 passivbot_v741_memory = 512
 
 log_retention_days = 30
+
+s3_bucket_name = "bot-configs"
