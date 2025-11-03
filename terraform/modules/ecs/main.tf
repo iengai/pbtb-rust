@@ -56,7 +56,7 @@ data "aws_ami" "ecs_optimized_al2023" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-ecs-*-x86_64"]
+    values = ["al2023-ami-*-kernel-6.1-arm64"]
   }
 
   filter {
@@ -66,7 +66,7 @@ data "aws_ami" "ecs_optimized_al2023" {
 
   filter {
     name   = "architecture"
-    values = ["x86_64"]
+    values = ["arm64"]
   }
 }
 

@@ -26,10 +26,10 @@ common_tags = {
 }
 
 ecs_cluster_name = "ecs-self-scaling-cluster"
-ecs_instance_type = "t3.small"
+ecs_instance_type = "t4g.small"
 min_size = 0
 max_size = 3
-passivbot_v741_image  = "025418542265.dkr.ecr.ap-northeast-1.amazonaws.com/passivbot-live:v7.4.1"
+passivbot_v741_image  = "025418542265.dkr.ecr.ap-northeast-1.amazonaws.com/passivbot-live:v7.4.1-arm"
 
 log_retention_days = 30
 
