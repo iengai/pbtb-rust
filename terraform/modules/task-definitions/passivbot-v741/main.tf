@@ -18,7 +18,7 @@ resource "aws_ecs_task_definition" "main" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   cpu                      = 128
-  memory                   = 512
+  memory                   = 300
   execution_role_arn       = var.execution_role_arn
   task_role_arn            = var.task_role_arn
 
@@ -27,7 +27,7 @@ resource "aws_ecs_task_definition" "main" {
       name      = var.container_name
       image     = var.container_image
       cpu       = 128
-      memory    = 512
+      memory    = 300
       memoryReservation = 200
       essential = true
 

@@ -1,7 +1,14 @@
 #!/bin/bash
 set -euxo pipefail
 
-# 1) 开启内核转发
+##############################################
+# 1) Write the actual NAT setup script to EC2
+##############################################
+cat >/usr/local/bin/setup-nat.sh <<'EOF'
+#!/bin/bash
+set -euxo pipefail
+
+# Enable IPv4 forwarding (idempotent)
 if ! grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf; then
   echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf
 else
@@ -9,32 +16,66 @@ else
 fi
 sysctl -p
 
-# 2) 计算外网接口（走默认路由的网卡）
+# Detect outbound network interface (usually eth0)
 WAN_IF=$(ip route | awk '/^default/ {print $5; exit}')
 
-# 3) 安装 iptables 服务（AL2023 默认是 nft，iptables 会映射到 nft）
+# Install iptables-services if available (best effort)
 yum -y install iptables-services || true
 systemctl enable iptables || true
 systemctl start iptables || true
 
-# 4) 清理旧规则（幂等）
+# --- Fast path: if NAT already correctly configured, do nothing ---
+
+# 1) Check if IP forwarding is enabled
+if sysctl net.ipv4.ip_forward | grep -q ' = 1'; then
+  # 2) Check if MASQUERADE rule for this interface already exists
+  if iptables -t nat -C POSTROUTING -o "${WAN_IF}" -j MASQUERADE 2>/dev/null; then
+    echo "NAT already configured (ip_forward=1 and MASQUERADE on ${WAN_IF}). Nothing to do."
+    exit 0
+  fi
+fi
+
+echo "NAT not fully configured yet. Applying iptables rules..."
+
+# Clear NAT and FORWARD rules (idempotent, but be cautious if you ever add other rules)
 iptables -t nat -F
 iptables -F FORWARD
 
-# 5) 放行转发 + 做源地址伪装（MASQUERADE）
+# Allow forwarding
+iptables -P FORWARD ACCEPT
 iptables -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
-iptables -A FORWARD -i ${WAN_IF} -o ${WAN_IF} -j ACCEPT
-iptables -t nat -A POSTROUTING -o ${WAN_IF} -j MASQUERADE
+iptables -A FORWARD -i "${WAN_IF}" -o "${WAN_IF}" -j ACCEPT
 
-# 6) 持久化
-service iptables save || true
+# NAT: MASQUERADE all outbound traffic through this interface
+iptables -t nat -A POSTROUTING -o "${WAN_IF}" -j MASQUERADE
 
-# 7) 小健诊：打印关键状态
-echo "=== ip_forward ==="
-sysctl net.ipv4.ip_forward
-echo "=== route ==="
-ip route
-echo "=== iptables nat ==="
-iptables -t nat -S
-echo "=== iptables FORWARD ==="
-iptables -S FORWARD
+EOF
+
+chmod +x /usr/local/bin/setup-nat.sh
+
+
+#########################################################
+# 2) Create a systemd service so it runs on every reboot
+#########################################################
+cat >/etc/systemd/system/nat-setup.service <<'EOF'
+[Unit]
+Description=Configure NAT iptables rules
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/setup-nat.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+
+#########################################
+# 3) Enable service and run it immediately
+#########################################
+systemctl daemon-reload
+systemctl enable nat-setup.service
+systemctl start nat-setup.service
