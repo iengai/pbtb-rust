@@ -36,3 +36,7 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "nat_ami" {
+  type = string
+}

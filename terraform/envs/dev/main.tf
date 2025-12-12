@@ -32,6 +32,7 @@ module "network" {
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
   tags                 = var.common_tags
+  nat_ami              = "ami-0ab96e70798e83256"
 }
 
 module "ecs" {
@@ -80,4 +81,12 @@ module "s3_bucket" {
   bucket_name = var.s3_bucket_name
 
   ecs_task_role_arn = module.task_base.task_role_arn
+}
+
+module "dynamodb" {
+  source = "../../modules/dynamodb"
+
+  project     = var.project
+  env         = var.env
+  common_tags = var.common_tags
 }

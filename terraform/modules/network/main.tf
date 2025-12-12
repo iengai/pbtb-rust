@@ -157,30 +157,9 @@ resource "aws_security_group" "app_sg" {
   tags = { Name = "${var.project}-${var.env}-ecs-sg" }
 }
 
-
-data "aws_ami" "amazon_linux_2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-kernel-6.1-arm64"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["arm64"]
-  }
-}
-
 # create nat instance
 resource "aws_instance" "nat" {
-  ami                         = data.aws_ami.amazon_linux_2023.id
+  ami                         = var.nat_ami
   instance_type               = "t4g.nano"
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.nat_sg.id]
