@@ -29,7 +29,6 @@
 
   // Optional: environment variables inside the container (the endpoint is set in compose, but can also be declared here)
   "containerEnv": {
-    "APP__DYNAMODB__ENDPOINT_URL": "http://dynamodb-local:8000",
     "CARGO_HOME": "/home/vscode/.cargo",
     "RUSTUP_HOME": "/home/vscode/.rustup",
     "CARGO_TARGET_DIR": "/app/target"

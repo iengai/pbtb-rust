@@ -1,5 +1,4 @@
-use std::env;
-use config::{Config, ConfigError, File};
+use anyhow::Context;
 use serde::Deserialize;
 use super::s3::S3Config;
 use super::dynamodb::DynamoDBConfig;
@@ -11,20 +10,23 @@ pub struct Configs {
 }
 
 impl Configs {
-    pub fn new() -> Result<Self, ConfigError> {
-        let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "default".into());
+    pub fn new() -> anyhow::Result<Self> {
+        let run_mode = std::env::var("APP__RUN_MODE")
+            .or_else(|_| std::env::var("RUN_MODE"))
+            .unwrap_or_else(|_| "default".into());
 
-        let s = Config::builder()
-            // Start with default settings
-            .add_source(File::with_name("config/default"))
-            // Add environment-specific settings if specified
-            .add_source(File::with_name(&format!("config/{}", run_mode)).required(false))
-            // Add local settings file
-            .add_source(File::with_name("config/local").required(false))
-            // Add environment variables with prefix "APP"
-            .add_source(config::Environment::with_prefix("APP").separator("__"))
-            .build()?;
+        let cfg = config::Config::builder()
+            .add_source(config::File::with_name("config/default"))
+            .add_source(config::File::with_name(&format!("config/{}", run_mode)).required(false))
+            .add_source(config::File::with_name("config/local").required(false))
+            .add_source(
+                config::Environment::with_prefix("APP")
+                    .separator("__")
+                    .try_parsing(true)
+            )
+            .build()
+            .context("build config")?;
 
-        s.try_deserialize()
+        cfg.try_deserialize().context("deserialize config")
     }
 }
