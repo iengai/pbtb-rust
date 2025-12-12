@@ -90,3 +90,15 @@ module "dynamodb" {
   env         = var.env
   common_tags = var.common_tags
 }
+
+module "lambda_bot_restarter" {
+  source = "../../modules/lambda/bot_restarter"
+
+  project     = var.project
+  env         = var.env
+  common_tags = var.common_tags
+
+  environment_variables = {
+    ENV = var.env
+  }
+}
