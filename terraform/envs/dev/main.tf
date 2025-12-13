@@ -91,8 +91,8 @@ module "dynamodb" {
   common_tags = var.common_tags
 }
 
-module "lambda_bot_restarter" {
-  source = "../../modules/lambda/bot_restarter"
+module "lambda_task_stopped_event_handler" {
+  source = "../../modules/lambda/task_stopped_event_handler"
 
   project     = var.project
   env         = var.env

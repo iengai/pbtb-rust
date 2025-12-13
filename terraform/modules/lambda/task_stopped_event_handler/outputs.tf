@@ -1,4 +1,4 @@
-# terraform/modules/lambda/bot_restarter/outputs.tf
+# terraform/modules/lambda/task_stopped_event_handler/outputs.tf
 output "function_name" {
   description = "bot-restarter lambda function name"
   value       = module.base.function_name

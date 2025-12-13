@@ -1,4 +1,4 @@
-// terraform/modules/lambda/bot_restarter/main.tf
+// terraform/modules/lambda/task_stopped_event_handler/main.tf
 module "base" {
   source = "../base"
 
@@ -6,8 +6,8 @@ module "base" {
   env         = var.env
   common_tags = var.common_tags
 
-  function_name   = "bot-restarter"
-  bootstrap_path  = "${path.root}/../../../target/lambda/bot_restarter/bootstrap"
+  function_name   = "task-stopped-event-handler"
+  bootstrap_path  = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
   architecture    = "x86_64"
 
   environment_variables = var.environment_variables
@@ -15,7 +15,7 @@ module "base" {
 
 resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
   name        = "${var.project}-${var.env}-ecs-task-state-change"
-  description = "Trigger bot-restarter on ECS task state change"
+  description = "Trigger task-stopped-event-handler on ECS task state change"
 
   event_pattern = jsonencode({
     "source"      : ["aws.ecs"],
@@ -33,7 +33,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
 
 resource "aws_cloudwatch_event_target" "ecs_task_state_change_to_lambda" {
   rule      = aws_cloudwatch_event_rule.ecs_task_state_change.name
-  target_id = "bot-restarter"
+  target_id = "task-stopped-event-handler"
   arn       = module.base.function_arn
 }
 

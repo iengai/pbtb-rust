@@ -25,5 +25,5 @@ tracing = "0.1.41"
 tokio-test = "0.4"
 
 [[bin]]
-name = "bot_restarter"
-path = "src/bin/bot_restarter/main.rs"
+name = "task_stopped_event_handler"
+path = "src/bin/task_stopped_event_handler/main.rs"

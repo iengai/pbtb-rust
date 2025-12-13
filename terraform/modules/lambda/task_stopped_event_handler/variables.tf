@@ -1,4 +1,4 @@
-// terraform/modules/lambda/bot_restarter/variables.tf
+// terraform/modules/lambda/task_stopped_event_handler/variables.tf
 variable "project" {
   type        = string
   description = "Project name"
