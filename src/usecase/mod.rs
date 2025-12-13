@@ -16,3 +16,4 @@ pub use apply_template::ApplyTemplateUseCase;
 pub use get_bot_config::GetBotConfigUseCase;
 pub use update_bot_config::UpdateBotConfigUseCase;
 pub use update_risklevel::UpdateRiskLevelUseCase;
+pub use run_task::RunTaskUseCase;

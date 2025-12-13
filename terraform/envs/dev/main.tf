@@ -101,5 +101,8 @@ module "lambda_task_stopped_event_handler" {
   environment_variables = {
     ENV = var.env
   }
+
+  ecs_region      = var.region
   ecs_cluster_arn = module.ecs.cluster_arn
+  td_passivbot_v741_arn = module.passivbot_v741_task.task_definition_arn
 }

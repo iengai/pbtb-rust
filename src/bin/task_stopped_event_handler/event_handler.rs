@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
 
 use lambda_runtime::{tracing, Error, LambdaEvent};
 use serde::Deserialize;
 use serde_json::Value;
+use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 struct EcsTaskStateChangeDetail {
@@ -49,7 +51,10 @@ struct EcsContainer {
 }
 
 /// This is the main body for the function.
-pub(crate) async fn function_handler(event: LambdaEvent<EventBridgeEvent>) -> Result<(), Error> {
+pub(crate) async fn function_handler(
+    event: LambdaEvent<EventBridgeEvent>,
+    state: Arc<AppState>,
+) -> Result<(), Error> {
     let payload = event.payload;
 
     // 1) only ECS Task State Change
@@ -158,7 +163,19 @@ pub(crate) async fn function_handler(event: LambdaEvent<EventBridgeEvent>) -> Re
         return Ok(());
     }
 
-    restart_due_to_memory(user_id.unwrap().as_str(), bot_id.unwrap().as_str(), task_arn).await?;
+    let new_task_id = state
+        .run_task
+        .execute(
+            user_id.as_deref().unwrap(),
+            bot_id.as_deref().unwrap(),
+            &state.configs.ecs.cluster_arn,
+            &state.configs.ecs.td_passivbot_v741_arn,
+        )
+        .await
+        .map_err(|e| Error::from(format!("Failed to run task: {e}")))?;
+
+    tracing::warn!("Started replacement task_id={}", new_task_id);
+
     Ok(())
 }
 
@@ -177,13 +194,3 @@ fn is_memory_related_stop(
     true
 }
 
-async fn restart_due_to_memory(user_id: &str, bot_id: &str, task_arn: &str) -> Result<(), Error> {
-    // TODO: restart bot
-    tracing::warn!(
-        "TODO(restart): memory-related stop detected, will restart. user_id={}, bot_id={}, taskArn={}",
-        user_id,
-        bot_id,
-        task_arn
-    );
-    Ok(())
-}

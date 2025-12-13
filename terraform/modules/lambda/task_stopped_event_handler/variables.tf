@@ -24,3 +24,13 @@ variable "ecs_cluster_arn" {
   type        = string
   description = "ECS cluster ARN to filter ECS Task State Change events"
 }
+
+variable "ecs_region" {
+  type        = string
+  description = "ECS region for AWS SDK client"
+}
+
+variable "td_passivbot_v741_arn" {
+  type        = string
+  description = "Task definition ARN for passivbot-v741"
+}

@@ -10,7 +10,14 @@ module "base" {
   bootstrap_path  = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
   architecture    = "x86_64"
 
-  environment_variables = var.environment_variables
+  environment_variables = merge(
+    var.environment_variables,
+    {
+      APP__ECS__REGION                 = var.ecs_region
+      APP__ECS__CLUSTER_ARN            = var.ecs_cluster_arn
+      APP__ECS__TD_PASSIVBOT_V741_ARN  = var.td_passivbot_v741_arn
+    }
+  )
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
