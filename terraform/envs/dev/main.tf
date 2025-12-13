@@ -101,4 +101,5 @@ module "lambda_bot_restarter" {
   environment_variables = {
     ENV = var.env
   }
+  ecs_cluster_arn = module.ecs.cluster_arn
 }

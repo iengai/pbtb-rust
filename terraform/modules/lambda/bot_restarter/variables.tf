@@ -19,3 +19,8 @@ variable "environment_variables" {
   type    = map(string)
   default = {}
 }
+
+variable "ecs_cluster_arn" {
+  type        = string
+  description = "ECS cluster ARN to filter ECS Task State Change events"
+}
