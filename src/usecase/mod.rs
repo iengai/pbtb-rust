@@ -6,6 +6,7 @@ mod apply_template;
 mod get_bot_config;
 mod update_bot_config;
 mod update_risklevel;
+mod run_task;
 
 pub use add_bot::AddBotUseCase;
 pub use list_bots::ListBotsUseCase;

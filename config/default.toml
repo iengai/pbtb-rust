@@ -6,3 +6,8 @@ table_name = "bots"
 endpoint_url = "http://localhost:9000"
 region = "us-east-1"
 bucket_name = "local-bot-configs"
+
+[ecs]
+region = "us-east-1"
+cluster_arn = "arn:aws:ecs:ap-northeast-1:<ACCOUNT_ID>:cluster/..."
+td_passivbot_v741_arn = "arn:aws:ecs:ap-northeast-1:<ACCOUNT_ID>:task-definition/...:<REV>"

@@ -2,11 +2,13 @@ use anyhow::Context;
 use serde::Deserialize;
 use super::s3::S3Config;
 use super::dynamodb::DynamoDBConfig;
+use super::ecs::EcsConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Configs {
     pub dynamodb: DynamoDBConfig,
     pub s3: S3Config,
+    pub ecs: EcsConfig,
 }
 
 impl Configs {
