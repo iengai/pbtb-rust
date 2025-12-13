@@ -39,6 +39,7 @@ impl AddBotUseCase {
             api_key: api_key.clone(),
             secret_key: secret_key.clone(),
             enabled: false,
+            status: crate::domain::bot::Status::Stopped,
             created_at: now,
             updated_at: now,
         };

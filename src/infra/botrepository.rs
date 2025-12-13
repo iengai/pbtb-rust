@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use aws_sdk_dynamodb::{Client};
 use aws_sdk_dynamodb::types::AttributeValue;
-use crate::domain::bot::{Bot, BotRepository};
+use crate::domain::bot::{Bot, BotRepository, Status};
 use async_trait::async_trait;
 use crate::domain::exchange::Exchange;
 
@@ -14,6 +14,7 @@ pub struct BotItem {
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
+    pub status: String,
     pub created_at: i64,   // Unix timestamp in seconds
     pub updated_at: i64,   // Unix timestamp in seconds
 }
@@ -38,6 +39,7 @@ impl BotItem {
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
             enabled: item.get("enabled")?.as_bool().ok().copied()?,
+            status: item.get("status")?.as_s().ok()?.to_string(),
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
@@ -60,6 +62,7 @@ impl BotItem {
     pub fn to_domain(&self) -> Option<Bot> {
         let user_id = Self::extract_user_id_from_pk(&self.pk)?;
         let exchange = Exchange::from_str(self.exchange.as_str())?;
+        let status = Status::from_str(self.status.as_str())?;
         Some(Bot {
             id: self.sk.clone(),  // bot_id from SK
             user_id,
@@ -68,6 +71,7 @@ impl BotItem {
             api_key: self.api_key.clone(),
             secret_key: self.secret_key.clone(),
             enabled: self.enabled,
+            status,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -82,6 +86,7 @@ impl BotItem {
             api_key: bot.api_key.clone(),
             secret_key: bot.secret_key.clone(),
             enabled: bot.enabled,
+            status: bot.status.as_str().to_string(),
             created_at: bot.created_at,
             updated_at: bot.updated_at,
         }
