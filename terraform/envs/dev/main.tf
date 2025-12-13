@@ -105,4 +105,13 @@ module "lambda_task_stopped_event_handler" {
   ecs_region      = var.region
   ecs_cluster_arn = module.ecs.cluster_arn
   td_passivbot_v741_arn = module.passivbot_v741_task.task_definition_arn
+  lambda_code_bucket = module.lambda_code_bucket.bucket_name
+}
+
+module "lambda_code_bucket" {
+  source = "../../modules/lambda/s3"
+
+  common_tags = var.common_tags
+
+  bucket_name = "${var.project}-${var.env}-lambda-code"
 }

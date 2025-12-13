@@ -9,6 +9,7 @@ module "base" {
   function_name   = "task-stopped-event-handler"
   bootstrap_path  = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
   architecture    = "x86_64"
+  code_s3_bucket  = var.lambda_code_bucket
 
   environment_variables = merge(
     var.environment_variables,

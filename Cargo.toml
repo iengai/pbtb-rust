@@ -24,6 +24,12 @@ tracing = "0.1.41"
 [dev-dependencies]
 tokio-test = "0.4"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
 [[bin]]
 name = "task_stopped_event_handler"
 path = "src/bin/task_stopped_event_handler/main.rs"

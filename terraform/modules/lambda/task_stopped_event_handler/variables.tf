@@ -34,3 +34,8 @@ variable "td_passivbot_v741_arn" {
   type        = string
   description = "Task definition ARN for passivbot-v741"
 }
+
+variable "lambda_code_bucket" {
+  type        = string
+  description = "S3 bucket to store lambda zip for deployment"
+}

@@ -45,3 +45,15 @@ variable "environment_variables" {
   type    = map(string)
   default = {}
 }
+
+variable "code_s3_bucket" {
+  type        = string
+  default     = ""
+  description = "S3 bucket for lambda code (required if use_s3_code=true)"
+}
+
+variable "code_s3_key_prefix" {
+  type        = string
+  default     = "lambda"
+  description = "S3 key prefix for lambda code objects"
+}
