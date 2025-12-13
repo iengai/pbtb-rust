@@ -170,9 +170,10 @@ pub(crate) async fn function_handler(
             bot_id.as_deref().unwrap(),
             &state.configs.ecs.cluster_arn,
             &state.configs.ecs.td_passivbot_v741_arn,
+            &state.configs.ecs.td_passivbot_v741_container_name,
         )
         .await
-        .map_err(|e| Error::from(format!("Failed to run task: {e}")))?;
+        .map_err(|e| Error::from(format!("Failed to run task: {e:#}")))?;
 
     tracing::warn!("Started replacement task_id={}", new_task_id);
 

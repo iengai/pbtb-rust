@@ -6,19 +6,59 @@ module "base" {
   env         = var.env
   common_tags = var.common_tags
 
-  function_name   = "task-stopped-event-handler"
-  bootstrap_path  = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
-  architecture    = "x86_64"
-  code_s3_bucket  = var.lambda_code_bucket
+  function_name  = "task-stopped-event-handler"
+  bootstrap_path = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
+  architecture   = "x86_64"
+  code_s3_bucket = var.lambda_code_bucket
 
   environment_variables = merge(
     var.environment_variables,
     {
-      APP__ECS__REGION                 = var.ecs_region
-      APP__ECS__CLUSTER_ARN            = var.ecs_cluster_arn
-      APP__ECS__TD_PASSIVBOT_V741_ARN  = var.td_passivbot_v741_arn
+      APP__ECS__REGION                           = var.ecs_region
+      APP__ECS__CLUSTER_ARN                      = var.ecs_cluster_arn
+      APP__ECS__TD_PASSIVBOT_V741_ARN            = var.td_passivbot_v741_arn
+      APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME = var.passivbot_v741_container_name
     }
   )
+}
+
+# Allow this Lambda to run ECS tasks and pass the task roles.
+resource "aws_iam_role_policy" "ecs_run_task" {
+  name = "${var.project}-${var.env}-task-stopped-event-handler-ecs-run-task"
+  role = module.base.role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EcsRunTask"
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask",
+          "ecs:DescribeTasks",
+          "ecs:DescribeTaskDefinition",
+          "ecs:DescribeClusters"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "PassEcsTaskRoles"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = [
+          var.ecs_task_execution_role_arn,
+          var.ecs_task_role_arn
+        ]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
@@ -26,7 +66,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
   description = "Trigger task-stopped-event-handler on ECS task state change"
 
   event_pattern = jsonencode({
-    "source"      : ["aws.ecs"],
+    "source" : ["aws.ecs"],
     "detail-type" : ["ECS Task State Change"],
     "detail" : merge(
       {

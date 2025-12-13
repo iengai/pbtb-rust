@@ -16,12 +16,8 @@ impl RunTaskUseCase {
         bot_id: &str,
         cluster_arn: &str,
         td_arn: &str,
+        container_name: &str,
     ) -> Result<String> {
-        let container_name = td_arn
-            .rsplit('/')
-            .next()
-            .context("failed to derive container_name from task definition arn")?;
-
         let overrides = TaskOverride::builder()
             .container_overrides(
                 ContainerOverride::builder()
@@ -49,7 +45,7 @@ impl RunTaskUseCase {
         tracing::info!("ecs run_task done: started_tasks={}, failures={}", started, failed);
 
         if failed > 0 {
-            // failures
+            tracing::error!("ecs run_task failures detail: {:?}", resp.failures());
             return Err(anyhow!("ecs run_task returned failures"));
         }
 

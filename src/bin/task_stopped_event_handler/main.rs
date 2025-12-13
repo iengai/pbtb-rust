@@ -3,15 +3,17 @@ use std::sync::Arc;
 use lambda_runtime::{run, service_fn, tracing, Error, LambdaEvent};
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
 
-use pbtb_rust::config::configs::Configs;
+use pbtb_rust::config::configs::{load_config};
 use pbtb_rust::infra::client::create_ecs_client;
 use pbtb_rust::usecase::RunTaskUseCase;
+use crate::config::TaskStoppedConfig;
 
 mod event_handler;
+mod config;
 
 #[derive(Clone)]
 pub struct AppState {
-    configs: Arc<Configs>,
+    configs: Arc<TaskStoppedConfig>,
     run_task: Arc<RunTaskUseCase>,
 }
 
@@ -20,8 +22,8 @@ async fn main() -> Result<(), Error> {
     tracing::init_default_subscriber();
 
     // 冷启动初始化：只执行一次
-    let configs = Configs::new()
-        .map_err(|e| Error::from(format!("Failed to load configs: {e}")))?;
+    let configs: TaskStoppedConfig = load_config()
+        .map_err(|e| Error::from(format!("Failed to load configs: {e:#}")))?;
     let ecs_client = create_ecs_client(&configs.ecs).await;
 
     let state = AppState {

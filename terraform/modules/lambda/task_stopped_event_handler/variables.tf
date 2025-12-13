@@ -35,7 +35,23 @@ variable "td_passivbot_v741_arn" {
   description = "Task definition ARN for passivbot-v741"
 }
 
+variable "passivbot_v741_container_name" {
+  description = "Container name for passivbot v741"
+  type        = string
+  default     = "passivbot-v741-container"
+}
+
 variable "lambda_code_bucket" {
   type        = string
   description = "S3 bucket to store lambda zip for deployment"
+}
+
+variable "ecs_task_execution_role_arn" {
+  type        = string
+  description = "ECS task execution role ARN referenced by the task definition (executionRoleArn)"
+}
+
+variable "ecs_task_role_arn" {
+  type        = string
+  description = "ECS task role ARN referenced by the task definition (taskRoleArn)"
 }

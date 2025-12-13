@@ -73,6 +73,12 @@ variable "passivbot_v741_image" {
   type        = string
 }
 
+variable "passivbot_v741_container_name" {
+  description = "Container name for passivbot v741"
+  type        = string
+  default     = "passivbot-v741-container"
+}
+
 variable "log_retention_days" {
   type        = number
 }

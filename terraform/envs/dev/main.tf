@@ -68,6 +68,7 @@ module "passivbot_v741_task" {
   task_role_arn        = module.task_base.task_role_arn
   container_image      = var.passivbot_v741_image
   log_retention_days   = var.log_retention_days
+  container_name       = var.passivbot_v741_container_name
 
   s3_bucket_name    = module.s3_bucket.bucket_name
 }
@@ -106,6 +107,8 @@ module "lambda_task_stopped_event_handler" {
   ecs_cluster_arn = module.ecs.cluster_arn
   td_passivbot_v741_arn = module.passivbot_v741_task.task_definition_arn
   lambda_code_bucket = module.lambda_code_bucket.bucket_name
+  ecs_task_execution_role_arn = module.task_base.task_execution_role_arn
+  ecs_task_role_arn = module.task_base.task_role_arn
 }
 
 module "lambda_code_bucket" {

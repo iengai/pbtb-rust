@@ -3,8 +3,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client as DynamoDbClient;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_ecs::Client as EcsClient;
-
-use crate::config::configs::Configs;
+use crate::config::configs::{load_config, Configs};
 use crate::config::dynamodb::DynamoDBConfig;
 use crate::config::s3::S3Config;
 use crate::config::ecs::EcsConfig;
@@ -28,7 +27,7 @@ pub async fn setup_dynamodb_with_configs(configs: &Configs) -> (DynamoDbClient, 
 }
 
 pub async fn setup_dynamodb() -> Result<(DynamoDbClient, String)> {
-    let configs = Configs::new().context("Failed to load configs")?;
+    let configs: Configs = load_config().context("Failed to load configs")?;
     Ok(setup_dynamodb_with_configs(&configs).await)
 }
 
@@ -56,7 +55,7 @@ pub async fn setup_s3_with_configs(configs: &Configs) -> (S3Client, String) {
 }
 
 pub async fn setup_s3() -> Result<(S3Client, String)> {
-    let configs = Configs::new().context("Failed to load configs")?;
+    let configs: Configs = load_config().context("Failed to load configs")?;
     Ok(setup_s3_with_configs(&configs).await)
 }
 
@@ -79,6 +78,6 @@ pub async fn setup_ecs_with_configs(configs: &Configs) -> (EcsClient, String, St
 }
 
 pub async fn setup_ecs() -> Result<(EcsClient, String, String)> {
-    let configs = Configs::new().context("Failed to load configs")?;
+    let configs: Configs = load_config().context("Failed to load configs")?;
     Ok(setup_ecs_with_configs(&configs).await)
 }
