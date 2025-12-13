@@ -39,7 +39,11 @@ impl BotItem {
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
             enabled: item.get("enabled")?.as_bool().ok().copied()?,
-            status: item.get("status")?.as_s().ok()?.to_string(),
+            status: item
+                .get("status")
+                .and_then(|v| v.as_s().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| Status::default().as_str().to_string()),
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
