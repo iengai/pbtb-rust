@@ -110,20 +110,19 @@ impl DynamoBotRepository {
 
 #[async_trait]
 impl BotRepository for DynamoBotRepository {
-    async fn find_by_id(&self, id: &str) -> Option<Bot> {
+    async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
         // Note: We need user_id to construct PK, so this method uses scan (not efficient)
         // In production, consider adding bot_id as GSI or passing user_id as well
         let result = self.client
-            .scan()
+            .get_item()
             .table_name(&self.table_name)
-            .filter_expression("sk = :bot_id")
-            .expression_attribute_values(":bot_id", AttributeValue::S(id.to_string()))
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
             .ok()?;
 
-        let items = result.items();
-        let item = items.first()?;
+        let item = result.item()?;
         let bot_item = BotItem::from_item(item)?;
         bot_item.to_domain()
     }

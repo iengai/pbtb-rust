@@ -19,18 +19,6 @@ impl DeleteBotUseCase {
     }
 
     pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
-        // Verify bot exists and belongs to user
-        match self.bot_repository.find_by_id(bot_id).await {
-            Some(bot) => {
-                if bot.user_id != user_id {
-                    return Err("Bot does not belong to this user".to_string());
-                }
-            }
-            None => {
-                return Err("Bot not found".to_string());
-            }
-        }
-
         // Delete from DynamoDB
         self.bot_repository.delete(user_id, bot_id).await?;
 
