@@ -32,7 +32,8 @@ where
         .add_source(config::File::with_name(&format!("config/{}", run_mode)).required(false))
         .add_source(config::File::with_name("config/local").required(false))
         .build()
-        .context("build config")?;
+        .with_context(|| format!("Failed to build config. run_mode={}, search_path=config/", run_mode))?;
 
-    cfg.try_deserialize::<T>().context("deserialize config")
+    cfg.try_deserialize::<T>()
+        .with_context(|| format!("Failed to deserialize config into struct: {}", std::any::type_name::<T>()))
 }

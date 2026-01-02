@@ -6,11 +6,13 @@ mod interface;
 mod usecase;
 
 use std::sync::Arc;
+use anyhow::Context;
 use teloxide::prelude::*;
-use infra::client::{setup_dynamodb, setup_s3};
 use infra::{DynamoBotRepository, S3TemplateRepository, S3BotConfigRepository, S3ApiKeyRepository};
 use usecase::*;
 use domain::SystemClock;
+use pbtb_rust::config::configs::{load_config, Configs};
+use pbtb_rust::infra::client::{setup_dynamodb_with_configs,setup_s3_with_configs};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,16 +23,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Read token from TELEGRAM_BOT_TOKEN environment variable
     let bot = Bot::from_env();
+    let configs: Configs = load_config()
+        .context("Failed to setup application during startup")?;
 
     // Setup DynamoDB
-    let (dynamodb_client, table_name) = setup_dynamodb()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to setup DynamoDB: {}", e))?;
-
+    let (dynamodb_client, table_name) = setup_dynamodb_with_configs(&configs).await;
     // Setup S3
-    let (s3_client, bucket_name) = setup_s3()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to setup S3: {}", e))?;
+    let (s3_client, bucket_name) = setup_s3_with_configs(&configs).await;
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));

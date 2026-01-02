@@ -26,11 +26,6 @@ pub async fn setup_dynamodb_with_configs(configs: &Configs) -> (DynamoDbClient, 
     (client, table_name)
 }
 
-pub async fn setup_dynamodb() -> Result<(DynamoDbClient, String)> {
-    let configs: Configs = load_config().context("Failed to load configs")?;
-    Ok(setup_dynamodb_with_configs(&configs).await)
-}
-
 pub async fn create_s3_client(config: &S3Config) -> S3Client {
     let mut config_builder = aws_config::defaults(BehaviorVersion::latest())
         .region(aws_sdk_s3::config::Region::new(config.region.clone()));
@@ -52,11 +47,6 @@ pub async fn setup_s3_with_configs(configs: &Configs) -> (S3Client, String) {
     let client = create_s3_client(&configs.s3).await;
     let bucket_name = configs.s3.bucket_name.clone();
     (client, bucket_name)
-}
-
-pub async fn setup_s3() -> Result<(S3Client, String)> {
-    let configs: Configs = load_config().context("Failed to load configs")?;
-    Ok(setup_s3_with_configs(&configs).await)
 }
 
 pub async fn create_ecs_client(config: &EcsConfig) -> EcsClient {
