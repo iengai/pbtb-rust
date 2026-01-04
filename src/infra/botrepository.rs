@@ -19,6 +19,13 @@ pub struct BotItem {
     pub updated_at: i64,   // Unix timestamp in seconds
 }
 
+fn parse_status(item: &HashMap<String, AttributeValue>) -> String {
+    item.get("status")
+        .and_then(|v| v.as_s().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| Status::default().as_str().to_string())
+}
+
 impl BotItem {
     /// Extract user_id from PK format: "user_id#<user_id>"
     fn extract_user_id_from_pk(pk: &str) -> Option<String> {
@@ -30,7 +37,7 @@ impl BotItem {
         format!("user_id#{}", user_id)
     }
 
-    pub fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
+    fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
         Some(Self {
             pk: item.get("pk")?.as_s().ok()?.to_string(),
             sk: item.get("sk")?.as_s().ok()?.to_string(),
@@ -39,17 +46,13 @@ impl BotItem {
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
             enabled: item.get("enabled")?.as_bool().ok().copied()?,
-            status: item
-                .get("status")
-                .and_then(|v| v.as_s().ok())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| Status::default().as_str().to_string()),
+            status: parse_status(item),
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
     }
 
-    pub fn to_item(&self) -> HashMap<String, AttributeValue> {
+    fn to_item(&self) -> HashMap<String, AttributeValue> {
         let mut map = HashMap::new();
         map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
         map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
@@ -63,7 +66,7 @@ impl BotItem {
         map
     }
 
-    pub fn to_domain(&self) -> Option<Bot> {
+    fn to_domain(&self) -> Option<Bot> {
         let user_id = Self::extract_user_id_from_pk(&self.pk)?;
         let exchange = Exchange::from_str(self.exchange.as_str())?;
         let status = Status::from_str(self.status.as_str())?;
@@ -81,7 +84,7 @@ impl BotItem {
         })
     }
 
-    pub fn from_domain(bot: &Bot) -> Self {
+    fn from_domain(bot: &Bot) -> Self {
         Self {
             pk: Self::construct_pk(&bot.user_id),
             sk: bot.id.clone(),
@@ -97,6 +100,52 @@ impl BotItem {
     }
 }
 
+pub struct BotECSTaskMetadata {
+    pub pk: String,        // user_id#<user_id>
+    pub sk: String,
+    // ecs task metadata
+    pub status: String,
+    pub task_id: String,
+    pub updated_at: i64,
+    pub task_current_version: i64,
+}
+
+impl BotECSTaskMetadata {
+    fn construct_sk(bot_id: &str) -> String {
+        format!("ecs_task_metadata#{}", bot_id)
+    }
+
+    fn get_bot_id(&self) -> String {
+        self.sk.strip_prefix("ecs_task_metadata#").unwrap().to_string()
+    }
+    fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
+        Some(Self{
+            pk: item.get("pk")?.as_s().ok()?.to_string(),
+            sk: item.get("sk")?.as_s().ok()?.to_string(),
+            status: parse_status(item),
+            task_id: item.get("task_id")?.as_s().ok()?.to_string(),
+            updated_at: item.get("task_updated_at")?.as_n().ok()?.parse().ok()?,
+            task_current_version: item.get("task_current_version")?.as_n().ok()?.parse().ok()?
+        })
+    }
+    fn to_item(&self) -> HashMap<String, AttributeValue> {
+        let mut map = HashMap::new();
+        map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
+        map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
+        map.insert("status".to_string(), AttributeValue::S(self.status.clone()));
+        map.insert("task_id".to_string(), AttributeValue::S(self.task_id.clone()));
+        map.insert("task_updated_at".to_string(), AttributeValue::N(self.updated_at.to_string()));
+        map.insert("task_current_version".to_string(), AttributeValue::N(self.task_current_version.to_string()));
+        map
+    }
+}
+#[async_trait]
+pub trait BotECSTaskMetadataRepository {
+    async fn find_task_meta_data(&self, user_id: &str, bot_id: &str) -> Option<BotECSTaskMetadata>;
+    async fn save_task_meta_data(&self, metadata: &BotECSTaskMetadata);
+}
+
+
 pub struct DynamoBotRepository {
     client: Client,
     table_name: String,
@@ -105,6 +154,55 @@ pub struct DynamoBotRepository {
 impl DynamoBotRepository {
     pub fn new(client: Client, table_name: String) -> Self {
         Self { client, table_name }
+    }
+}
+
+#[async_trait]
+impl BotECSTaskMetadataRepository for DynamoBotRepository {
+    async fn find_task_meta_data(&self, user_id: &str, bot_id: &str) -> Option<BotECSTaskMetadata> {
+        let result = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .send()
+            .await
+            .ok()?;
+
+        let item = result.item()?;
+        Option::from(BotECSTaskMetadata::from_item(item))
+    }
+
+    async fn save_task_meta_data(&self, metadata: &BotECSTaskMetadata) {
+        use aws_sdk_dynamodb::types::{TransactWriteItem, Put, Update};
+
+        let metadata_put = Put::builder()
+            .table_name(&self.table_name)
+            .set_item(Some(metadata.to_item()))
+            .build()
+            .unwrap();
+
+        let bot_id = metadata.get_bot_id();
+        let bot_update = Update::builder()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(metadata.pk.clone()))
+            .key("sk", AttributeValue::S(bot_id.clone()))
+            .update_expression("SET #stat = :stat")
+            .expression_attribute_names("#stat", "status")
+            .expression_attribute_values(":stat", AttributeValue::S(metadata.status.clone()))
+            .build()
+            .unwrap();
+
+        let result = self.client
+            .transact_write_items()
+            .transact_items(TransactWriteItem::builder().put(metadata_put).build())
+            .transact_items(TransactWriteItem::builder().update(bot_update).build())
+            .send()
+            .await;
+
+        if let Err(e) = result {
+            eprintln!("Failed to execute DynamoDB transaction: {:?}", e);
+        }
     }
 }
 
