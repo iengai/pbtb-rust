@@ -47,30 +47,70 @@ PBTB-Rust serves as a management layer for [Passivbot](https://github.com/enarjo
 
 ## Architecture
 
-The project follows a **Clean Architecture** (Onion Architecture) pattern with four distinct layers:
+The project follows **Domain-Driven Design (DDD)** with **Clean Architecture** principles, applying the **Dependency Inversion Principle** where all layers depend on abstractions defined in the Domain layer.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Interface Layer                              │
-│                  (Telegram Bot Interface)                        │
-│         Commands, Callbacks, Dialogues, Keyboards                │
-├─────────────────────────────────────────────────────────────────┤
-│                     Use Case Layer                               │
-│    AddBot, DeleteBot, ListBots, ApplyTemplate, UpdateRisk...    │
-├─────────────────────────────────────────────────────────────────┤
-│                   Infrastructure Layer                           │
-│         DynamoDB Repository, S3 Repository, AWS Clients          │
-├─────────────────────────────────────────────────────────────────┤
-│                      Domain Layer                                │
-│          Bot, BotConfig, ConfigTemplate, Exchange                │
-│         RiskLevel, Leverage, Coins (Value Objects)               │
+│                       Interface Layer                           │
+│              (Telegram Bot, Lambda Handlers)                    │
+│                            │                                    │
+│                            ▼ depends on                         │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Use Case Layer                       │    │
+│  │       (AddBot, ListBots, RunTask, ApplyTemplate)        │    │
+│  │                         │                               │    │
+│  │                         ▼ depends on                    │    │
+│  │  ┌───────────────────────────────────────────────────┐  │    │
+│  │  │                  Domain Layer                     │  │    │
+│  │  │      (Bot, BotConfig, ConfigTemplate entities)    │  │    │
+│  │  │      (Repository Traits - abstractions)           │  │    │
+│  │  └───────────────────────────────────────────────────┘  │    │
+│  │                         ▲                               │    │
+│  │                         │ implements                    │    │
+│  │  ┌───────────────────────────────────────────────────┐  │    │
+│  │  │              Infrastructure Layer                 │  │    │
+│  │  │    (DynamoDB Repository, S3 Repository, ECS)      │  │    │
+│  │  └───────────────────────────────────────────────────┘  │    │
+│  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
+
+Dependency Flow: Interface → Use Case → Domain ← Infrastructure
+                 (Infrastructure implements Domain abstractions)
+```
+
+### Layer Responsibilities
+
+| Layer | Description | Dependencies |
+|-------|-------------|--------------|
+| **Domain** | Core entities, repository traits (abstractions), business rules | None (innermost layer) |
+| **Use Case** | Business logic orchestration, workflow coordination | Domain (traits) |
+| **Infrastructure** | Implements repository traits with AWS services | Domain (traits) |
+| **Interface** | Telegram handlers, Lambda handlers | Use Case, Domain |
+
+### Dependency Injection
+
+At runtime, concrete implementations from Infrastructure are injected into Use Cases via the composition root (`main.rs`):
+
+```rust
+// Domain: defines abstraction
+pub trait BotRepository { async fn save(&self, bot: &Bot) -> Result<()>; }
+
+// Infrastructure: implements abstraction
+pub struct DynamoDbBotRepository { /* ... */ }
+impl BotRepository for DynamoDbBotRepository { /* ... */ }
+
+// Use Case: depends on abstraction
+pub struct AddBotUseCase<R: BotRepository> { repository: R }
+
+// Composition Root: wires concrete implementation
+let repository = DynamoDbBotRepository::new(client);
+let use_case = AddBotUseCase::new(repository);
 ```
 
 ### Layer Details
 
 #### Domain Layer (`src/domain/`)
-Core business entities and repository interfaces:
+Core business entities and repository interfaces (no external dependencies):
 - `Bot` - Trading bot aggregate root with metadata
 - `BotConfig` - User-specific bot configuration
 - `ConfigTemplate` - Reusable configuration templates
