@@ -1,26 +1,21 @@
-# PBTB-Rust Project Guidelines
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-This is a Rust-based trading bot management system using Clean Architecture (DDD) with Telegram interface and AWS services.
+PBTB-Rust is a Telegram bot for managing Passivbot trading bot configurations. Built with Rust using Clean Architecture (DDD) with AWS services integration.
 
 ## Architecture
 
-- **Domain Layer** (`src/domain/`) - Core entities and repository traits (no dependencies)
-- **Use Case Layer** (`src/usecase/`) - Business logic, depends on Domain traits
-- **Infrastructure Layer** (`src/infra/`) - Implements Domain traits with AWS services
-- **Interface Layer** (`src/interface/`) - Telegram handlers, Lambda handlers
-
 Dependencies flow inward: Interface → Use Case → Domain ← Infrastructure
 
-## Code Style
+- **Domain Layer** (`src/domain/`) - Core entities and repository traits (no external dependencies)
+- **Use Case Layer** (`src/usecase/`) - Business logic orchestration, depends only on Domain traits
+- **Infrastructure Layer** (`src/infra/`) - Implements Domain traits with AWS SDKs (DynamoDB, S3, ECS)
+- **Interface Layer** (`src/interface/`) - Telegram handlers, Lambda handlers
 
-- Rust 2024 edition
-- Use `anyhow::Result` for error handling in application code
-- Use `thiserror` for domain-specific errors
-- Avoid `unwrap()` and `expect()` - use proper error handling with `?` operator
-- Use `async-trait` for async trait definitions
-- Follow repository trait pattern for data access
+Composition root is in `src/main.rs` where concrete implementations are injected into use cases via Arc.
 
 ## Commands
 
@@ -38,8 +33,9 @@ cargo fmt --all
 cargo fmt --all -- --check  # Check only
 
 # Test
-cargo test
-cargo test -- --nocapture  # With output
+cargo test                           # Run all tests
+cargo test test_name                 # Run specific test
+cargo test -- --nocapture            # With output
 
 # Run
 cargo run
@@ -47,63 +43,50 @@ cargo run
 
 ## Testing
 
-- Integration tests are in `tests/` directory
-- Tests use DynamoDB Local (endpoint: `http://dynamodb-local:8000`)
-- Run `docker compose -f .devcontainer/docker-compose.yaml up -d dynamodb-local` before testing outside container
+- Integration tests in `tests/` use DynamoDB Local at `http://dynamodb-local:8000`
+- Inside Dev Container: tests work automatically
+- Outside Dev Container: run `docker compose -f .devcontainer/docker-compose.yaml up -d dynamodb-local` first
 
-## Git Workflow
+## Code Style
 
-- Use feature branches
-- Run `cargo fmt && cargo clippy` before committing
-- Commit messages: lowercase, descriptive (e.g., "add user authentication")
-- Squash commits when merging
-
-## AWS Services
-
-| Service | Purpose | Config Key |
-|---------|---------|------------|
-| DynamoDB | Bot metadata storage | `dynamodb.*` |
-| S3 | Configuration and API keys | `s3.*` |
-| ECS | Bot container execution | `ecs.*` |
-| Lambda | Event handlers | - |
+- Rust 2024 edition
+- Use `anyhow::Result` for application code, `thiserror` for domain-specific errors
+- Avoid `unwrap()` and `expect()` - use `?` operator
+- Use `async-trait` for async trait definitions
 
 ## Configuration
 
-- Config files: `config/default.toml`, `config/{RUN_MODE}.toml`, `config/local.toml`
-- Environment override prefix: `APP__` (e.g., `APP__DYNAMODB__ENDPOINT_URL`)
-- Telegram token: `TELOXIDE_TOKEN` environment variable
+Layered config (priority low to high):
+1. `config/default.toml` - Base settings
+2. `config/{RUN_MODE}.toml` - Environment-specific
+3. `config/local.toml` - Local overrides (gitignored)
+4. Environment variables with `APP__` prefix (e.g., `APP__DYNAMODB__ENDPOINT_URL`)
 
-## Important Patterns
+Key env vars: `TELOXIDE_TOKEN` (Telegram bot token), `RUST_LOG` (log level)
 
-### Repository Pattern
-```rust
-// Domain defines trait
-pub trait BotRepository: Send + Sync {
-    async fn save(&self, bot: &Bot) -> Result<()>;
-    async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<Bot>>;
-}
+## Data Storage
 
-// Infrastructure implements
-pub struct DynamoDbBotRepository { /* ... */ }
-impl BotRepository for DynamoDbBotRepository { /* ... */ }
+**DynamoDB** (bot metadata): PK = `user_id#{user_id}`, SK = `{bot_id}`
+
+**S3** (configurations):
+```
+bucket/
+├── predefined/           # Config templates
+└── {user_id}/{bot_id}/   # User bot configs and API keys
 ```
 
-### Use Case Pattern
-```rust
-pub struct AddBotUseCase<R: BotRepository> {
-    repository: Arc<R>,
-}
+## Infrastructure
 
-impl<R: BotRepository> AddBotUseCase<R> {
-    pub async fn execute(&self, input: AddBotInput) -> Result<Bot> {
-        // Business logic here
-    }
-}
-```
+Terraform modules in `terraform/modules/` (network, ecs, s3, dynamodb, task-definitions, lambda).
+Deploy via `terraform/envs/dev/`.
+
+## Git Workflow
+
+- Run `cargo fmt && cargo clippy` before committing
+- Commit messages: lowercase, descriptive (e.g., "add user authentication")
 
 ## Do Not
 
 - Don't use `panic!`, `unwrap()`, or `expect()` in production code
 - Don't commit `.env` files or API keys
-- Don't modify `config/local.toml` (gitignored)
 - Don't skip clippy warnings
