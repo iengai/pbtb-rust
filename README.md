@@ -1,6 +1,169 @@
 # PBTB-Rust
 
-A Rust project with DynamoDB integration.
+A Telegram bot application written in Rust for managing Passivbot trading bot configurations. This project provides an interactive Telegram interface for creating, configuring, and managing automated cryptocurrency trading bots with full AWS infrastructure integration.
+
+## Purpose
+
+PBTB-Rust serves as a management layer for [Passivbot](https://github.com/enarjord/passivbot), enabling users to:
+
+- **Bot Management**: Create, delete, and list trading bots through Telegram
+- **Configuration Management**: Apply predefined configuration templates to bots
+- **Risk Management**: Dynamically adjust risk levels (long/short position exposure)
+- **API Key Management**: Securely store and manage exchange API credentials
+- **Interactive Interface**: Full Telegram bot interface with inline keyboards and conversation flows
+
+## Technology Stack
+
+### Core Technologies
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **Rust** | 2024 Edition | Primary programming language |
+| **Tokio** | 1.x | Asynchronous runtime with full features |
+| **Teloxide** | 0.12 | Telegram Bot API framework |
+
+### AWS Services
+
+| Service | SDK Version | Purpose |
+|---------|-------------|---------|
+| **DynamoDB** | aws-sdk-dynamodb 1.x | Bot metadata storage |
+| **S3** | aws-sdk-s3 1.108.0 | Configuration and API key storage |
+| **ECS** | - | Container orchestration (via Terraform) |
+
+### Supporting Libraries
+
+- **serde** / **serde_json** - Serialization framework
+- **config** - Configuration file management
+- **async-trait** - Async trait support
+- **uuid** - Unique identifier generation
+- **anyhow** - Error handling
+- **env_logger** - Logging
+- **lambda_runtime** - AWS Lambda support (optional)
+
+### Infrastructure as Code
+
+- **Terraform** - AWS infrastructure provisioning
+- **Docker** - Containerization and local development
+
+## Architecture
+
+The project follows a **Clean Architecture** (Onion Architecture) pattern with four distinct layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Interface Layer                              │
+│                  (Telegram Bot Interface)                        │
+│         Commands, Callbacks, Dialogues, Keyboards                │
+├─────────────────────────────────────────────────────────────────┤
+│                     Use Case Layer                               │
+│    AddBot, DeleteBot, ListBots, ApplyTemplate, UpdateRisk...    │
+├─────────────────────────────────────────────────────────────────┤
+│                   Infrastructure Layer                           │
+│         DynamoDB Repository, S3 Repository, AWS Clients          │
+├─────────────────────────────────────────────────────────────────┤
+│                      Domain Layer                                │
+│          Bot, BotConfig, ConfigTemplate, Exchange                │
+│         RiskLevel, Leverage, Coins (Value Objects)               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Layer Details
+
+#### Domain Layer (`src/domain/`)
+Core business entities and repository interfaces:
+- `Bot` - Trading bot aggregate root with metadata
+- `BotConfig` - User-specific bot configuration
+- `ConfigTemplate` - Reusable configuration templates
+- `Exchange` - Supported exchanges (currently Bybit)
+- Value Objects: `RiskLevel`, `Leverage`, `Coins`
+
+#### Infrastructure Layer (`src/infra/`)
+Concrete implementations of repository interfaces:
+- `DynamoDbBotRepository` - Bot persistence in DynamoDB
+- `S3BotConfigRepository` - Configuration storage in S3
+- `S3ConfigTemplateRepository` - Template storage in S3
+- `S3ApiKeyRepository` - Secure API key storage
+
+#### Use Case Layer (`src/usecase/`)
+Business logic orchestration:
+- `AddBotUseCase` - Create new trading bot
+- `DeleteBotUseCase` - Remove bot and associated data
+- `ListBotsUseCase` - Retrieve user's bots
+- `ListTemplatesUseCase` - List available templates
+- `ApplyTemplateUseCase` - Apply template to bot
+- `GetBotConfigUseCase` - Retrieve bot configuration
+- `UpdateBotConfigUseCase` - Update full configuration
+- `UpdateRiskLevelUseCase` - Adjust risk parameters
+
+#### Interface Layer (`src/interface/telegram/`)
+Telegram bot implementation:
+- `router.rs` - Teloxide dispatcher setup
+- `commands.rs` - Slash command handlers (`/start`, `/list`)
+- `callbacks.rs` - Inline button handlers
+- `dialogue.rs` - Conversation state management
+- `keyboards.rs` - Menu and button layouts
+
+## Project Structure
+
+```
+pbtb-rust/
+├── src/
+│   ├── main.rs                    # Application entry point
+│   ├── lib.rs                     # Library exports
+│   ├── config/                    # Configuration management
+│   │   ├── configs.rs             # Config loading logic
+│   │   ├── dynamodb.rs            # DynamoDB config struct
+│   │   └── s3.rs                  # S3 config struct
+│   ├── domain/                    # Domain models and traits
+│   │   ├── bot.rs                 # Bot entity
+│   │   ├── botconfig.rs           # BotConfig entity
+│   │   ├── configtemplate.rs      # Template entity
+│   │   └── exchange.rs            # Exchange enum
+│   ├── infra/                     # Infrastructure implementations
+│   │   ├── client.rs              # AWS client initialization
+│   │   ├── botrepository.rs       # DynamoDB bot repository
+│   │   ├── botconfigrepository.rs # S3 config repository
+│   │   └── configtemplaterepository.rs
+│   ├── usecase/                   # Business use cases
+│   └── interface/
+│       └── telegram/              # Telegram bot interface
+├── config/
+│   └── default.toml               # Default configuration
+├── tests/                         # Integration tests
+├── terraform/                     # AWS infrastructure
+│   ├── envs/dev/                  # Environment configs
+│   └── modules/                   # Reusable modules
+│       ├── network/               # VPC, subnets, security groups
+│       ├── ecs/                   # ECS cluster configuration
+│       ├── s3/                    # S3 bucket configuration
+│       └── task-definitions/      # ECS task definitions
+└── .devcontainer/                 # Dev Container setup
+    ├── devcontainer.json
+    ├── docker-compose.yaml
+    └── Dockerfile
+```
+
+## Data Storage Design
+
+### DynamoDB Schema (Bots Table)
+
+```
+Primary Key: PK = "user_id#<user_id>", SK = "<bot_id>"
+Attributes: name, exchange, api_key, secret_key, enabled, created_at, updated_at
+```
+
+### S3 Storage Structure
+
+```
+Bucket: {project}-{env}-bot-configs
+├── predefined/              # Configuration templates
+│   ├── template1.json
+│   └── template2.json
+└── {user_id}/              # User-specific data
+    └── {bot_id}/
+        ├── {bot_id}.json   # Bot configuration
+        └── api-keys.json   # API credentials
+```
 
 ## Prerequisites
 
@@ -76,7 +239,12 @@ This project includes a .devcontainer setup that provides a consistent Rust deve
 
 ## Configuration
 
-The application uses a configuration file located at `config/default.toml`. You can override these settings by creating a `config/local.toml` file or by setting environment variables with the prefix `APP__`.
+The application uses a layered configuration system (priority from low to high):
+
+1. `config/default.toml` - Default settings
+2. `config/{RUN_MODE}.toml` - Environment-specific (optional)
+3. `config/local.toml` - Local overrides (gitignored)
+4. Environment variables `APP__*` - Runtime overrides
 
 Example configuration:
 ```toml
@@ -84,25 +252,50 @@ Example configuration:
 endpoint_url = "http://localhost:8000"
 region = "us-east-1"
 table_name = "bots"
+
+[s3]
+endpoint_url = "http://localhost:9000"
+region = "us-east-1"
+bucket_name = "local-bot-configs"
 ```
 
-## Running Tests (in container)
+### Environment Variables
 
-- In the Dev Container terminal, run:
-  ```
-  cargo test
-  ```
-- The tests will create the required table(s) in the local DynamoDB instance.
+| Variable | Description |
+|----------|-------------|
+| `TELOXIDE_TOKEN` | Telegram Bot API token |
+| `RUST_LOG` | Log level (e.g., `info`, `debug`) |
+| `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override |
+| `APP__S3__ENDPOINT_URL` | S3 endpoint override |
 
-## Project Structure
+## Running Tests
 
-- `src/domain/bot.rs`: Domain model and repository trait for bots
-- `src/infra/botrepository.rs`: DynamoDB implementation of the bot repository
-- `src/infra/dynamodb/client.rs`: DynamoDB client creation, table ensure/setup utilities
-- `src/config/configs.rs`: Configuration loading and environment overrides
-- `src/config/dynamodb.rs`: DynamoDB configuration structure
-- `config/`: TOML config files (default.toml, local overrides)
-- `tests/`: Test files (integration-style tests using local DynamoDB)
+In the Dev Container terminal:
+```
+cargo test
+```
+
+The tests will create the required table(s) in the local DynamoDB instance.
+
+## AWS Infrastructure (Terraform)
+
+The `terraform/` directory contains infrastructure as code for deploying to AWS:
+
+### Modules
+
+- **network** - VPC, subnets (public/private), NAT gateway, security groups
+- **ecs** - ECS cluster with EC2 capacity provider (ARM64 `t4g.medium` instances)
+- **s3** - Bot configuration bucket with encryption and versioning
+- **task-definitions** - ECS task definitions for Passivbot containers
+
+### Deployment
+
+```bash
+cd terraform/envs/dev
+terraform init
+terraform plan
+terraform apply
+```
 
 ## Development
 
@@ -110,5 +303,14 @@ To add a new feature:
 
 1. Add or modify the domain model in `src/domain`
 2. Implement or extend the repository in `src/infra`
-3. Add tests under `tests`
-4. Update `config/` or code under `src/config` if configuration changes are needed
+3. Create or update use cases in `src/usecase`
+4. Add Telegram interface handlers in `src/interface/telegram`
+5. Add tests under `tests`
+6. Update `config/` or code under `src/config` if configuration changes are needed
+
+## Security Considerations
+
+- API keys are stored separately in S3 with encryption at rest
+- S3 buckets block all public access
+- IAM roles follow least-privilege principle
+- Telegram bot token is loaded from environment variables only
