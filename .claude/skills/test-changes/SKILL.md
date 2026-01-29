@@ -1,9 +1,9 @@
-# Test Changes Skill
-
 ---
 name: test-changes
 description: Run Rust tests, analyze failures, and fix issues. Use after making code changes.
 ---
+
+# Test Changes Skill
 
 ## Workflow
 

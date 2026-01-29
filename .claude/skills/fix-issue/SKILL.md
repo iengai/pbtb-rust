@@ -1,10 +1,10 @@
-# Fix GitHub Issue Skill
-
 ---
 name: fix-issue
 description: Analyze and fix a GitHub issue. Provide the issue number as argument.
 args: issue_number
 ---
+
+# Fix GitHub Issue Skill
 
 ## Workflow
 
