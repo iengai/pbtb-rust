@@ -8,7 +8,9 @@ PBTB-Rust serves as a management layer for [Passivbot](https://github.com/enarjo
 
 - **Bot Management**: Create, delete, and list trading bots through Telegram
 - **Configuration Management**: Apply predefined configuration templates to bots
-- **Risk Management**: Dynamically adjust risk levels (long/short position exposure)
+- **Risk Management**: Dynamically adjust risk levels (long/short position exposure); leverage is derived automatically from the risk level
+- **Run/Stop Control**: Turn a bot on or off; this sets the bot's *desired state* (user intent) rather than directly starting/stopping the container
+- **Auto-restart Supervision**: A Lambda reconciles stopped ECS tasks, restarting a task only when the bot is still enabled and the stop was memory-related (OOM)
 - **API Key Management**: Securely store and manage exchange API credentials
 - **Interactive Interface**: Full Telegram bot interface with inline keyboards and conversation flows
 
@@ -26,7 +28,7 @@ PBTB-Rust serves as a management layer for [Passivbot](https://github.com/enarjo
 
 | Service | SDK Version | Purpose |
 |---------|-------------|---------|
-| **DynamoDB** | aws-sdk-dynamodb 1.x | Bot metadata storage |
+| **DynamoDB** | aws-sdk-dynamodb 1.x | Bot metadata and observed runtime storage |
 | **S3** | aws-sdk-s3 1.108.0 | Configuration and API key storage |
 | **ECS** | - | Container orchestration (via Terraform) |
 
@@ -39,6 +41,8 @@ PBTB-Rust serves as a management layer for [Passivbot](https://github.com/enarjo
 - **anyhow** - Error handling
 - **env_logger** - Logging
 - **lambda_runtime** - AWS Lambda support (optional)
+- **thiserror** - Domain error enum (`DomainError`)
+- **testcontainers** (dev) - Spins up `amazon/dynamodb-local` for repository integration tests
 
 ### Infrastructure as Code
 
@@ -111,15 +115,17 @@ let use_case = AddBotUseCase::new(repository);
 
 #### Domain Layer (`src/domain/`)
 Core business entities and repository interfaces (no external dependencies):
-- `Bot` - Trading bot aggregate root with metadata
-- `BotConfig` - User-specific bot configuration
+- `Bot` - Trading bot aggregate root with metadata. `Bot.enabled` is the bot's **desired state** (user intent), toggled via `enable`/`disable`.
+- `BotRuntime` - **Observed state** aggregate: whether the ECS task is actually running (`RuntimePhase::{Running, Stopped}`, plus `task_id`, `version`, `observed_at`). Kept separate from desired state.
+- `BotConfig` - User-specific bot configuration. Owns its business rules: `apply_risk_level` sets risk and derives leverage atomically; `from_template`/`set_live_user` bind the `live.user` field.
 - `ConfigTemplate` - Reusable configuration templates
 - `Exchange` - Supported exchanges (currently Bybit)
-- Value Objects: `RiskLevel`, `Leverage`, `Coins`
+- Value Objects: `RiskLevel`, `Leverage`, `Coins` — `RiskLevel`/`Leverage` validate on construction (`::new` returns `Result`), so an instance is always in range.
+- Errors: `DomainError` (a `thiserror` enum) is the domain failure type.
 
 #### Infrastructure Layer (`src/infra/`)
 Concrete implementations of repository interfaces:
-- `DynamoDbBotRepository` - Bot persistence in DynamoDB
+- `DynamoBotRepository` - Bot persistence in DynamoDB; also implements `BotRuntimeRepository` for observed-runtime rows
 - `S3BotConfigRepository` - Configuration storage in S3
 - `S3ConfigTemplateRepository` - Template storage in S3
 - `S3ApiKeyRepository` - Secure API key storage
@@ -134,13 +140,17 @@ Business logic orchestration:
 - `GetBotConfigUseCase` - Retrieve bot configuration
 - `UpdateBotConfigUseCase` - Update full configuration
 - `UpdateRiskLevelUseCase` - Adjust risk parameters
+- `SetBotEnabledUseCase` - Set desired state (enable/disable a bot)
+- `GetBotRuntimeUseCase` - Read observed runtime (`BotRuntime`) for a bot
+- `ReconcileStoppedTaskUseCase` - Decide whether to restart a stopped task and record the resulting runtime
+- `RunTaskUseCase` - Launch a Passivbot ECS task
 
 #### Interface Layer (`src/interface/telegram/`)
 Telegram bot implementation:
 - `router.rs` - Teloxide dispatcher setup
 - `commands.rs` - Slash command handlers (`/start`, `/list`)
 - `callbacks.rs` - Inline button handlers
-- `dialogue.rs` - Conversation state management
+- `dialogue.rs` - Conversation state management. The **Status** view shows both **Desired** (from `Bot.enabled`) and **Actual** (the observed `RuntimePhase`); the **Run bot**/**Stop bot** buttons set desired state only (they do not start/stop the container directly).
 - `keyboards.rs` - Menu and button layouts
 
 ## Project Structure
@@ -185,11 +195,20 @@ pbtb-rust/
 
 ## Data Storage Design
 
-### DynamoDB Schema (Bots Table)
+### DynamoDB Schema (single table)
+
+One table holds two row kinds under a shared partition key `PK = "user_id#<user_id>"`:
 
 ```
-Primary Key: PK = "user_id#<user_id>", SK = "<bot_id>"
-Attributes: name, exchange, api_key, secret_key, enabled, created_at, updated_at
+Bot row      PK = "user_id#<user_id>", SK = "<bot_id>"
+             Attributes: name, exchange, api_key, secret_key, enabled,
+                         created_at, updated_at
+             (enabled = desired state; there is no status attribute)
+
+Runtime row  PK = "user_id#<user_id>", SK = "ecs_task_metadata#<bot_id>"
+             Attributes: status (running/stopped), task_id,
+                         task_updated_at, task_current_version
+             (observed ECS task state, written by the reconcile use case)
 ```
 
 ### S3 Storage Structure
@@ -268,14 +287,16 @@ This project includes a .devcontainer setup that provides a consistent Rust deve
 
 ## Without Dev Containers (Optional)
 
-1. Start local DynamoDB:
-   ```
-   docker compose -f .devcontainer/docker-compose.yaml up -d dynamodb-local
-   ```
-2. On the host, run:
-   ```
-   cargo test
-   ```
+Note: the host needs the native toolchain (`aws-lc-sys` requires NASM/cmake) — the Dev Container is recommended for this reason.
+
+- Run the test suite (the integration tests start their own `amazon/dynamodb-local` via `testcontainers`, so only Docker needs to be available):
+  ```
+  cargo test
+  ```
+- To run the bot application against a local DynamoDB instead of testcontainers, start one yourself:
+  ```
+  docker compose -f .devcontainer/docker-compose.yaml up -d dynamodb-local
+  ```
 
 ## Configuration
 
@@ -310,12 +331,12 @@ bucket_name = "local-bot-configs"
 
 ## Running Tests
 
-In the Dev Container terminal:
+The Dev Container is the canonical build/test environment (the host may lack the native toolchain — `aws-lc-sys` requires NASM/cmake, often missing on Windows). In the Dev Container terminal:
 ```
 cargo test
 ```
 
-The tests will create the required table(s) in the local DynamoDB instance.
+Repository integration tests use the `testcontainers` crate to spin up `amazon/dynamodb-local` automatically (so you do not need to start a database yourself — just have Docker available). If Docker is unreachable, those tests **skip gracefully** (print a skip message and pass) rather than failing. Use-case unit tests use in-memory mock repositories and need no external services.
 
 ## AWS Infrastructure (Terraform)
 
