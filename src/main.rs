@@ -71,6 +71,14 @@ async fn main() -> anyhow::Result<()> {
         clock.clone(),
     ));
 
+    // Create use cases - Runtime / desired-state management
+    // DynamoBotRepository implements both BotRepository and BotRuntimeRepository,
+    // so coerce the same Arc into each trait object the use cases expect.
+    let bots_dyn: Arc<dyn domain::BotRepository> = bot_repository.clone();
+    let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = bot_repository.clone();
+    let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn));
+    let set_bot_enabled_usecase = Arc::new(SetBotEnabledUseCase::new(bots_dyn, clock.clone()));
+
     // Construct dependencies
     let deps = interface::telegram::Deps {
         // Bot management
@@ -84,6 +92,9 @@ async fn main() -> anyhow::Result<()> {
         get_bot_config_usecase,
         update_bot_config_usecase,
         update_risk_level_usecase,
+        // Runtime / desired-state management
+        get_bot_runtime_usecase,
+        set_bot_enabled_usecase,
     };
 
     interface::telegram::router::run(bot, deps).await

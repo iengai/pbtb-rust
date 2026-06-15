@@ -55,26 +55,32 @@ async fn handle_start_state(
                     .map(|user| user.id.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
-                // Try to get bot info from repository
-                let bot_name = match deps.list_bots_usecase.execute(&user_id).await {
+                // Fetch the bot once and reuse it for both name and desired state.
+                let (bot_name, bot_enabled) = match deps.list_bots_usecase.execute(&user_id).await {
                     Ok(bots) => {
                         bots.iter()
                             .find(|b| &b.id == bot_id)
-                            .map(|b| b.name.clone())
-                            .unwrap_or_else(|| bot_id.clone())
+                            .map(|b| (b.name.clone(), b.enabled))
+                            .unwrap_or_else(|| (bot_id.clone(), false))
                     }
-                    Err(_) => bot_id.clone(),
+                    Err(_) => (bot_id.clone(), false),
                 };
 
-                // Try to get bot enabled status
-                let bot_enabled = match deps.list_bots_usecase.execute(&user_id).await {
-                    Ok(bots) => {
-                        bots.iter()
-                            .find(|b| &b.id == bot_id)
-                            .map(|b| b.enabled)
-                            .unwrap_or(false)
-                    }
-                    Err(_) => false,
+                // Observed runtime (actual task phase), independent of desired state.
+                let runtime = deps.get_bot_runtime_usecase
+                    .execute(&user_id, bot_id)
+                    .await
+                    .ok()
+                    .flatten();
+
+                // Desired state (user intent) from Bot.enabled.
+                let desired_text = if bot_enabled { "🟢 Enabled" } else { "🔴 Disabled" };
+
+                // Actual state (observed task) from the runtime record.
+                let actual_text = match runtime.as_ref().map(|r| &r.phase) {
+                    Some(crate::domain::RuntimePhase::Running) => "▶️ Running",
+                    Some(crate::domain::RuntimePhase::Stopped) => "⏹️ Stopped",
+                    None => "❔ Unknown (no task record)",
                 };
 
                 // Get bot config
@@ -116,17 +122,14 @@ async fn handle_start_state(
                             Err(_) => "   • Not configured".to_string(),
                         };
 
-                        // 5. Bot running state (from bot.enabled)
-                        let state_icon = if bot_enabled { "🟢" } else { "🔴" };
-                        let state_text = if bot_enabled { "Running" } else { "Stopped" };
-
                         // Build complete status message
                         let status_message = format!(
                             "📊 Bot Status\n\n\
                             🤖 Bot Information:\n\
                                • Name: {}\n\
                                • ID: {}\n\
-                               • State: {} {}\n\n\
+                               • Desired: {}\n\
+                               • Actual: {}\n\n\
                             📋 Configuration:\n\
                                • Template: {}\n\
                             {}\n\n\
@@ -137,8 +140,8 @@ async fn handle_start_state(
                             {}",
                             bot_name,
                             bot_id,
-                            state_icon,
-                            state_text,
+                            desired_text,
+                            actual_text,
                             template_name,
                             config.template_version
                                 .as_ref()
@@ -154,8 +157,6 @@ async fn handle_start_state(
                     }
                     Err(_) => {
                         // No config found
-                        let bot_enabled_status = if bot_enabled { "🟢 Running" } else { "🔴 Stopped" };
-
                         bot.send_message(
                             msg.chat.id,
                             format!(
@@ -163,12 +164,14 @@ async fn handle_start_state(
                                 🤖 Bot Information:\n\
                                    • Name: {}\n\
                                    • ID: {}\n\
-                                   • State: {}\n\n\
+                                   • Desired: {}\n\
+                                   • Actual: {}\n\n\
                                 ⚠️ No configuration found for this bot.\n\n\
                                 Please apply a configuration template first using 'Choose config...'.",
                                 bot_name,
                                 bot_id,
-                                bot_enabled_status
+                                desired_text,
+                                actual_text
                             )
                         )
                             .await?;
@@ -297,8 +300,30 @@ async fn handle_start_state(
                     .unwrap_or_default();
 
                 if let Some(ref bot_id) = ctx.selected_bot_id {
-                    bot.send_message(msg.chat.id, format!("▶️ Starting bot {}...", bot_id))
-                        .await?;
+                    let user_id = msg.from()
+                        .map(|user| user.id.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    match deps.set_bot_enabled_usecase.execute(&user_id, bot_id, true).await {
+                        Ok(_) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "▶️ Bot {} enabled (desired=on). \
+                                    It will be (re)started/kept running by the supervisor.",
+                                    bot_id
+                                )
+                            )
+                                .await?;
+                        }
+                        Err(e) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("❌ Failed to enable bot {}:\n\n{}", bot_id, e)
+                            )
+                                .await?;
+                        }
+                    }
                 } else {
                     bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
                         .await?;
@@ -309,8 +334,30 @@ async fn handle_start_state(
                     .unwrap_or_default();
 
                 if let Some(ref bot_id) = ctx.selected_bot_id {
-                    bot.send_message(msg.chat.id, format!("⏹️ Stopping bot {}...", bot_id))
-                        .await?;
+                    let user_id = msg.from()
+                        .map(|user| user.id.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    match deps.set_bot_enabled_usecase.execute(&user_id, bot_id, false).await {
+                        Ok(_) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "⏹️ Bot {} disabled (desired=off). \
+                                    The supervisor will not restart it.",
+                                    bot_id
+                                )
+                            )
+                                .await?;
+                        }
+                        Err(e) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("❌ Failed to disable bot {}:\n\n{}", bot_id, e)
+                            )
+                                .await?;
+                        }
+                    }
                 } else {
                     bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
                         .await?;

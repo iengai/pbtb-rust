@@ -1,7 +1,6 @@
 // Rust
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
-use super::types;
 
 pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
     KeyboardMarkup::new(vec![
