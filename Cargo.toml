@@ -20,9 +20,12 @@ lambda_runtime = "1.0.1"
 aws_lambda_events = "1.0.1"
 aws-sdk-ecs = "1.108.0"
 tracing = "0.1.41"
+thiserror = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
+testcontainers = "0.24"
+aws-credential-types = "1"
 
 [profile.release]
 lto = "fat"
