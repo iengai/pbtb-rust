@@ -1,6 +1,6 @@
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
-use serde_json::{json, Value};
+use serde_json::json;
 use crate::domain::Bot;
 
 pub struct S3ApiKeyRepository {
