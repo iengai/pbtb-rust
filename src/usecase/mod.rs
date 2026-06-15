@@ -7,6 +7,9 @@ mod get_bot_config;
 mod update_bot_config;
 mod update_risklevel;
 mod run_task;
+mod reconcile_stopped_task;
+mod get_bot_runtime;
+mod set_bot_enabled;
 
 pub use add_bot::AddBotUseCase;
 pub use list_bots::ListBotsUseCase;
@@ -17,3 +20,6 @@ pub use get_bot_config::GetBotConfigUseCase;
 pub use update_bot_config::UpdateBotConfigUseCase;
 pub use update_risklevel::UpdateRiskLevelUseCase;
 pub use run_task::RunTaskUseCase;
+pub use reconcile_stopped_task::{ReconcileStoppedTaskUseCase, StopInfo, ReconcileOutcome};
+pub use get_bot_runtime::GetBotRuntimeUseCase;
+pub use set_bot_enabled::SetBotEnabledUseCase;
