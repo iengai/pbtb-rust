@@ -259,6 +259,11 @@ impl BotConfig {
     /// bumps `updated_at`.
     pub fn apply_risk_level(&mut self, risk: &RiskLevel, now: i64) -> Result<(), DomainError> {
         self.set_risk_level(risk)?;
+        // Derived leverage = max(long, short) + 1.0. For any valid RiskLevel
+        // (both in [0.0, 10.0]) this lands in [1.0, 11.0], which is inside
+        // Leverage's allowed [1.0, 125.0] range, so the `?` below cannot fail
+        // today. This couples the two value objects' ranges implicitly: if the
+        // RiskLevel range is widened, revisit whether this can overflow Leverage.
         let leverage = Leverage::uniform(risk.long.max(risk.short) + 1.0)?;
         self.set_leverage(&leverage)?;
         self.updated_at = now;
