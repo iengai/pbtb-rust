@@ -8,4 +8,6 @@ pub enum DomainError {
     MissingConfigPath(&'static str),
     #[error("invalid config: {0}")]
     InvalidConfig(String),
+    #[error("repository error: {0}")]
+    Repository(String),
 }

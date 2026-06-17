@@ -124,8 +124,8 @@ impl BotECSTaskMetadata {
                 .and_then(|v| v.as_s().ok())
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            updated_at: item.get("task_updated_at")?.as_n().ok()?.parse().ok()?,
-            task_current_version: item.get("task_current_version")?.as_n().ok()?.parse().ok()?,
+            updated_at: item.get("task_updated_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse().ok()).unwrap_or(0),
+            task_current_version: item.get("task_current_version").and_then(|v| v.as_n().ok()).and_then(|s| s.parse().ok()).unwrap_or(0),
         })
     }
 
@@ -188,7 +188,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
             .send()
             .await
-            .map_err(|e| DomainError::InvalidConfig(format!("DynamoDB get_item failed: {e}")))?;
+            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -205,7 +205,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .set_item(Some(metadata.to_item()))
             .send()
             .await
-            .map_err(|e| DomainError::InvalidConfig(format!("DynamoDB put_item failed: {e}")))?;
+            .map_err(|e| DomainError::Repository(format!("DynamoDB put_item failed: {e}")))?;
 
         Ok(())
     }
@@ -240,7 +240,7 @@ impl BotRepository for DynamoBotRepository {
             .set_item(Some(item))
             .send()
             .await
-            .map_err(|e| DomainError::InvalidConfig(format!("DynamoDB put_item failed: {e}")))?;
+            .map_err(|e| DomainError::Repository(format!("DynamoDB put_item failed: {e}")))?;
 
         Ok(())
     }
@@ -265,7 +265,7 @@ impl BotRepository for DynamoBotRepository {
                     .collect()
             }
             Err(e) => {
-                eprintln!("DynamoDB query error: {:?}", e);
+                tracing::error!("DynamoDB query error: {:?}", e);
                 Vec::new()
             }
         }

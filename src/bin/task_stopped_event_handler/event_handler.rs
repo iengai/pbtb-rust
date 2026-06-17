@@ -127,11 +127,11 @@ pub(crate) async fn function_handler(
         tracing::info!("overrides is missing; cannot extract USER_ID/BOT_ID");
     }
 
-    // check user_id/bot_id
-    if user_id.is_none() || bot_id.is_none() {
+    // check user_id/bot_id — bind to &str so we never unwrap later
+    let (Some(user_id), Some(bot_id)) = (user_id.as_deref(), bot_id.as_deref()) else {
         tracing::warn!("Missing USER_ID/BOT_ID in overrides; skip processing. taskArn={}", task_arn);
         return Ok(());
-    }
+    };
 
     // 4) check exit code
     let container = match detail.containers.as_ref().and_then(|v| v.first()) {
@@ -161,8 +161,8 @@ pub(crate) async fn function_handler(
     let outcome = state
         .reconcile
         .execute(
-            user_id.as_deref().unwrap(),
-            bot_id.as_deref().unwrap(),
+            user_id,
+            bot_id,
             &cfg.ecs.cluster_arn,
             &cfg.ecs.td_passivbot_v741_arn,
             &cfg.ecs.td_passivbot_v741_container_name,
