@@ -6,7 +6,7 @@ pub mod exchange;
 pub mod error;
 pub mod runtime;
 
-pub use bot::{Bot, BotRepository};
+pub use bot::{Bot, BotRepository, ApiKeyRepository};
 pub use clock::SystemClock;
 pub use botconfig::RiskLevel;
 pub use configtemplate::ConfigTemplate;

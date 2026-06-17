@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
     let template_repository = Arc::new(S3TemplateRepository::new(s3_client.clone(), bucket_name.clone()));
     let bot_config_repository = Arc::new(S3BotConfigRepository::new(s3_client.clone(), bucket_name.clone()));
     let api_keys_repository = Arc::new(S3ApiKeyRepository::new(s3_client, bucket_name));
+    // Use cases depend on the domain ApiKeyRepository port, not the concrete infra impl.
+    let api_keys_repo: Arc<dyn domain::ApiKeyRepository> = api_keys_repository.clone();
 
     // Create clock
     let clock = Arc::new(SystemClock);
@@ -44,12 +46,12 @@ async fn main() -> anyhow::Result<()> {
     let list_bots_usecase = Arc::new(ListBotsUseCase::new(bot_repository.clone()));
     let add_bot_usecase = Arc::new(AddBotUseCase::new(
         bot_repository.clone(),
-        api_keys_repository.clone(),
+        api_keys_repo.clone(),
         clock.clone(),
     ));
     let delete_bot_usecase = Arc::new(DeleteBotUseCase::new(
         bot_repository.clone(),
-        api_keys_repository.clone(),
+        api_keys_repo.clone(),
     ));
 
     // Create use cases - Template management

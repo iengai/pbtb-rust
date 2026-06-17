@@ -1,5 +1,13 @@
 use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
 use aws_sdk_ecs::types::{ContainerOverride, KeyValuePair, PropagateTags, TaskOverride};
+
+/// Port for starting an ECS task. Lets the reconcile use case depend on an
+/// abstraction (testable with a mock) rather than the concrete RunTaskUseCase.
+#[async_trait]
+pub trait TaskRunner: Send + Sync {
+    async fn run(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str) -> Result<String>;
+}
 
 pub struct RunTaskUseCase {
     ecs_client: aws_sdk_ecs::Client,
@@ -62,5 +70,12 @@ impl RunTaskUseCase {
             .to_string();
 
         Ok(task_id)
+    }
+}
+
+#[async_trait]
+impl TaskRunner for RunTaskUseCase {
+    async fn run(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str) -> Result<String> {
+        self.execute(user_id, bot_id, cluster_arn, td_arn, container_name).await
     }
 }

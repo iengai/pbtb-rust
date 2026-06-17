@@ -85,6 +85,14 @@ pub trait BotRepository: Send + Sync {
     async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;
 }
 
+/// Domain port for persisting a bot's exchange API keys (e.g. to object
+/// storage). Use cases depend on this abstraction, not the concrete infra impl.
+#[async_trait]
+pub trait ApiKeyRepository: Send + Sync {
+    async fn save(&self, bot: &Bot) -> Result<(), String>;
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

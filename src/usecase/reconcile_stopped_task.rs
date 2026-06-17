@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::domain::bot::BotRepository;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository};
 use crate::domain::clock::Clock;
-use crate::usecase::run_task::RunTaskUseCase;
+use crate::usecase::run_task::TaskRunner;
 
 /// Why a task stopped (parsed from the ECS event by the Lambda).
 pub struct StopInfo { pub exit_code: i32, pub stop_code: String }
@@ -24,24 +24,31 @@ pub enum ReconcileOutcome {
 pub struct ReconcileStoppedTaskUseCase {
     bots: Arc<dyn BotRepository>,
     runtimes: Arc<dyn BotRuntimeRepository>,
-    run_task: Arc<RunTaskUseCase>,
+    run_task: Arc<dyn TaskRunner>,
     clock: Arc<dyn Clock>,
 }
 
 impl ReconcileStoppedTaskUseCase {
-    pub fn new(bots: Arc<dyn BotRepository>, runtimes: Arc<dyn BotRuntimeRepository>, run_task: Arc<RunTaskUseCase>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(bots: Arc<dyn BotRepository>, runtimes: Arc<dyn BotRuntimeRepository>, run_task: Arc<dyn TaskRunner>, clock: Arc<dyn Clock>) -> Self {
         Self { bots, runtimes, run_task, clock }
     }
 
     pub async fn execute(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str, stop: StopInfo) -> Result<ReconcileOutcome> {
         let now = self.clock.now();
-        let bot = match self.bots.find(user_id, bot_id).await {
-            Some(b) => b,
-            None => return Ok(ReconcileOutcome::BotNotFound),
-        };
+        // Compute prev_version up front: it does not depend on the bot, and we
+        // need it on the bot-not-found path to record a stopped runtime.
         let prev_version = self.runtimes.find(user_id, bot_id).await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?
             .map(|r| r.version).unwrap_or(0);
+
+        let bot = match self.bots.find(user_id, bot_id).await {
+            Some(b) => b,
+            None => {
+                // A bot that no longer exists must not be left showing Running.
+                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await;
+                return Ok(ReconcileOutcome::BotNotFound);
+            }
+        };
 
         // Desired state OFF (user manually stopped) -> reflect stopped, never restart. THIS is the rule the old Lambda was missing.
         if !bot.enabled {
@@ -54,7 +61,14 @@ impl ReconcileStoppedTaskUseCase {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             return Ok(ReconcileOutcome::SkippedNotMemoryRelated);
         }
-        let task_id = self.run_task.execute(user_id, bot_id, cluster_arn, td_arn, container_name).await?;
+        let task_id = match self.run_task.run(user_id, bot_id, cluster_arn, td_arn, container_name).await {
+            Ok(id) => id,
+            Err(e) => {
+                // A failed restart must record stopped, not leave the previous Running.
+                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await;
+                return Err(e);
+            }
+        };
         self.runtimes.record(&BotRuntime::running(user_id.to_string(), bot_id.to_string(), task_id.clone(), prev_version + 1, now)).await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         Ok(ReconcileOutcome::Restarted { task_id })
@@ -65,6 +79,7 @@ impl ReconcileStoppedTaskUseCase {
 mod tests {
     use super::*;
     use crate::domain::runtime::RuntimePhase;
+    use crate::usecase::run_task::RunTaskUseCase;
 
     #[test]
     fn memory_related_when_137_and_not_user_initiated() {
@@ -256,7 +271,7 @@ mod tests {
         let bots = Arc::new(InMemoryBots::default());
         let runtimes = Arc::new(InMemoryRuntimes::default());
         let run_task = Arc::new(RunTaskUseCase::new(dummy_ecs_client()));
-        let uc = ReconcileStoppedTaskUseCase::new(bots, runtimes, run_task, Arc::new(FixedClock));
+        let uc = ReconcileStoppedTaskUseCase::new(bots, runtimes.clone(), run_task, Arc::new(FixedClock));
 
         let outcome = uc
             .execute(
@@ -270,10 +285,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(outcome, ReconcileOutcome::BotNotFound);
+
+        // A bot that no longer exists must be recorded as stopped, not left Running.
+        let rt = runtimes.find("user-1", "ghost").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopped);
     }
 
-    // The Restarted path requires a real ECS run_task call (RunTaskUseCase holds a
-    // concrete aws_sdk_ecs::Client, not a trait), so it cannot be cleanly faked
-    // without a live/mock ECS endpoint. It is covered by the integration layer,
-    // not here. Intentionally skipped.
+    /// Mock TaskRunner that returns a fixed task id and counts invocations.
+    struct MockTaskRunner {
+        task_id: String,
+        calls: Mutex<usize>,
+    }
+    impl MockTaskRunner {
+        fn new(task_id: &str) -> Self {
+            Self { task_id: task_id.to_string(), calls: Mutex::new(0) }
+        }
+        fn call_count(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
+    }
+    #[async_trait]
+    impl crate::usecase::run_task::TaskRunner for MockTaskRunner {
+        async fn run(&self, _user_id: &str, _bot_id: &str, _cluster_arn: &str, _td_arn: &str, _container_name: &str) -> Result<String> {
+            *self.calls.lock().unwrap() += 1;
+            Ok(self.task_id.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn enabled_bot_oom_restarts_and_records_running() {
+        let bots = Arc::new(InMemoryBots::with(enabled_bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        // Seed a prior runtime so prev_version is known (running at version 5).
+        runtimes
+            .record(&BotRuntime::running(
+                "user-1".to_string(),
+                "bot-1".to_string(),
+                "old-task".to_string(),
+                5,
+                1_699_999_000,
+            ))
+            .await
+            .unwrap();
+
+        let runner = Arc::new(MockTaskRunner::new("task-xyz"));
+        let uc = ReconcileStoppedTaskUseCase::new(
+            bots,
+            runtimes.clone(),
+            runner.clone(),
+            Arc::new(FixedClock),
+        );
+
+        // OOM stop: exit 137, not UserInitiated.
+        let outcome = uc
+            .execute(
+                "user-1",
+                "bot-1",
+                "cluster",
+                "td",
+                "container",
+                StopInfo { exit_code: 137, stop_code: "TaskFailedToStart".to_string() },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, ReconcileOutcome::Restarted { task_id: "task-xyz".to_string() });
+        assert_eq!(runner.call_count(), 1, "task runner invoked exactly once");
+
+        let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Running);
+        assert_eq!(rt.task_id, Some("task-xyz".to_string()));
+        assert_eq!(rt.version, 6, "version bumped to prev + 1");
+        assert_eq!(rt.observed_at, 1_700_000_000);
+    }
 }

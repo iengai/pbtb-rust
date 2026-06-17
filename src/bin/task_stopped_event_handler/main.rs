@@ -9,7 +9,7 @@ use pbtb_rust::domain::clock::SystemClock;
 use pbtb_rust::domain::runtime::BotRuntimeRepository;
 use pbtb_rust::infra::client::{create_ecs_client, create_dynamodb_client};
 use pbtb_rust::infra::DynamoBotRepository;
-use pbtb_rust::usecase::{ReconcileStoppedTaskUseCase, RunTaskUseCase};
+use pbtb_rust::usecase::{ReconcileStoppedTaskUseCase, RunTaskUseCase, TaskRunner};
 use crate::config::TaskStoppedConfig;
 
 mod event_handler;
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Error> {
     let runtimes: Arc<dyn BotRuntimeRepository> = repo.clone();
 
     let clock = Arc::new(SystemClock);
-    let run_task = Arc::new(RunTaskUseCase::new(ecs_client));
+    let run_task: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client));
     let reconcile = Arc::new(ReconcileStoppedTaskUseCase::new(
         bots,
         runtimes,
