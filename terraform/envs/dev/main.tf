@@ -7,14 +7,17 @@ terraform {
     }
   }
 
-  # 可选但推荐：使用S3后端远程存储状态文件，便于团队协作
-  # 在首次初始化前，你需要先手动创建这个S3存储桶和DynamoDB表。
-  # backend "s3" {
-  #   bucket = "pbtb-rust-dev-tfstate" # 请替换为全局唯一的桶名
-  #   key    = "/network/terraform.tfstate"
-  #   region = "ap-northeast-1"
-  #   dynamodb_table = "${var.env}-terraform-state-lock" # 用于状态锁，防止并发操作冲突
-  # }
+  # 远程状态存储：S3 后端（桶手工创建，不纳入本配置管理）
+  # 使用 S3 原生锁 (use_lockfile)，无需 DynamoDB 锁表。
+  # 注意：backend 块不支持变量插值，所有值必须写死。
+  backend "s3" {
+    bucket       = "pbtb-rust-tfstate-025418542265"
+    key          = "envs/dev/terraform.tfstate"
+    region       = "ap-northeast-1"
+    profile      = "dev"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 provider "aws" {
