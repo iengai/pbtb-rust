@@ -1,16 +1,15 @@
 use std::sync::Arc;
-use crate::domain::bot::BotRepository;
-use crate::infra::apikeyrepository::S3ApiKeyRepository;
+use crate::domain::bot::{BotRepository, ApiKeyRepository};
 
 pub struct DeleteBotUseCase {
     bot_repository: Arc<dyn BotRepository + Send + Sync>,
-    api_keys_repository: Arc<S3ApiKeyRepository>,
+    api_keys_repository: Arc<dyn ApiKeyRepository>,
 }
 
 impl DeleteBotUseCase {
     pub fn new(
         bot_repository: Arc<dyn BotRepository + Send + Sync>,
-        api_keys_repository: Arc<S3ApiKeyRepository>,
+        api_keys_repository: Arc<dyn ApiKeyRepository>,
     ) -> Self {
         Self {
             bot_repository,

@@ -1,18 +1,17 @@
 use std::sync::Arc;
-use crate::domain::bot::{Bot, BotRepository};
+use crate::domain::bot::{Bot, BotRepository, ApiKeyRepository};
 use crate::domain::clock::Clock;
-use crate::infra::apikeyrepository::S3ApiKeyRepository;
 
 pub struct AddBotUseCase {
     bot_repository: Arc<dyn BotRepository + Send + Sync>,
-    api_keys_repository: Arc<S3ApiKeyRepository>,
+    api_keys_repository: Arc<dyn ApiKeyRepository>,
     clock: Arc<dyn Clock>,
 }
 
 impl AddBotUseCase {
     pub fn new(
         bot_repository: Arc<dyn BotRepository + Send + Sync>,
-        api_keys_repository: Arc<S3ApiKeyRepository>,
+        api_keys_repository: Arc<dyn ApiKeyRepository>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
@@ -94,43 +93,52 @@ mod tests {
         }
     }
 
-    /// Build an S3 client pointed at an unreachable endpoint. AddBotUseCase
-    /// depends on the *concrete* S3ApiKeyRepository (not a trait), so we cannot
-    /// mock the S3 call. The DynamoDB save happens BEFORE the S3 save, so we
-    /// drive execute(), let the S3 step fail, and assert the bot was persisted
-    /// to the in-memory bot repo with the correct construction policy.
-    fn unreachable_s3_repo() -> S3ApiKeyRepository {
-        let creds = aws_sdk_s3::config::Credentials::new("test", "test", None, None, "pbtb-tests");
-        let conf = aws_sdk_s3::config::Builder::new()
-            .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
-            .region(aws_sdk_s3::config::Region::new("us-east-1"))
-            .endpoint_url("http://127.0.0.1:1")
-            .force_path_style(true)
-            .credentials_provider(creds)
-            .build();
-        let client = aws_sdk_s3::Client::from_conf(conf);
-        S3ApiKeyRepository::new(client, "test-bucket".to_string())
+    /// In-memory ApiKeyRepository whose save/delete always succeed, capturing
+    /// the last saved bot so the test can exercise the full success path.
+    #[derive(Default)]
+    struct MockApiKeyRepository {
+        saved: Mutex<Option<Bot>>,
+    }
+    #[async_trait]
+    impl ApiKeyRepository for MockApiKeyRepository {
+        async fn save(&self, bot: &Bot) -> Result<(), String> {
+            *self.saved.lock().unwrap() = Some(bot.clone());
+            Ok(())
+        }
+        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     #[tokio::test]
     async fn add_bot_saves_disabled_bot_with_id_equal_to_name() {
         let bots = Arc::new(InMemoryBots::default());
-        let s3 = Arc::new(unreachable_s3_repo());
-        let uc = AddBotUseCase::new(bots.clone(), s3, Arc::new(FixedClock));
+        let api_keys = Arc::new(MockApiKeyRepository::default());
+        let uc = AddBotUseCase::new(bots.clone(), api_keys.clone(), Arc::new(FixedClock));
 
-        // The S3 step is expected to fail (unreachable endpoint), but the
-        // DynamoDB save runs first, so the bot must already be persisted.
-        let _ = uc
+        // Full success path: both DynamoDB and S3 saves succeed.
+        let bot = uc
             .execute("user-1", "my-bot".to_string(), "ak".to_string(), "sk".to_string())
-            .await;
+            .await
+            .expect("execute succeeds when both repos succeed");
 
-        let saved = bots.get("user-1", "my-bot").expect("bot saved before S3 step");
-        assert_eq!(saved.id, "my-bot", "id is derived from name");
-        assert_eq!(saved.name, "my-bot");
-        assert_eq!(saved.user_id, "user-1");
-        assert!(!saved.enabled, "new bots start disabled");
-        assert_eq!(saved.exchange, Exchange::Bybit);
-        assert_eq!(saved.created_at, 1_700_000_000);
-        assert_eq!(saved.updated_at, 1_700_000_000);
+        // Returned bot reflects the construction policy.
+        assert_eq!(bot.id, "my-bot", "id is derived from name");
+        assert_eq!(bot.name, "my-bot");
+        assert_eq!(bot.user_id, "user-1");
+        assert!(!bot.enabled, "new bots start disabled");
+        assert_eq!(bot.exchange, Exchange::Bybit);
+        assert_eq!(bot.created_at, 1_700_000_000);
+        assert_eq!(bot.updated_at, 1_700_000_000);
+
+        // The bot was persisted to the bot repo.
+        let saved = bots.get("user-1", "my-bot").expect("bot saved to bot repo");
+        assert_eq!(saved.id, "my-bot");
+        assert!(!saved.enabled);
+
+        // The api keys repo received the same bot.
+        let api_saved = api_keys.saved.lock().unwrap().clone().expect("api keys saved");
+        assert_eq!(api_saved.id, "my-bot");
+        assert_eq!(api_saved.exchange, Exchange::Bybit);
     }
 }
