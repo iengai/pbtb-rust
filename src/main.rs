@@ -36,6 +36,8 @@ async fn main() -> anyhow::Result<()> {
     let template_repository = Arc::new(S3TemplateRepository::new(s3_client.clone(), bucket_name.clone()));
     let bot_config_repository = Arc::new(S3BotConfigRepository::new(s3_client.clone(), bucket_name.clone()));
     let api_keys_repository = Arc::new(S3ApiKeyRepository::new(s3_client, bucket_name));
+    // Use cases depend on the domain ApiKeyRepository port, not the concrete infra impl.
+    let api_keys_repo: Arc<dyn domain::ApiKeyRepository> = api_keys_repository.clone();
 
     // Create clock
     let clock = Arc::new(SystemClock);
@@ -44,12 +46,12 @@ async fn main() -> anyhow::Result<()> {
     let list_bots_usecase = Arc::new(ListBotsUseCase::new(bot_repository.clone()));
     let add_bot_usecase = Arc::new(AddBotUseCase::new(
         bot_repository.clone(),
-        api_keys_repository.clone(),
+        api_keys_repo.clone(),
         clock.clone(),
     ));
     let delete_bot_usecase = Arc::new(DeleteBotUseCase::new(
         bot_repository.clone(),
-        api_keys_repository.clone(),
+        api_keys_repo.clone(),
     ));
 
     // Create use cases - Template management
@@ -71,6 +73,14 @@ async fn main() -> anyhow::Result<()> {
         clock.clone(),
     ));
 
+    // Create use cases - Runtime / desired-state management
+    // DynamoBotRepository implements both BotRepository and BotRuntimeRepository,
+    // so coerce the same Arc into each trait object the use cases expect.
+    let bots_dyn: Arc<dyn domain::BotRepository> = bot_repository.clone();
+    let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = bot_repository.clone();
+    let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn));
+    let set_bot_enabled_usecase = Arc::new(SetBotEnabledUseCase::new(bots_dyn, clock.clone()));
+
     // Construct dependencies
     let deps = interface::telegram::Deps {
         // Bot management
@@ -84,6 +94,9 @@ async fn main() -> anyhow::Result<()> {
         get_bot_config_usecase,
         update_bot_config_usecase,
         update_risk_level_usecase,
+        // Runtime / desired-state management
+        get_bot_runtime_usecase,
+        set_bot_enabled_usecase,
     };
 
     interface::telegram::router::run(bot, deps).await

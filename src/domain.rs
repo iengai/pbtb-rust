@@ -3,8 +3,11 @@ pub mod clock;
 pub mod botconfig;
 pub mod configtemplate;
 pub mod exchange;
+pub mod error;
+pub mod runtime;
 
-pub use bot::{Bot, BotRepository};
-pub use clock::{Clock, SystemClock};
-pub use botconfig::{BotConfig, BotConfigRepository, RiskLevel};
-pub use configtemplate::{ConfigTemplate, ConfigTemplateRepository};
+pub use bot::{Bot, BotRepository, ApiKeyRepository};
+pub use clock::SystemClock;
+pub use botconfig::RiskLevel;
+pub use configtemplate::ConfigTemplate;
+pub use runtime::{RuntimePhase, BotRuntimeRepository};

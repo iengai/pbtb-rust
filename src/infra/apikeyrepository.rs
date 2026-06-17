@@ -1,7 +1,9 @@
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
-use serde_json::{json, Value};
+use async_trait::async_trait;
+use serde_json::json;
 use crate::domain::Bot;
+use crate::domain::bot::ApiKeyRepository;
 
 pub struct S3ApiKeyRepository {
     client: Client,
@@ -58,5 +60,16 @@ impl S3ApiKeyRepository {
             .map_err(|e| format!("Failed to delete bot config from S3: {:?}", e))?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ApiKeyRepository for S3ApiKeyRepository {
+    async fn save(&self, bot: &Bot) -> Result<(), String> {
+        S3ApiKeyRepository::save(self, bot).await
+    }
+
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        S3ApiKeyRepository::delete(self, user_id, bot_id).await
     }
 }

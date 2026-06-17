@@ -1,4 +1,3 @@
-use teloxide::prelude::*;
 
 #[derive(Clone, Default)]
 pub enum DialogueState {

@@ -2,7 +2,7 @@
 use teloxide::prelude::*;
 use teloxide::types::CallbackQuery;
 use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
-use super::{types, views, Deps, keyboards, states::{DialogueState, BotContext}};
+use super::{types, Deps, states::{DialogueState, BotContext}};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;

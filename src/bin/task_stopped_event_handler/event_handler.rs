@@ -4,6 +4,7 @@ use aws_lambda_events::event::eventbridge::EventBridgeEvent;
 use lambda_runtime::{tracing, Error, LambdaEvent};
 use serde::Deserialize;
 use serde_json::Value;
+use pbtb_rust::usecase::{ReconcileOutcome, StopInfo};
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -126,11 +127,11 @@ pub(crate) async fn function_handler(
         tracing::info!("overrides is missing; cannot extract USER_ID/BOT_ID");
     }
 
-    // check user_id/bot_id
-    if user_id.is_none() || bot_id.is_none() {
+    // check user_id/bot_id — bind to &str so we never unwrap later
+    let (Some(user_id), Some(bot_id)) = (user_id.as_deref(), bot_id.as_deref()) else {
         tracing::warn!("Missing USER_ID/BOT_ID in overrides; skip processing. taskArn={}", task_arn);
         return Ok(());
-    }
+    };
 
     // 4) check exit code
     let container = match detail.containers.as_ref().and_then(|v| v.first()) {
@@ -151,47 +152,51 @@ pub(crate) async fn function_handler(
         stop_code
     );
 
-    // if not due to memory-related, skip
-    if !is_memory_related_stop(
-        exit,
-        stop_code
-    ) {
-        tracing::warn!(
+    // Delegate the restart-or-skip decision to the reconcile use case. It checks
+    // desired state (Bot.enabled), the memory-related rule, records observed
+    // runtime, and (re)starts the task when appropriate.
+    let cfg = &state.configs;
+    let stop = StopInfo { exit_code: exit, stop_code: stop_code.to_string() };
+
+    let outcome = state
+        .reconcile
+        .execute(
+            user_id,
+            bot_id,
+            &cfg.ecs.cluster_arn,
+            &cfg.ecs.td_passivbot_v741_arn,
+            &cfg.ecs.td_passivbot_v741_container_name,
+            stop,
+        )
+        .await
+        .map_err(|e| Error::from(format!("Failed to reconcile stopped task: {e:#}")))?;
+
+    match outcome {
+        ReconcileOutcome::Restarted { task_id } => {
+            tracing::info!("Started replacement task_id={}", task_id);
+        }
+        ReconcileOutcome::SkippedNotEnabled => {
+            tracing::warn!(
+                "Bot desired state is OFF; not restarting. taskArn={}",
+                task_arn
+            );
+        }
+        ReconcileOutcome::SkippedNotMemoryRelated => {
+            tracing::warn!(
                 "Task did not exit due to a memory-related reason; skipping restart. taskArn={}",
                 task_arn
             );
-        return Ok(());
+        }
+        ReconcileOutcome::BotNotFound => {
+            tracing::warn!(
+                "Bot not found for user_id={:?}, bot_id={:?}; skipping restart. taskArn={}",
+                user_id,
+                bot_id,
+                task_arn
+            );
+        }
     }
-
-    let new_task_id = state
-        .run_task
-        .execute(
-            user_id.as_deref().unwrap(),
-            bot_id.as_deref().unwrap(),
-            &state.configs.ecs.cluster_arn,
-            &state.configs.ecs.td_passivbot_v741_arn,
-            &state.configs.ecs.td_passivbot_v741_container_name,
-        )
-        .await
-        .map_err(|e| Error::from(format!("Failed to run task: {e:#}")))?;
-
-    tracing::warn!("Started replacement task_id={}", new_task_id);
 
     Ok(())
-}
-
-fn is_memory_related_stop(
-    exit_code: i32,
-    stopped_code: &str,
-) -> bool {
-    // OOM kill / SIGKILL check
-    if exit_code != 137 {
-        return false;
-    }
-
-    if stopped_code.contains("UserInitiated") {
-        return false
-    }
-    true
 }
 
