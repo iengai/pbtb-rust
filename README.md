@@ -236,7 +236,7 @@ This project includes a .devcontainer setup that provides a consistent Rust deve
 
 - Entry file: `.devcontainer/devcontainer.json`
 - Dependent services: `.devcontainer/docker-compose.yaml` (contains `dynamodb-local` and `app-node`)
-- Build image: `.devcontainer/Dockerfile` (used for production runtime image; the Dev Container installs the Rust toolchain on top)
+- Build image: `.devcontainer/Dockerfile` (multi-stage — a `builder`/`runtime` pair for the production image, plus a lightweight `devcontainer` stage that the Dev Container builds via `target: devcontainer`; the Rust toolchain is then installed on top by the `rust` feature)
 
 ### How to open
 
@@ -265,13 +265,13 @@ This project includes a .devcontainer setup that provides a consistent Rust deve
 ### Configuration and networking
 
 - The app connects to DynamoDB Local via service name in the compose network: `http://dynamodb-local:8000`
-- The same endpoint is also exposed as an env var in devcontainer.json: `APP__DYNAMODB__ENDPOINT_URL`
-- Named volumes are used via `mounts` to cache Cargo registry/git and speed up builds
+- The same endpoint is injected as an env var on the `app-node` service in `docker-compose.yaml`: `APP__DYNAMODB__ENDPOINT_URL`
+- Named volumes (declared in `docker-compose.yaml` with explicit names) cache the Cargo registry/git and the build target to speed up builds
 - `remoteUser: vscode` avoids host file permission issues (created by the common-utils feature)
 
 ### Best practices
 
-- Cache Cargo data in named volumes: devcontainer.json configures `/home/vscode/.cargo/registry` and `/home/vscode/.cargo/git`, significantly speeding up rebuilds.
+- Cache Cargo data in named volumes: `docker-compose.yaml` mounts `/usr/local/cargo/registry`, `/usr/local/cargo/git`, and the build target `/app/target` (matching `CARGO_HOME=/usr/local/cargo` set in `devcontainer.json`), significantly speeding up rebuilds.
 - Avoid writing as root: `remoteUser: vscode` keeps UID/GID consistent with the host and reduces permission issues.
 - Bind mount only the source: workspace `/app` is bound to host code to avoid rebuilding the image unnecessarily.
 - Use the same compose network for dependencies: containers communicate by service name (e.g., `dynamodb-local`).
@@ -281,9 +281,9 @@ This project includes a .devcontainer setup that provides a consistent Rust deve
 
 ### Troubleshooting
 
-- Slow builds: verify named volumes are created (`docker volume ls` shows devcontainer-cargo-*) and your network/proxy is configured properly.
+- Slow builds: verify named volumes are created (`docker volume ls` shows `pbtb-rust-cargo-*`) and your network/proxy is configured properly.
 - Permission issues: ensure the container user is `vscode` (`whoami`) and check host file permissions; recreate the container if needed.
-- Cannot reach DynamoDB Local: check container network and port usage, or access it from the host at `http://localhost:8000`; for data migration, see the `docker/dynamodb` directory.
+- Cannot reach DynamoDB Local: check container network and port usage, or access it from the host at `http://localhost:8000`; for data migration, see the `.devcontainer/docker/dynamodb` directory.
 
 ## Without Dev Containers (Optional)
 
@@ -320,6 +320,10 @@ region = "us-east-1"
 bucket_name = "local-bot-configs"
 ```
 
+> Notes:
+> - `config/default.toml` ships **without** a DynamoDB `endpoint_url`, so by default the app targets real AWS. The local endpoints above are an override you set in `config/local.toml` or via `APP__*` env vars.
+> - Hostnames are context-dependent: **inside the Dev Container** use the compose service name (`http://dynamodb-local:8000`, already injected as `APP__DYNAMODB__ENDPOINT_URL`); **from the host** use `http://localhost:8000`.
+
 ### Environment Variables
 
 | Variable | Description |
@@ -347,13 +351,17 @@ The `terraform/` directory contains infrastructure as code for deploying to AWS:
 - **network** - VPC, subnets (public/private), NAT gateway, security groups
 - **ecs** - ECS cluster with EC2 capacity provider (ARM64 `t4g.medium` instances)
 - **s3** - Bot configuration bucket with encryption and versioning
+- **dynamodb** - `bots` table
+- **lambda** - `task_stopped_event_handler` (ECS task reconciliation) plus its IAM/EventBridge wiring
 - **task-definitions** - ECS task definitions for Passivbot containers
 
 ### Deployment
 
+State is stored in an **S3 backend with native S3 locking** (see the `backend "s3"` block in `terraform/envs/dev/main.tf`). The state bucket and the `dev` AWS profile must already exist before the first `terraform init` — the bucket is provisioned out-of-band, not by this configuration.
+
 ```bash
 cd terraform/envs/dev
-terraform init
+terraform init    # configures the S3 backend (no -migrate-state needed on a fresh checkout)
 terraform plan
 terraform apply
 ```
