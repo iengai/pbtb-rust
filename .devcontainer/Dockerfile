@@ -4,34 +4,53 @@ FROM rust:1.89-bullseye AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Configuration: binary name and (optional) workspace package path
+# Which binary to compile and ship. Must name a target in Cargo.toml (the
+# package defines a `pbtb-rust` bin and a `task_stopped_event_handler` bin).
 ARG BIN_NAME=pbtb-rust
-ARG PKG_PATH=.
 
-COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src && echo 'fn main(){}' > src/main.rs
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo build --release --locked
-RUN rm -rf src
+# Copy the whole source tree (.dockerignore keeps out target/, .git, .devcontainer).
 COPY . .
 
-# Explicitly specify the build target (for workspaces, add -p)
+# Build only the shipped binary, then copy it out of the target cache mount.
+#
+# We deliberately do NOT use a "stub every [[bin]] then prefetch deps" trick:
+# it had to be hand-edited for every new bin/lib target (and silently broke the
+# build with "couldn't read <path>" when it wasn't), and — since the stubs
+# `use` nothing — it made cargo recompile the heavy aws-sdk/hyper crates a
+# second time under the real feature set. The BuildKit cache mounts below
+# already persist the cargo registry and the target/ dir across builds, so
+# dependency compilation is cached incrementally from the *real* dependency
+# graph, with no stubs to maintain.
+#
+# target/ is a cache mount (not part of the image), so the freshly built binary
+# is copied into /out/bin/, which the runtime stage then COPYs from.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    sh -euxc '\
-      CARGO=/usr/local/cargo/bin/cargo; \
-      mkdir -p /out/bin; \
-      if [ -n "${PKG_PATH:-}" ]; then \
-        "$CARGO" install --locked --path "${PKG_PATH}" --bin "${BIN_NAME}" --root /out; \
-      else \
-        "$CARGO" install --locked --path . --bin "${BIN_NAME}" --root /out; \
-      fi; \
-      ls -l /out/bin \
-    '
+    cargo build --release --locked --bin "${BIN_NAME}" \
+ && mkdir -p /out/bin \
+ && cp "target/release/${BIN_NAME}" "/out/bin/${BIN_NAME}" \
+ && ls -l /out/bin
+
+######## Devcontainer ########
+# Lightweight image for the dev container: just the OS + build dependencies.
+# The Rust toolchain is installed by the devcontainers "rust" feature, the
+# source is bind-mounted at runtime, and compilation happens inside the running
+# container (into the cargo-target volume) — so we deliberately do NOT compile
+# the project at image-build time here.
+FROM debian:bullseye-slim AS devcontainer
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      pkg-config \
+      libssl-dev \
+      ca-certificates \
+      curl \
+      git \
+      build-essential \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
 ######## Runtime ########
-FROM debian:bullseye-slim
+FROM debian:bullseye-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
