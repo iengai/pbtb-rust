@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# DynamoDB Local ignores the region value, but the AWS CLI still requires one.
+# Provide dummy credentials/region as fallbacks so the CLI never errors with NoRegion.
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-northeast-1}"
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-DUMMYIDEXAMPLE}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-DUMMYEXAMPLEKEY}"
+
 ENDPOINT="${APP__DYNAMODB__ENDPOINT_URL:-http://dynamodb-local:8000}"
 TABLE_DEF_PATH="/app/.devcontainer/infra/bots.json"
 TABLE_NAME="bots"

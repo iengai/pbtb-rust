@@ -1,11 +1,9 @@
 
 /target/
 **/*.rs.bk
-Cargo.lock
 .idea/
 .vscode/
 .DS_Store
-/docker/dynamodb/
 /config/local.toml
 
 .env.local
@@ -13,6 +11,6 @@ Cargo.lock
 /terraform/envs/dev/terraform.tfstate
 /terraform/envs/dev/terraform.tfstate.backup
 /terraform/modules/lambda/.build/
-.devcontainer/docker/dynamodb/shared-local-instance.db
+.devcontainer/docker/dynamodb/
 .claude/settings.local.json
 .claude/worktrees/

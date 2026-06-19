@@ -8,21 +8,45 @@ services:
     volumes:
       - "./docker/dynamodb:/home/dynamodblocal/data"
     working_dir: /home/dynamodblocal
+    # Restart with the machine/Docker so a reboot doesn't leave app-node up but its
+    # DB dependency down (app-node is unless-stopped too).
+    restart: unless-stopped
 
   app-node:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
+      # Build only the lightweight dev stage (no project compilation at image build).
+      target: devcontainer
     container_name: app-node
     depends_on:
       - dynamodb-local
     environment:
+      # Dummy AWS credentials so the SDK/CLI never reach real AWS from the dev container.
+      # All three parts are stubbed so an inherited AWS_SESSION_TOKEN can't complete a
+      # real credential triple. DynamoDB Local ignores the values.
       AWS_ACCESS_KEY_ID: 'DUMMYIDEXAMPLE'
       AWS_SECRET_ACCESS_KEY: 'DUMMYEXAMPLEKEY'
+      AWS_SESSION_TOKEN: 'DUMMYSESSIONTOKEN'
+      AWS_DEFAULT_REGION: 'ap-northeast-1'
+      # Point the application at the local DynamoDB instead of real AWS.
+      APP__DYNAMODB__ENDPOINT_URL: 'http://dynamodb-local:8000'
     # The devcontainer will overrideCommand and run as the vscode user
     # You can add init: true here to avoid orphan processes
     init: true
     restart: unless-stopped
+    # Cargo caches and the build target live on named volumes (native ext4 speed),
+    # NOT on the bind-mounted Windows source — this is what keeps compilation fast.
+    # Explicit volume names below make them launcher/path independent.
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/target
 
 volumes:
-  dynamodb-data:
+  cargo-registry:
+    name: pbtb-rust-cargo-registry
+  cargo-git:
+    name: pbtb-rust-cargo-git
+  cargo-target:
+    name: pbtb-rust-cargo-target
