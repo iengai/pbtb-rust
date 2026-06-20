@@ -325,7 +325,8 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
     assert_eq!(rt.version, 6, "restart counter bumped");
 
     // Duplicate STOPPED(task-1): the id is already cleared, so the claim is refused.
-    assert_eq!(repo.try_acquire_restart(u, b, "task-1", 1101).await.unwrap(), StartClaim::AlreadyStarting);
+    // The restart path only distinguishes Acquired from "nothing to restart".
+    assert_ne!(repo.try_acquire_restart(u, b, "task-1", 1101).await.unwrap(), StartClaim::Acquired);
 
     // The replacement comes up as task-2.
     BotRuntimeRepository::record(&repo, &BotRuntime::running(u.into(), b.into(), "task-2".into(), 6, 1200))
@@ -333,7 +334,7 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
         .unwrap();
 
     // A late STOPPED(task-1) after task-2 is running is rejected — task-1 is no longer current.
-    assert_eq!(repo.try_acquire_restart(u, b, "task-1", 1300).await.unwrap(), StartClaim::AlreadyRunning);
+    assert_ne!(repo.try_acquire_restart(u, b, "task-1", 1300).await.unwrap(), StartClaim::Acquired);
     let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
     assert_eq!(rt.phase, RuntimePhase::Running, "the live task-2 is untouched by the stale event");
     assert_eq!(rt.task_id.as_deref(), Some("task-2"));

@@ -1,11 +1,28 @@
 use std::collections::HashMap;
 use aws_sdk_dynamodb::{Client};
 use aws_sdk_dynamodb::types::AttributeValue;
+use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
 use crate::domain::bot::{Bot, BotRepository};
 use crate::domain::error::DomainError;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use async_trait::async_trait;
 use crate::domain::exchange::Exchange;
+
+/// Collapse a conditional UpdateItem result: `acquired` on success, `contended`
+/// when the condition failed (we lost the race, or it is a benign no-op),
+/// otherwise a repository error.
+fn cas_result<T>(
+    res: Result<UpdateItemOutput, SdkError<UpdateItemError>>,
+    acquired: T,
+    contended: T,
+) -> Result<T, DomainError> {
+    match res {
+        Ok(_) => Ok(acquired),
+        Err(e) if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) => Ok(contended),
+        Err(e) => Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}"))),
+    }
+}
 
 /// Storage model for the infra layer
 pub struct BotItem {
@@ -312,54 +329,23 @@ impl StartLockRepository for DynamoBotRepository {
             .send()
             .await;
 
-        match res {
-            Ok(_) => Ok(StartClaim::Acquired),
-            Err(e) => {
-                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
-                    // Lost the race between the pre-read and the CAS: the row is now
-                    // running or another fresh lock is held. Skipping the launch is correct.
-                    Ok(StartClaim::AlreadyStarting)
-                } else {
-                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
-                }
-            }
-        }
+        // A conditional failure means the row went running, or another fresh lock
+        // was claimed, between the pre-read and the CAS — skipping is correct.
+        cas_result(res, StartClaim::Acquired, StartClaim::AlreadyStarting)
     }
 
     async fn try_acquire_restart(&self, user_id: &str, bot_id: &str, stopped_task_id: &str, now: i64) -> Result<StartClaim, DomainError> {
-        let pk = BotItem::construct_pk(user_id);
-        let sk = BotECSTaskMetadata::construct_sk(bot_id);
-
-        // Pre-read (consistent) only to classify the skip reason for logging.
-        let existing = self.client
-            .get_item()
-            .table_name(&self.table_name)
-            .key("pk", AttributeValue::S(pk.clone()))
-            .key("sk", AttributeValue::S(sk.clone()))
-            .consistent_read(true)
-            .send()
-            .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
-
-        match existing.item().and_then(BotECSTaskMetadata::from_item) {
-            // No row, or the stopped task is no longer the row's current task (a
-            // replacement already exists, or it is already stopped with no id):
-            // nothing to restart.
-            None => return Ok(StartClaim::AlreadyRunning),
-            Some(meta) if meta.task_id != stopped_task_id => {
-                return Ok(if meta.status == "starting" { StartClaim::AlreadyStarting } else { StartClaim::AlreadyRunning });
-            }
-            Some(_) => {}
-        }
-
-        // Authoritative CAS: claim only while the stopped task is still current,
-        // bumping the restart counter. Concurrent/duplicate STOPPED events serialize
-        // per item — the first clears task_id, so the rest fail this condition.
+        // Authoritative CAS, no pre-read: claim only while the stopped task is
+        // still the row's current task, bumping the restart counter. Concurrent or
+        // duplicate STOPPED events serialize per item — the first clears task_id,
+        // so the rest fail the condition. A conditional failure means the stopped
+        // task is no longer current (already replaced/stopped); the caller treats
+        // any non-`Acquired` outcome as "nothing to restart".
         let res = self.client
             .update_item()
             .table_name(&self.table_name)
-            .key("pk", AttributeValue::S(pk))
-            .key("sk", AttributeValue::S(sk))
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
             .update_expression("SET #st = :starting, task_updated_at = :now, task_id = :empty, task_current_version = if_not_exists(task_current_version, :zero) + :one")
             .condition_expression("task_id = :stopped AND (#st = :running OR #st = :starting)")
             .expression_attribute_names("#st", "status")
@@ -373,18 +359,7 @@ impl StartLockRepository for DynamoBotRepository {
             .send()
             .await;
 
-        match res {
-            Ok(_) => Ok(StartClaim::Acquired),
-            Err(e) => {
-                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
-                    // The stopped task stopped being current between the pre-read and
-                    // the CAS (a duplicate event or another launcher won). Skip.
-                    Ok(StartClaim::AlreadyStarting)
-                } else {
-                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
-                }
-            }
-        }
+        cas_result(res, StartClaim::Acquired, StartClaim::AlreadyStarting)
     }
 
     async fn attach_started_task(&self, user_id: &str, bot_id: &str, task_id: &str) -> Result<(), DomainError> {
@@ -405,16 +380,7 @@ impl StartLockRepository for DynamoBotRepository {
             .send()
             .await;
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
-                    Ok(())
-                } else {
-                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
-                }
-            }
-        }
+        cas_result(res, (), ())
     }
 
     async fn release_start(&self, user_id: &str, bot_id: &str, now: i64) -> Result<(), DomainError> {
@@ -435,16 +401,7 @@ impl StartLockRepository for DynamoBotRepository {
             .send()
             .await;
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
-                    Ok(())
-                } else {
-                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
-                }
-            }
-        }
+        cas_result(res, (), ())
     }
 }
 
