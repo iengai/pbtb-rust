@@ -57,30 +57,30 @@ fn extract_user_bot(detail: &EcsTaskStateChangeDetail) -> (Option<String>, Optio
     let mut user_id: Option<String> = None;
     let mut bot_id: Option<String> = None;
 
-    if let Some(first) = detail
+    // Scan EVERY container override, not just the first: a name-only sidecar
+    // override (GuardDuty agent, Service Connect, etc.) can sort ahead of the
+    // env-bearing passivbot one, and `.first()` would then miss USER_ID/BOT_ID.
+    if let Some(container_overrides) = detail
         .overrides
         .as_ref()
         .and_then(|o| o.container_overrides.as_ref())
-        .and_then(|c| c.first())
     {
-        if let Some(envs) = &first.environment {
-            for e in envs {
-                let k = e.name.as_deref().unwrap_or("");
-                let v = e.value.as_deref().unwrap_or("").to_string();
-                match k {
-                    "USER_ID" | "user_id" => user_id = Some(v),
-                    "BOT_ID" | "bot_id" => bot_id = Some(v),
-                    _ => {}
+        for co in container_overrides {
+            if let Some(envs) = &co.environment {
+                for e in envs {
+                    let k = e.name.as_deref().unwrap_or("");
+                    let v = e.value.as_deref().unwrap_or("").to_string();
+                    match k {
+                        "USER_ID" | "user_id" => user_id = Some(v),
+                        "BOT_ID" | "bot_id" => bot_id = Some(v),
+                        _ => {}
+                    }
                 }
             }
         }
-        tracing::info!(
-            "Extracted from overrides: container={:?}, user_id={:?}, bot_id={:?}",
-            first.name,
-            user_id,
-            bot_id
-        );
     }
+
+    tracing::info!("Extracted from overrides: user_id={:?}, bot_id={:?}", user_id, bot_id);
 
     (user_id, bot_id)
 }
@@ -212,6 +212,7 @@ pub(crate) async fn function_handler(
                     &cfg.ecs.td_passivbot_v741_arn,
                     &cfg.ecs.td_passivbot_v741_container_name,
                     stop,
+                    observed_at,
                 )
                 .await
                 .map_err(|e| Error::from(format!("Failed to reconcile stopped task: {e:#}")))?;

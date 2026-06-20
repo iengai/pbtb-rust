@@ -5,7 +5,6 @@ use aws_lambda_events::event::eventbridge::EventBridgeEvent;
 
 use pbtb_rust::config::configs::{load_config};
 use pbtb_rust::domain::bot::BotRepository;
-use pbtb_rust::domain::clock::SystemClock;
 use pbtb_rust::domain::runtime::BotRuntimeRepository;
 use pbtb_rust::infra::client::{create_ecs_client, create_dynamodb_client};
 use pbtb_rust::infra::DynamoBotRepository;
@@ -44,13 +43,11 @@ async fn main() -> Result<(), Error> {
     let runtimes: Arc<dyn BotRuntimeRepository> = repo.clone();
     let runtimes_for_record: Arc<dyn BotRuntimeRepository> = repo.clone();
 
-    let clock = Arc::new(SystemClock);
     let run_task: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client));
     let reconcile = Arc::new(ReconcileStoppedTaskUseCase::new(
         bots,
         runtimes,
         run_task,
-        clock,
     ));
     // Observed-running recorder for the RUNNING branch (counterpart to reconcile).
     let record_running = Arc::new(RecordRunningTaskUseCase::new(runtimes_for_record));

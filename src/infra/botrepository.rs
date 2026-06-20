@@ -199,15 +199,36 @@ impl BotRuntimeRepository for DynamoBotRepository {
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
-        self.client
+        // Monotonic write: apply this observation only if it is at least as new as
+        // what is stored. ECS Task State Change events can arrive out of order or
+        // concurrently (e.g. RUNNING of a replacement racing STOPPED of the old
+        // task), and both the reconcile and record-running paths write this row.
+        // The condition makes the older observation lose at commit time instead of
+        // relying on a non-atomic read-then-write.
+        let result = self.client
             .put_item()
             .table_name(&self.table_name)
             .set_item(Some(metadata.to_item()))
+            .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at")
+            .expression_attribute_values(":observed_at", AttributeValue::N(runtime.observed_at.to_string()))
             .send()
-            .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB put_item failed: {e}")))?;
+            .await;
 
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    // A newer observation already won; dropping this stale/out-of-order event is correct.
+                    tracing::info!(
+                        "runtime write skipped (stale observed_at={}): pk={}, sk={}",
+                        runtime.observed_at, metadata.pk, metadata.sk
+                    );
+                    Ok(())
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB put_item failed: {e}")))
+                }
+            }
+        }
     }
 }
 
