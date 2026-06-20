@@ -37,6 +37,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # source is bind-mounted at runtime, and compilation happens inside the running
 # container (into the cargo-target volume) — so we deliberately do NOT compile
 # the project at image-build time here.
+#
+# cmake/golang-go/nasm build aws-lc-sys (pulled in by the AWS SDK's TLS stack);
+# without them `cargo build`/`test` and the Lambda build fail in the container.
 FROM debian:bullseye-slim AS devcontainer
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -46,6 +49,9 @@ RUN apt-get update \
       curl \
       git \
       build-essential \
+      cmake \
+      golang-go \
+      nasm \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
