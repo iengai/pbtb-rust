@@ -194,7 +194,7 @@ output "telebot_token_ssm_parameter" {
 # GitHub Actions OIDC: build role (push to ECR) + deploy role (re-tag + SSM).
 # Least privilege via the OIDC `sub` claim:
 #   - build  role: only jobs on refs/heads/main
-#   - deploy role: only jobs in the `production` environment (approval-gateable)
+#   - deploy role: only jobs on refs/heads/main (deploy is a manual workflow_dispatch)
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -276,10 +276,8 @@ resource "aws_iam_role" "gh_deploy" {
       Principal = { Federated = local.github_oidc_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
-        StringEquals = {
-          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:production"
-        }
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main" }
       }
     }]
   })

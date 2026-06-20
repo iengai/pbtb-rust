@@ -23,8 +23,6 @@ jobs:
   deploy:
     # No compilation here -> cheapest standard runner is fine.
     runs-on: ubuntu-latest
-    # Optional approval gate: configure required reviewers on this environment.
-    environment: production
     steps:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
