@@ -132,6 +132,11 @@ module "lambda_task_state_change_handler" {
 
   environment_variables = {
     ENV = var.env
+    # The lambda zip ships only the bootstrap (no config/ files), so DynamoDB
+    # config must come from env. Point at the real regional table, not the
+    # placeholder in config/default.toml.
+    APP__DYNAMODB__REGION     = var.region
+    APP__DYNAMODB__TABLE_NAME = module.dynamodb.bots_table_name
   }
 
   ecs_region                  = var.region
@@ -140,6 +145,7 @@ module "lambda_task_state_change_handler" {
   lambda_code_bucket          = module.lambda_code_bucket.bucket_name
   ecs_task_execution_role_arn = module.task_base.task_execution_role_arn
   ecs_task_role_arn           = module.task_base.task_role_arn
+  dynamodb_table_arn          = module.dynamodb.bots_table_arn
 }
 
 module "lambda_code_bucket" {
