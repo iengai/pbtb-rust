@@ -114,6 +114,7 @@ Key env vars: `TELOXIDE_TOKEN`, `RUST_LOG`
 - Domain fallibility uses the `DomainError` enum (`thiserror`), not `Result<_, String>`; the use-case layer still surfaces `String` to the interface
 - Value objects validate on construction: `RiskLevel::new`/`Leverage::new` return `Result`, so any instance is guaranteed in-range
 - Keep business rules inside the entity. `BotConfig` owns its invariants: `apply_risk_level` sets the risk and derives leverage (`= max(long, short) + 1`) atomically; `set_live_user` binds `live.user`; `from_template` is fallible and binds `live.user` on construction. Do not re-implement the leverage-derivation rule in the use-case layer.
+- **Comments describe the code as it is, for a reader who never saw the diff.** Do not narrate the change or the act of writing it: no "previously/now/no longer", "not just the first", "this replaces…", and do not frame new code by its pairing ("the counterpart to X", "together they…"). That is commit-message material. Keep comments for the non-obvious *why* — invariants, gotchas, ordering rules, external constraints — and cut anything that merely restates the code or only parses if you watched it being written. The `comment-reviewer` agent enforces this on the diff.
 
 ## Git Workflow
 - Run `cargo fmt && cargo clippy` before committing
