@@ -61,6 +61,24 @@ resource "aws_iam_role_policy" "ecs_run_task" {
   })
 }
 
+# DynamoDB: read Bot desired-state and read/write observed-runtime rows.
+resource "aws_iam_role_policy" "dynamodb" {
+  name = "${var.project}-${var.env}-task-state-change-handler-dynamodb"
+  role = module.base.role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "BotsTableRW"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+        Resource = var.dynamodb_table_arn
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
   name        = "${var.project}-${var.env}-ecs-task-state-change"
   description = "Trigger task-state-change-handler on ECS task state change"

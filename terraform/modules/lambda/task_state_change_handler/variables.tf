@@ -55,3 +55,8 @@ variable "ecs_task_role_arn" {
   type        = string
   description = "ECS task role ARN referenced by the task definition (taskRoleArn)"
 }
+
+variable "dynamodb_table_arn" {
+  type        = string
+  description = "DynamoDB bots table ARN (Bot desired-state rows + observed-runtime rows)"
+}
