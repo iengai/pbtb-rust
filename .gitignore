@@ -6,6 +6,7 @@
 .DS_Store
 /config/local.toml
 
+.env
 .env.local
 /terraform/envs/dev/.terraform/
 /terraform/envs/dev/terraform.tfstate
