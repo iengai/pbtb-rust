@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use anyhow::Result;
-use crate::domain::runtime::{BotRuntime, BotRuntimeRepository};
+use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RecordRunningOutcome {
@@ -34,9 +34,14 @@ impl RecordRunningTaskUseCase {
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-        // Stale-event guard: ignore an event older than what we have already observed.
+        // Stale-event guard: ignore an event older than what we have already
+        // observed. At an equal second a recorded STOPPED wins the tie — RUNNING
+        // always precedes STOPPED for a task, so a same-second RUNNING is the
+        // reordered/stale one. The repository enforces the same rule atomically.
         if let Some(prev) = &existing {
-            if prev.observed_at > observed_at {
+            let stale = prev.observed_at > observed_at
+                || (prev.observed_at == observed_at && prev.phase == RuntimePhase::Stopped);
+            if stale {
                 return Ok(RecordRunningOutcome::SkippedStale);
             }
         }
@@ -131,5 +136,23 @@ mod tests {
 
         let rt = runtimes.find("u", "b").await.unwrap().unwrap();
         assert_eq!(rt.phase, RuntimePhase::Stopped, "stale running must not flip it back to running");
+    }
+
+    #[tokio::test]
+    async fn skips_running_at_same_second_as_recorded_stop() {
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        // Stop observed at t=2000.
+        runtimes
+            .record(&BotRuntime::stopped("u".into(), "b".into(), 3, 2000))
+            .await
+            .unwrap();
+        let uc = RecordRunningTaskUseCase::new(runtimes.clone());
+
+        // A RUNNING event on the SAME second must not resurrect the stop (tie -> stopped wins).
+        let outcome = uc.execute("u", "b", "task-tie", 2000).await.unwrap();
+        assert_eq!(outcome, RecordRunningOutcome::SkippedStale);
+
+        let rt = runtimes.find("u", "b").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopped);
     }
 }

@@ -33,7 +33,6 @@ struct EcsOverrides {
 
 #[derive(Debug, Deserialize)]
 struct EcsContainerOverride {
-    name: Option<String>,
     environment: Option<Vec<EcsEnvVar>>,
 }
 

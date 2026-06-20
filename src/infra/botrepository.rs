@@ -199,29 +199,38 @@ impl BotRuntimeRepository for DynamoBotRepository {
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
-        // Monotonic write: apply this observation only if it is at least as new as
-        // what is stored. ECS Task State Change events can arrive out of order or
-        // concurrently (e.g. RUNNING of a replacement racing STOPPED of the old
-        // task), and both the reconcile and record-running paths write this row.
-        // The condition makes the older observation lose at commit time instead of
-        // relying on a non-atomic read-then-write.
-        let result = self.client
+        // Monotonic, phase-aware write. Both writers (reconcile + record-running)
+        // stamp the EventBridge event time in whole seconds, so RUNNING and STOPPED
+        // of one bot can land on the same second; events can also arrive out of
+        // order or concurrently. Rules, enforced atomically at commit so a
+        // non-atomic read-then-write can't lose to a race:
+        //   - a strictly newer observation always wins;
+        //   - at an equal second a STOPPED wins the tie (terminal state), so a
+        //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
+        //     always precedes STOPPED for a task, so it is the reordered/stale one).
+        let put = self.client
             .put_item()
             .table_name(&self.table_name)
             .set_item(Some(metadata.to_item()))
-            .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at")
-            .expression_attribute_values(":observed_at", AttributeValue::N(runtime.observed_at.to_string()))
-            .send()
-            .await;
+            .expression_attribute_values(":observed_at", AttributeValue::N(runtime.observed_at.to_string()));
 
-        match result {
+        let put = match runtime.phase {
+            RuntimePhase::Stopped => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at"),
+            RuntimePhase::Running => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped)")
+                .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string())),
+        };
+
+        match put.send().await {
             Ok(_) => Ok(()),
             Err(e) => {
                 if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
-                    // A newer observation already won; dropping this stale/out-of-order event is correct.
+                    // A newer (or tie-winning) observation already holds the row; dropping this one is correct.
                     tracing::info!(
-                        "runtime write skipped (stale observed_at={}): pk={}, sk={}",
-                        runtime.observed_at, metadata.pk, metadata.sk
+                        "runtime write skipped (stale observed_at={}, phase={}): pk={}, sk={}",
+                        runtime.observed_at, runtime.phase.as_str(), metadata.pk, metadata.sk
                     );
                     Ok(())
                 } else {
