@@ -56,9 +56,9 @@ fn extract_user_bot(detail: &EcsTaskStateChangeDetail) -> (Option<String>, Optio
     let mut user_id: Option<String> = None;
     let mut bot_id: Option<String> = None;
 
-    // Scan EVERY container override, not just the first: a name-only sidecar
+    // Scan every container override for the env-bearing one: a name-only sidecar
     // override (GuardDuty agent, Service Connect, etc.) can sort ahead of the
-    // env-bearing passivbot one, and `.first()` would then miss USER_ID/BOT_ID.
+    // passivbot container, so USER_ID/BOT_ID may not be on the first.
     if let Some(container_overrides) = detail
         .overrides
         .as_ref()
@@ -95,7 +95,6 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-/// This is the main body for the function.
 pub(crate) async fn function_handler(
     event: LambdaEvent<EventBridgeEvent>,
     state: Arc<AppState>,
@@ -139,9 +138,8 @@ pub(crate) async fn function_handler(
     };
 
     match last_status {
-        // Task reached RUNNING -> record observed-running (the counterpart to the
-        // STOPPED path below). This is what fills the runtime row for any task,
-        // including ones started outside this Lambda.
+        // Task reached RUNNING -> record observed-running. This fills the runtime
+        // row for any task, including ones started outside this Lambda.
         "RUNNING" => {
             let task_id = task_id_from_arn(task_arn);
             tracing::info!(

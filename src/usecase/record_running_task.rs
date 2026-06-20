@@ -8,16 +8,14 @@ pub enum RecordRunningOutcome {
     SkippedStale,
 }
 
-/// Records observed-running for a bot whose ECS task reached RUNNING.
+/// Records observed-running state for a bot whose ECS task reached RUNNING,
+/// driven by the ECS Task State Change Lambda.
 ///
-/// Driven by the ECS Task State Change Lambda. This is the counterpart to
-/// `ReconcileStoppedTaskUseCase` (which owns the STOPPED path): together they
-/// keep `BotRuntime` (observed state) in sync with reality, event by event.
-///
-/// It is an OBSERVATION, not a restart: it preserves the version/restart counter
-/// (owned by the reconcile path) and never starts or stops a task. `observed_at`
-/// is the EventBridge event time; an event older than the last observation is
-/// ignored so a late/reordered RUNNING cannot resurrect a task we already saw stop.
+/// This is an observation, not a restart: it sets phase + task_id, preserves the
+/// version/restart counter, and never starts or stops a task. `observed_at` is the
+/// EventBridge event time; an event no newer than the last observation is dropped
+/// (a STOPPED wins an equal-second tie) so a late/reordered RUNNING cannot flip a
+/// stopped bot back to running.
 pub struct RecordRunningTaskUseCase {
     runtimes: Arc<dyn BotRuntimeRepository>,
 }

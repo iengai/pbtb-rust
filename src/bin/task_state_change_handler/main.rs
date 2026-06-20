@@ -49,7 +49,7 @@ async fn main() -> Result<(), Error> {
         runtimes,
         run_task,
     ));
-    // Observed-running recorder for the RUNNING branch (counterpart to reconcile).
+    // Observed-running recorder for the RUNNING branch.
     let record_running = Arc::new(RecordRunningTaskUseCase::new(runtimes_for_record));
 
     let state = AppState {
