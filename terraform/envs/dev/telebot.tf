@@ -16,7 +16,7 @@ data "aws_caller_identity" "current" {}
 locals {
   telebot_name        = "${var.project}-${var.env}-telebot"
   ecr_registry        = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
-  telebot_image       = "${aws_ecr_repository.telebot.repository_url}:${var.telebot_image_tag}"
+  telebot_image       = "${module.ecr.repository_urls["telebot"]}:${var.telebot_image_tag}"
   telebot_token_param = "/${var.project}/${var.env}/telebot/teloxide-token"
 
   # Built by convention (matches aws_ecs_cluster.main.name = "$${project}-$${env}-cluster")
@@ -68,18 +68,7 @@ locals {
   ])
 }
 
-# --- ECR repository for the bot image ---
-resource "aws_ecr_repository" "telebot" {
-  name                 = local.telebot_name
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = var.common_tags
-}
+# The telebot ECR repo is managed by module.ecr (key "telebot") in main.tf.
 
 # --- Telegram bot token (set the real value out-of-band; never in TF state) ---
 resource "aws_ssm_parameter" "telebot_token" {
@@ -216,7 +205,7 @@ resource "aws_iam_instance_profile" "telebot" {
 
 output "telebot_ecr_repository_url" {
   description = "Push the bot image here (linux/arm64)"
-  value       = aws_ecr_repository.telebot.repository_url
+  value       = module.ecr.repository_urls["telebot"]
 }
 
 output "telebot_token_ssm_parameter" {
@@ -293,7 +282,7 @@ resource "aws_iam_role_policy" "gh_build" {
           "ecr:GetDownloadUrlForLayer",
           "ecr:DescribeImages"
         ]
-        Resource = aws_ecr_repository.telebot.arn
+        Resource = module.ecr.repository_arns["telebot"]
       }
     ]
   })
@@ -330,7 +319,7 @@ resource "aws_iam_role_policy" "gh_deploy" {
         Sid      = "EcrRetag"
         Effect   = "Allow"
         Action   = ["ecr:BatchGetImage", "ecr:PutImage", "ecr:DescribeImages"]
-        Resource = aws_ecr_repository.telebot.arn
+        Resource = module.ecr.repository_arns["telebot"]
       },
       {
         Sid      = "FindNat"

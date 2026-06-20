@@ -65,6 +65,34 @@ telebot-deploy** (default `passivbot_revision=latest` matches the just-applied
 revision). A deliberate telebot-only rollback (`passivbot_revision=<n>`) knowingly
 diverges from the lambda until the next apply.
 
+## ECR repositories (module.ecr)
+
+Both image repos are managed by `module.ecr`:
+- `telebot` → `scalable-cluster-dev-telebot` (scan-on-push, `force_delete=true`).
+- `passivbot_v741` → `passivbot-live` (`scan_on_push=false`, `force_delete=false` —
+  matches the live repo so the live trading image is never auto-deleted).
+
+Both **pre-existed** and were adopted into state **without recreation** (done
+2026-06-20):
+```
+terraform state mv 'aws_ecr_repository.telebot' 'module.ecr.aws_ecr_repository.this["telebot"]'
+terraform import 'module.ecr.aws_ecr_repository.this["passivbot_v741"]' passivbot-live
+```
+`terraform plan -target=module.ecr` then showed `0 to destroy` (only a benign
+in-place tag addition on passivbot-live). If you ever rebuild state from scratch,
+re-run those two commands. **Never** let terraform recreate these repos.
+
+The passivbot image is composed as
+`module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_v741_image_tag}`. To
+ship a new passivbot build: push the image to `passivbot-live` under a new tag, set
+`passivbot_v741_image_tag` in tfvars, `terraform apply` (registers a new task-def
+revision), then run **telebot-deploy** (the passivbot sync rule above).
+
+> NOTE: `terraform plan/apply/import` here evaluates the lambda's `archive_file`
+> data source, which needs `target/lambda/task_state_change_handler/bootstrap` to
+> exist (built separately). Build the lambda first, or the command errors on a
+> missing file.
+
 ## Recovery
 
 - **telebot down, egress fine:** just re-run **telebot-deploy** (no NAT impact).

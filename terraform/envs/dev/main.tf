@@ -65,20 +65,43 @@ module "task_base" {
   common_tags = var.common_tags
 }
 
+# Container image registries. Both repos pre-exist in AWS and are adopted into
+# state (telebot via `state mv`, passivbot-live via `import`) — never recreated.
+# See terraform/envs/dev/RUNBOOK.md.
+module "ecr" {
+  source = "../../modules/ecr"
+  tags   = var.common_tags
+
+  repositories = {
+    telebot = {
+      name                 = local.telebot_name # scalable-cluster-dev-telebot
+      image_tag_mutability = "MUTABLE"          # deploy re-points :latest
+      scan_on_push         = true
+      force_delete         = true
+    }
+    passivbot_v741 = {
+      name                 = "passivbot-live" # pre-existing, non-conventional name
+      image_tag_mutability = "MUTABLE"
+      scan_on_push         = false # matches the live repo (clean import)
+      force_delete         = false # live trading image — never auto-delete
+    }
+  }
+}
+
 module "passivbot_v741_task" {
   source = "../../modules/task-definitions/passivbot-v741"
 
-  project              = var.project
-  env                  = var.env
-  region               = var.region
-  common_tags          = var.common_tags
-  execution_role_arn   = module.task_base.task_execution_role_arn
-  task_role_arn        = module.task_base.task_role_arn
-  container_image      = var.passivbot_v741_image
-  log_retention_days   = var.log_retention_days
-  container_name       = var.passivbot_v741_container_name
+  project            = var.project
+  env                = var.env
+  region             = var.region
+  common_tags        = var.common_tags
+  execution_role_arn = module.task_base.task_execution_role_arn
+  task_role_arn      = module.task_base.task_role_arn
+  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${var.passivbot_v741_image_tag}"
+  log_retention_days = var.log_retention_days
+  container_name     = var.passivbot_v741_container_name
 
-  s3_bucket_name    = module.s3_bucket.bucket_name
+  s3_bucket_name = module.s3_bucket.bucket_name
 }
 
 module "s3_bucket" {
@@ -111,12 +134,12 @@ module "lambda_task_state_change_handler" {
     ENV = var.env
   }
 
-  ecs_region      = var.region
-  ecs_cluster_arn = module.ecs.cluster_arn
-  td_passivbot_v741_arn = module.passivbot_v741_task.task_definition_arn
-  lambda_code_bucket = module.lambda_code_bucket.bucket_name
+  ecs_region                  = var.region
+  ecs_cluster_arn             = module.ecs.cluster_arn
+  td_passivbot_v741_arn       = module.passivbot_v741_task.task_definition_arn
+  lambda_code_bucket          = module.lambda_code_bucket.bucket_name
   ecs_task_execution_role_arn = module.task_base.task_execution_role_arn
-  ecs_task_role_arn = module.task_base.task_role_arn
+  ecs_task_role_arn           = module.task_base.task_role_arn
 }
 
 module "lambda_code_bucket" {
