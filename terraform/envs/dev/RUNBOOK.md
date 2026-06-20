@@ -67,6 +67,13 @@ diverges from the lambda until the next apply.
 
 ## ECR repositories (module.ecr)
 
+> ⚠️ **STATE/CODE COUPLING:** the live dev state already references
+> `module.ecr` (the migration below was performed). The `module.ecr` code must
+> be present in **any** checkout used for `terraform apply`, or terraform will see
+> `module.ecr.*` in state but not in config and try to **destroy/recreate** the
+> repos (telebot has `force_delete=true`; passivbot-live holds the live trading
+> image). **Merge this branch before applying from `main`.**
+
 Both image repos are managed by `module.ecr`:
 - `telebot` → `scalable-cluster-dev-telebot` (scan-on-push, `force_delete=true`).
 - `passivbot_v741` → `passivbot-live` (`scan_on_push=false`, `force_delete=false` —
