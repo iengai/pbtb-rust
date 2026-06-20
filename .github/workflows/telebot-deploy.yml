@@ -1,14 +1,23 @@
 name: telebot-deploy
 
 # Deploy an image already in ECR onto the NAT/EC2 host via SSM.
-# No build, no Terraform, no NAT replacement — just (re-tag +) restart.
-# Manual trigger so deploying to the trading-adjacent host is always deliberate.
+# No build, no Terraform, no NAT replacement — this:
+#   1. (optionally) re-points :latest in ECR at a specific tag,
+#   2. resolves the passivbot task-def ARN telebot should launch,
+#   3. composes /etc/telebot/telebot.env (terraform base-env + that ARN) and
+#      writes it to the host, then restarts the telebot service.
+# All app config is injected here at deploy time — the NAT's user_data carries
+# none of it. Manual trigger so deploying to the trading-adjacent host is
+# always deliberate.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'ECR image tag to deploy (a git SHA, or "latest")'
+        description: 'Telebot ECR image tag to deploy (a git SHA, or "latest")'
+        default: 'latest'
+      passivbot_revision:
+        description: 'Passivbot task-def revision telebot should launch (a number, or "latest" for the current active)'
         default: 'latest'
 
 permissions:
@@ -16,8 +25,14 @@ permissions:
   contents: read
 
 env:
+  # These mirror terraform's "${project}-${env}-..." / "/${project}/${env}/..."
+  # naming (project=scalable-cluster, env=dev). Keep in sync with terraform if the
+  # project/env or the passivbot family is ever renamed, or the deploy breaks
+  # (GetParameter on a missing name / DescribeTaskDefinition on a stale family).
   AWS_REGION: ap-northeast-1
   ECR_REPO: scalable-cluster-dev-telebot
+  PASSIVBOT_FAMILY: scalable-cluster-dev-passivbot-v741
+  BASE_ENV_PARAM: /scalable-cluster/dev/telebot/base-env
 
 jobs:
   deploy:
@@ -30,7 +45,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # The NAT's systemd unit always pulls :latest. To deploy a specific tag
+      # The NAT's run-telebot.sh always pulls :latest. To deploy a specific tag
       # (e.g. roll back to an older SHA), re-point :latest at it in ECR first.
       - name: Point :latest at the requested tag
         if: ${{ github.event.inputs.tag != 'latest' }}
@@ -49,9 +64,49 @@ jobs:
             --image-manifest "$MANIFEST" >/dev/null
           echo "Re-pointed :latest -> ${{ github.event.inputs.tag }}"
 
-      - name: Restart telebot on the NAT via SSM
+      # The pinned passivbot revision telebot launches via ecs:RunTask. Resolving
+      # the full revisioned ARN here (not in user_data) is what decouples the NAT
+      # from passivbot bumps while keeping the launch precisely pinned.
+      - name: Resolve passivbot task-definition ARN
+        id: td
         run: |
           set -euo pipefail
+          REF="$PASSIVBOT_FAMILY"
+          REV='${{ github.event.inputs.passivbot_revision }}'
+          if [ -n "$REV" ] && [ "$REV" != "latest" ]; then REF="$PASSIVBOT_FAMILY:$REV"; fi
+          ARN=$(aws ecs describe-task-definition --task-definition "$REF" \
+                  --query 'taskDefinition.taskDefinitionArn' --output text)
+          if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then echo "task-def not found: $REF"; exit 1; fi
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "Resolved passivbot task-def: $ARN"
+
+      - name: Push telebot.env and restart on the NAT via SSM
+        run: |
+          set -euo pipefail
+          # Compose the env file: terraform-managed base config + the one
+          # deploy-time value (the resolved passivbot task-def ARN).
+          BASE=$(aws ssm get-parameter --name "$BASE_ENV_PARAM" --query 'Parameter.Value' --output text)
+          # Fail on the runner BEFORE overwriting the host's good env file.
+          { [ -n "$BASE" ] && [ "$BASE" != "None" ]; } || { echo "base-env param '$BASE_ENV_PARAM' is empty/None"; exit 1; }
+          # The token must never live in base-env (it is fetched live from SSM); fail closed if it ever does.
+          if grep -qi 'TELOXIDE_TOKEN' <<<"$BASE"; then echo "base-env must not contain the Telegram token"; exit 1; fi
+          ENV_CONTENT=$(printf '%s\nAPP__ECS__TD_PASSIVBOT_V741_ARN=%s\n' "$BASE" "${{ steps.td.outputs.arn }}")
+          ENV_B64=$(printf '%s' "$ENV_CONTENT" | base64 -w0)
+
+          # Build the remote script. Single-quoted lines stay literal (the health
+          # loop's $(...)/$ok must run on the host, not here); only the env-file
+          # line interpolates $ENV_B64 (base64 -> safe chars only).
+          REMOTE=$(printf '%s\n' \
+            'set -e' \
+            'install -d -m 700 /etc/telebot' \
+            "printf '%s' '$ENV_B64' | base64 -d > /etc/telebot/telebot.env" \
+            'chmod 600 /etc/telebot/telebot.env' \
+            'systemctl restart telebot' \
+            'ok=0; for i in $(seq 1 12); do sleep 5; if docker ps --filter name=telebot --filter status=running | grep -q telebot; then ok=1; break; fi; done' \
+            'if [ $ok -ne 1 ]; then echo telebot-not-running; systemctl --no-pager --lines=30 status telebot || true; docker logs --tail 50 telebot 2>&1 || true; exit 1; fi' \
+            'echo telebot-up')
+          REMOTE_B64=$(printf '%s' "$REMOTE" | base64 -w0)
+
           NAT_ID=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=nat-instance" \
                       "Name=instance-state-name,Values=running" \
@@ -59,11 +114,15 @@ jobs:
           [ -n "$NAT_ID" ] || { echo "NAT instance not found"; exit 1; }
           echo "NAT instance: $NAT_ID"
 
+          # The whole script travels as one base64 blob (no shell metacharacters
+          # reach the SSM command JSON), decoded and run on the host.
+          PARAMS=$(jq -n --arg s "$REMOTE_B64" '{commands: [("echo " + $s + " | base64 -d | bash")]}')
+
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$NAT_ID" \
             --document-name AWS-RunShellScript \
-            --comment "deploy telebot ${{ github.event.inputs.tag }}" \
-            --parameters 'commands=["set -e","systemctl restart telebot","ok=0; for i in $(seq 1 12); do sleep 5; if docker ps --filter name=telebot --filter status=running | grep -q telebot; then ok=1; break; fi; done","if [ $ok -ne 1 ]; then echo telebot-not-running; systemctl --no-pager --lines=30 status telebot || true; docker logs --tail 50 telebot 2>&1 || true; exit 1; fi","echo telebot-up"]' \
+            --comment "deploy telebot ${{ github.event.inputs.tag }} pb=${{ steps.td.outputs.arn }}" \
+            --parameters "$PARAMS" \
             --query 'Command.CommandId' --output text)
           echo "SSM command: $CMD_ID"
 

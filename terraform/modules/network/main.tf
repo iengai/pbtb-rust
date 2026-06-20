@@ -181,6 +181,14 @@ resource "aws_instance" "nat" {
   # (an in-place instance_type/user_data change would NOT re-execute user-data).
   user_data_replace_on_change = true
 
+  # user_data is the NAT/host bootstrap ONLY — it carries no app-level config
+  # (telebot config is delivered out-of-band via SSM + the telebot-deploy
+  # pipeline), so it changes only on a deliberate bootstrap-script edit.
+  # user_data_replace_on_change then forces a fresh instance so cloud-init
+  # re-runs; because this NAT is the sole egress for all trading traffic, this
+  # replaces the egress host and leaves telebot down until the next
+  # telebot-deploy. Run such an apply in a maintenance window — see the
+  # procedure in terraform/envs/dev/RUNBOOK.md.
   tags = {
     Name = "nat-instance"
   }

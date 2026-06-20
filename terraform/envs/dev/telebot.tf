@@ -16,7 +16,7 @@ data "aws_caller_identity" "current" {}
 locals {
   telebot_name        = "${var.project}-${var.env}-telebot"
   ecr_registry        = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
-  telebot_image       = "${aws_ecr_repository.telebot.repository_url}:${var.telebot_image_tag}"
+  telebot_image       = "${module.ecr.repository_urls["telebot"]}:${var.telebot_image_tag}"
   telebot_token_param = "/${var.project}/${var.env}/telebot/teloxide-token"
 
   # Built by convention (matches aws_ecs_cluster.main.name = "$${project}-$${env}-cluster")
@@ -29,38 +29,46 @@ locals {
 
   s3_bucket_arn = "arn:aws:s3:::${module.s3_bucket.bucket_name}"
 
+  # user_data carries ZERO app-level config — only the NAT/host bootstrap. All
+  # telebot runtime config is delivered out-of-band: terraform publishes the
+  # stable config to the base-env SSM parameter, and telebot-deploy composes
+  # /etc/telebot/telebot.env on the host (base-env + the resolved passivbot
+  # task-def ARN) and restarts. So passivbot/image churn never reaches the NAT
+  # instance lifecycle.
   telebot_user_data = templatefile("${path.module}/telebot-userdata.sh.tftpl", {
     nat_setup_script = file("${path.module}/../../modules/network/nat-userdata-al2023.sh")
-    region           = var.region
-    ecr_registry     = local.ecr_registry
-    image            = local.telebot_image
-    token_param      = local.telebot_token_param
-    memory_limit     = var.telebot_memory
-
-    ddb_region     = var.region
-    ddb_table      = local.dynamodb_table_name
-    s3_region      = var.region
-    s3_bucket      = module.s3_bucket.bucket_name
-    s3_endpoint    = "https://s3.${var.region}.amazonaws.com"
-    ecs_region     = var.region
-    cluster_arn    = local.ecs_cluster_arn
-    td_arn         = module.passivbot_v741_task.task_definition_arn
-    container_name = var.passivbot_v741_container_name
   })
+
+  # Stable telebot runtime config (everything except the SecureString token, which
+  # is fetched from SSM at container start, and the passivbot task-def ARN, which
+  # telebot-deploy resolves live so a passivbot bump never re-renders this).
+  #
+  # INVARIANTS (the host reads these via grep+cut and docker --env-file, both of
+  # which parse KEY=value literally):
+  #   - values must be plain, single-line, metacharacter-free tokens (no spaces,
+  #     quotes, `$`, or backticks) — they are NOT shell-quoted on the host.
+  #   - NEVER put the Telegram token or any secret here: this is a plaintext SSM
+  #     String that telebot-deploy writes to disk. Secrets stay in SecureString
+  #     params fetched at runtime.
+  telebot_base_env = join("\n", [
+    "RUST_LOG=info",
+    "APP__DYNAMODB__REGION=${var.region}",
+    "APP__DYNAMODB__TABLE_NAME=${local.dynamodb_table_name}",
+    "APP__S3__REGION=${var.region}",
+    "APP__S3__BUCKET_NAME=${module.s3_bucket.bucket_name}",
+    "APP__S3__ENDPOINT_URL=https://s3.${var.region}.amazonaws.com",
+    "APP__ECS__REGION=${var.region}",
+    "APP__ECS__CLUSTER_ARN=${local.ecs_cluster_arn}",
+    "APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME=${var.passivbot_v741_container_name}",
+    "TELEBOT_REGION=${var.region}",
+    "TELEBOT_ECR_REGISTRY=${local.ecr_registry}",
+    "TELEBOT_IMAGE=${local.telebot_image}",
+    "TELEBOT_TOKEN_PARAM=${local.telebot_token_param}",
+    "TELEBOT_MEMORY=${var.telebot_memory}",
+  ])
 }
 
-# --- ECR repository for the bot image ---
-resource "aws_ecr_repository" "telebot" {
-  name                 = local.telebot_name
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = var.common_tags
-}
+# The telebot ECR repo is managed by module.ecr (key "telebot") in main.tf.
 
 # --- Telegram bot token (set the real value out-of-band; never in TF state) ---
 resource "aws_ssm_parameter" "telebot_token" {
@@ -72,6 +80,21 @@ resource "aws_ssm_parameter" "telebot_token" {
   lifecycle {
     ignore_changes = [value] # real value is managed out-of-band, not by Terraform
   }
+
+  tags = var.common_tags
+}
+
+# --- Stable telebot config (source of truth read by telebot-deploy) ---
+# Non-secret; updated on every apply so infra renames propagate without rebuilding
+# the NAT. telebot-deploy reads this, appends the resolved passivbot task-def ARN,
+# and writes /etc/telebot/telebot.env on the NAT host.
+resource "aws_ssm_parameter" "telebot_base_env" {
+  name = "/${var.project}/${var.env}/telebot/base-env"
+  type = "String"
+  # Intelligent-Tiering: this param is designed to grow as config is added, so
+  # auto-promote past the Standard 4096-byte limit instead of failing apply.
+  tier  = "Intelligent-Tiering"
+  value = local.telebot_base_env
 
   tags = var.common_tags
 }
@@ -182,7 +205,7 @@ resource "aws_iam_instance_profile" "telebot" {
 
 output "telebot_ecr_repository_url" {
   description = "Push the bot image here (linux/arm64)"
-  value       = aws_ecr_repository.telebot.repository_url
+  value       = module.ecr.repository_urls["telebot"]
 }
 
 output "telebot_token_ssm_parameter" {
@@ -259,7 +282,7 @@ resource "aws_iam_role_policy" "gh_build" {
           "ecr:GetDownloadUrlForLayer",
           "ecr:DescribeImages"
         ]
-        Resource = aws_ecr_repository.telebot.arn
+        Resource = module.ecr.repository_arns["telebot"]
       }
     ]
   })
@@ -296,7 +319,7 @@ resource "aws_iam_role_policy" "gh_deploy" {
         Sid      = "EcrRetag"
         Effect   = "Allow"
         Action   = ["ecr:BatchGetImage", "ecr:PutImage", "ecr:DescribeImages"]
-        Resource = aws_ecr_repository.telebot.arn
+        Resource = module.ecr.repository_arns["telebot"]
       },
       {
         Sid      = "FindNat"
@@ -324,6 +347,18 @@ resource "aws_iam_role_policy" "gh_deploy" {
         Effect   = "Allow"
         Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
         Resource = "*"
+      },
+      {
+        Sid      = "ReadBaseEnv"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = aws_ssm_parameter.telebot_base_env.arn
+      },
+      {
+        Sid      = "ResolvePassivbotTaskDef"
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeTaskDefinition"]
+        Resource = "*" # DescribeTaskDefinition does not support resource-level scoping
       }
     ]
   })

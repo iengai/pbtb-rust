@@ -11,11 +11,11 @@ variable "profile" {
 }
 
 variable "project" {
-  type        = string
+  type = string
 }
 
 variable "env" {
-  type        = string
+  type = string
 }
 
 
@@ -42,7 +42,7 @@ variable "private_subnet_cidrs" {
   description = "private subnet CIDR list"
 }
 
-variable "common_tags"  {
+variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
   default     = {}
@@ -68,8 +68,8 @@ variable "max_size" {
   type        = number
 }
 
-variable "passivbot_v741_image" {
-  description = "Docker image for the passivbot v7.4.1"
+variable "passivbot_v741_image_tag" {
+  description = "Image tag of the passivbot image in the module.ecr passivbot_v741 repo (e.g. v7.4.1-arm). The full image is composed from the repo URL + this tag."
   type        = string
 }
 
@@ -80,7 +80,7 @@ variable "passivbot_v741_container_name" {
 }
 
 variable "log_retention_days" {
-  type        = number
+  type = number
 }
 
 variable "s3_bucket_name" {

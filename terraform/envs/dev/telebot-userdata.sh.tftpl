@@ -45,42 +45,49 @@ set -e
 #####################################################################
 # Part 3: Telebot launch script + systemd service
 #
-# systemd supervises a FOREGROUND `docker run` (Restart=always), so:
-#  - if the image is not pushed yet, it retries every 30s until it is
-#  - on crash / reboot it re-pulls and restarts
-# Redeploy a new build WITHOUT touching Terraform / the NAT instance:
-#  push the new image to the same tag, then `systemctl restart telebot`.
+# This bootstrap is APP-CONFIG-FREE: run-telebot.sh reads ALL config from
+# /etc/telebot/telebot.env, which the telebot-deploy pipeline writes onto this
+# host (and refreshes on every deploy). Until that first deploy lands the file,
+# run-telebot.sh exits non-zero and systemd (Restart=always) retries every 30s.
+# The Telegram token is never written to disk — it is fetched from SSM at runtime.
 #####################################################################
 cat >/usr/local/bin/run-telebot.sh <<'SCRIPT'
 #!/bin/bash
 set -euo pipefail
 
-REGION="${region}"
-REGISTRY="${ecr_registry}"
-IMAGE="${image}"
-TOKEN_PARAM="${token_param}"
+ENV_FILE=/etc/telebot/telebot.env
+if [ ! -f "$ENV_FILE" ]; then
+  echo "run-telebot: $ENV_FILE not present yet — waiting for first telebot-deploy" >&2
+  exit 1
+fi
 
-TELOXIDE_TOKEN="$(aws ssm get-parameter --name "$TOKEN_PARAM" --with-decryption --region "$REGION" --query 'Parameter.Value' --output text)"
+# Read the host-only TELEBOT_* values WITHOUT sourcing/eval, so a value with
+# shell metacharacters can never be expanded or executed on this egress host.
+val() { grep -m1 "^$1=" "$ENV_FILE" | cut -d= -f2-; }
+TELEBOT_REGION="$(val TELEBOT_REGION)"
+TELEBOT_ECR_REGISTRY="$(val TELEBOT_ECR_REGISTRY)"
+TELEBOT_IMAGE="$(val TELEBOT_IMAGE)"
+TELEBOT_TOKEN_PARAM="$(val TELEBOT_TOKEN_PARAM)"
+TELEBOT_MEMORY="$(val TELEBOT_MEMORY)"
 
-aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
-docker pull "$IMAGE"
+# Container env = APP__*/RUST_LOG only (exclude the TELEBOT_* host-orchestration
+# vars). Written to tmpfs and refreshed each start; docker parses it literally.
+install -d -m 700 /run/telebot
+grep -E '^(APP__|RUST_LOG=)' "$ENV_FILE" > /run/telebot/container.env
+
+# Token is fetched at runtime so it is never persisted to disk / the env file.
+TELOXIDE_TOKEN="$(aws ssm get-parameter --name "$TELEBOT_TOKEN_PARAM" --with-decryption --region "$TELEBOT_REGION" --query 'Parameter.Value' --output text)"
+
+aws ecr get-login-password --region "$TELEBOT_REGION" | docker login --username AWS --password-stdin "$TELEBOT_ECR_REGISTRY"
+docker pull "$TELEBOT_IMAGE"
 docker rm -f telebot >/dev/null 2>&1 || true
 
 exec docker run --rm --name telebot \
-  --memory=${memory_limit} --memory-swap=${memory_limit} \
+  --memory="$TELEBOT_MEMORY" --memory-swap="$TELEBOT_MEMORY" \
   --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 \
-  -e RUST_LOG=info \
+  --env-file /run/telebot/container.env \
   -e TELOXIDE_TOKEN="$TELOXIDE_TOKEN" \
-  -e APP__DYNAMODB__REGION="${ddb_region}" \
-  -e APP__DYNAMODB__TABLE_NAME="${ddb_table}" \
-  -e APP__S3__REGION="${s3_region}" \
-  -e APP__S3__BUCKET_NAME="${s3_bucket}" \
-  -e APP__S3__ENDPOINT_URL="${s3_endpoint}" \
-  -e APP__ECS__REGION="${ecs_region}" \
-  -e APP__ECS__CLUSTER_ARN="${cluster_arn}" \
-  -e APP__ECS__TD_PASSIVBOT_V741_ARN="${td_arn}" \
-  -e APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME="${container_name}" \
-  "$IMAGE"
+  "$TELEBOT_IMAGE"
 SCRIPT
 chmod +x /usr/local/bin/run-telebot.sh
 
