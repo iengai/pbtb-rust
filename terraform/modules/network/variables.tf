@@ -40,3 +40,21 @@ variable "tags" {
 variable "nat_ami" {
   type = string
 }
+
+variable "nat_instance_type" {
+  description = "EC2 instance type for the NAT instance"
+  type        = string
+  default     = "t4g.nano"
+}
+
+variable "nat_iam_instance_profile" {
+  description = "IAM instance profile name to attach to the NAT instance (e.g. to also run the telebot container). Null = none."
+  type        = string
+  default     = null
+}
+
+variable "nat_user_data" {
+  description = "Override user-data for the NAT instance. Null = default NAT-only setup script."
+  type        = string
+  default     = null
+}

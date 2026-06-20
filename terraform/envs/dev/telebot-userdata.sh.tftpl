@@ -1,0 +1,98 @@
+#!/bin/bash
+set -euxo pipefail
+
+#####################################################################
+# Part 1: NAT setup
+# (injected verbatim from modules/network/nat-userdata-al2023.sh so the
+#  iptables/MASQUERADE logic stays single-sourced)
+#####################################################################
+${nat_setup_script}
+
+#####################################################################
+# Part 2: Host prep — swap, Docker, AWS CLI
+#####################################################################
+
+# Small swap file as cheap OOM insurance on a memory-constrained box (idempotent).
+# The bot container itself is hard-capped below; this cushions host processes
+# (dockerd / sshd) so a transient spike never wedges the NAT host.
+if [ ! -f /swapfile ]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=512
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+dnf install -y docker
+systemctl enable --now docker
+
+# Ensure AWS CLI v2 is available (used for ECR login + SSM token fetch)
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y awscli-2 || {
+    dnf install -y unzip
+    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp
+    /tmp/aws/install
+  }
+fi
+
+#####################################################################
+# Part 3: Telebot launch script + systemd service
+#
+# systemd supervises a FOREGROUND `docker run` (Restart=always), so:
+#  - if the image is not pushed yet, it retries every 30s until it is
+#  - on crash / reboot it re-pulls and restarts
+# Redeploy a new build WITHOUT touching Terraform / the NAT instance:
+#  push the new image to the same tag, then `systemctl restart telebot`.
+#####################################################################
+cat >/usr/local/bin/run-telebot.sh <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+REGION="${region}"
+REGISTRY="${ecr_registry}"
+IMAGE="${image}"
+TOKEN_PARAM="${token_param}"
+
+TELOXIDE_TOKEN="$(aws ssm get-parameter --name "$TOKEN_PARAM" --with-decryption --region "$REGION" --query 'Parameter.Value' --output text)"
+
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+docker pull "$IMAGE"
+docker rm -f telebot >/dev/null 2>&1 || true
+
+exec docker run --rm --name telebot \
+  --memory=${memory_limit} --memory-swap=${memory_limit} \
+  --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 \
+  -e RUST_LOG=info \
+  -e TELOXIDE_TOKEN="$TELOXIDE_TOKEN" \
+  -e APP__DYNAMODB__REGION="${ddb_region}" \
+  -e APP__DYNAMODB__TABLE_NAME="${ddb_table}" \
+  -e APP__S3__REGION="${s3_region}" \
+  -e APP__S3__BUCKET_NAME="${s3_bucket}" \
+  -e APP__S3__ENDPOINT_URL="${s3_endpoint}" \
+  -e APP__ECS__REGION="${ecs_region}" \
+  -e APP__ECS__CLUSTER_ARN="${cluster_arn}" \
+  -e APP__ECS__TD_PASSIVBOT_V741_ARN="${td_arn}" \
+  -e APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME="${container_name}" \
+  "$IMAGE"
+SCRIPT
+chmod +x /usr/local/bin/run-telebot.sh
+
+cat >/etc/systemd/system/telebot.service <<'UNIT'
+[Unit]
+Description=pbtb-rust telebot container
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/run-telebot.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now telebot.service

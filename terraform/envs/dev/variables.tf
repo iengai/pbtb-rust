@@ -88,3 +88,33 @@ variable "s3_bucket_name" {
   type        = string
   default     = "bot-configs"
 }
+
+variable "nat_instance_type" {
+  description = "EC2 instance type for the NAT instance (also hosts the telebot container)"
+  type        = string
+  default     = "t4g.micro"
+}
+
+variable "telebot_image_tag" {
+  description = "Image tag of the telebot image to provision on the NAT instance"
+  type        = string
+  default     = "latest"
+}
+
+variable "telebot_memory" {
+  description = "Hard memory limit for the telebot container (docker --memory / --memory-swap)"
+  type        = string
+  default     = "256m"
+}
+
+variable "github_repo" {
+  description = "GitHub repo (owner/name) allowed to assume the CI roles via OIDC"
+  type        = string
+  default     = "iengai/pbtb-rust"
+}
+
+variable "github_oidc_provider_arn" {
+  description = "Existing GitHub OIDC provider ARN. Empty string = create the provider here."
+  type        = string
+  default     = ""
+}
