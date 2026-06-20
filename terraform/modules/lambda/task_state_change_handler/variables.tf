@@ -1,4 +1,4 @@
-// terraform/modules/lambda/task_stopped_event_handler/variables.tf
+// terraform/modules/lambda/task_state_change_handler/variables.tf
 variable "project" {
   type        = string
   description = "Project name"

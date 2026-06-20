@@ -34,5 +34,5 @@ panic = "abort"
 strip = "symbols"
 
 [[bin]]
-name = "task_stopped_event_handler"
-path = "src/bin/task_stopped_event_handler/main.rs"
+name = "task_state_change_handler"
+path = "src/bin/task_state_change_handler/main.rs"

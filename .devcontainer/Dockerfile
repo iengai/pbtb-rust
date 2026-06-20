@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libs
 WORKDIR /app
 
 # Which binary to compile and ship. Must name a target in Cargo.toml (the
-# package defines a `pbtb-rust` bin and a `task_stopped_event_handler` bin).
+# package defines a `pbtb-rust` bin and a `task_state_change_handler` bin).
 ARG BIN_NAME=pbtb-rust
 
 # Copy the whole source tree (.dockerignore keeps out target/, .git, .devcontainer).

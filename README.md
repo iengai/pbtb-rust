@@ -352,7 +352,7 @@ The `terraform/` directory contains infrastructure as code for deploying to AWS:
 - **ecs** - ECS cluster with EC2 capacity provider (ARM64 `t4g.medium` instances)
 - **s3** - Bot configuration bucket with encryption and versioning
 - **dynamodb** - `bots` table
-- **lambda** - `task_stopped_event_handler` (ECS task reconciliation) plus its IAM/EventBridge wiring
+- **lambda** - `task_state_change_handler` (ECS task-state → observed-state sync + auto-restart) plus its IAM/EventBridge wiring
 - **task-definitions** - ECS task definitions for Passivbot containers
 
 ### Deployment

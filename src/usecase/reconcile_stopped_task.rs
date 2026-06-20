@@ -2,7 +2,6 @@ use std::sync::Arc;
 use anyhow::Result;
 use crate::domain::bot::BotRepository;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository};
-use crate::domain::clock::Clock;
 use crate::usecase::run_task::TaskRunner;
 
 /// Why a task stopped (parsed from the ECS event by the Lambda).
@@ -25,16 +24,18 @@ pub struct ReconcileStoppedTaskUseCase {
     bots: Arc<dyn BotRepository>,
     runtimes: Arc<dyn BotRuntimeRepository>,
     run_task: Arc<dyn TaskRunner>,
-    clock: Arc<dyn Clock>,
 }
 
 impl ReconcileStoppedTaskUseCase {
-    pub fn new(bots: Arc<dyn BotRepository>, runtimes: Arc<dyn BotRuntimeRepository>, run_task: Arc<dyn TaskRunner>, clock: Arc<dyn Clock>) -> Self {
-        Self { bots, runtimes, run_task, clock }
+    pub fn new(bots: Arc<dyn BotRepository>, runtimes: Arc<dyn BotRuntimeRepository>, run_task: Arc<dyn TaskRunner>) -> Self {
+        Self { bots, runtimes, run_task }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str, stop: StopInfo) -> Result<ReconcileOutcome> {
-        let now = self.clock.now();
+    /// `observed_at` is the EventBridge event time. Both the STOPPED (here) and
+    /// RUNNING (`RecordRunningTaskUseCase`) writers stamp runtime rows with the
+    /// same event clock, so the repository's monotonic conditional write can
+    /// reject out-of-order observations consistently.
+    pub async fn execute(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str, stop: StopInfo, observed_at: i64) -> Result<ReconcileOutcome> {
         // Compute prev_version up front: it does not depend on the bot, and we
         // need it on the bot-not-found path to record a stopped runtime.
         let prev_version = self.runtimes.find(user_id, bot_id).await
@@ -45,19 +46,19 @@ impl ReconcileStoppedTaskUseCase {
             Some(b) => b,
             None => {
                 // A bot that no longer exists must not be left showing Running.
-                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await;
+                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, observed_at)).await;
                 return Ok(ReconcileOutcome::BotNotFound);
             }
         };
 
         // Desired state OFF (user manually stopped) -> reflect stopped, never restart. THIS is the rule the old Lambda was missing.
         if !bot.enabled {
-            self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await
+            self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, observed_at)).await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
         if !stop.is_memory_related() {
-            self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await
+            self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, observed_at)).await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             return Ok(ReconcileOutcome::SkippedNotMemoryRelated);
         }
@@ -65,11 +66,11 @@ impl ReconcileStoppedTaskUseCase {
             Ok(id) => id,
             Err(e) => {
                 // A failed restart must record stopped, not leave the previous Running.
-                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, now)).await;
+                let _ = self.runtimes.record(&BotRuntime::stopped(user_id.to_string(), bot_id.to_string(), prev_version, observed_at)).await;
                 return Err(e);
             }
         };
-        self.runtimes.record(&BotRuntime::running(user_id.to_string(), bot_id.to_string(), task_id.clone(), prev_version + 1, now)).await
+        self.runtimes.record(&BotRuntime::running(user_id.to_string(), bot_id.to_string(), task_id.clone(), prev_version + 1, observed_at)).await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         Ok(ReconcileOutcome::Restarted { task_id })
     }
@@ -80,6 +81,9 @@ mod tests {
     use super::*;
     use crate::domain::runtime::RuntimePhase;
     use crate::usecase::run_task::RunTaskUseCase;
+
+    // Fixed event time used by the behaviour tests below.
+    const EVENT_AT: i64 = 1_700_000_000;
 
     #[test]
     fn memory_related_when_137_and_not_user_initiated() {
@@ -107,12 +111,6 @@ mod tests {
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
-
-    /// Fixed-time clock for deterministic tests (MockClock is not exported).
-    struct FixedClock;
-    impl Clock for FixedClock {
-        fn now(&self) -> i64 { 1_700_000_000 }
-    }
 
     /// In-memory BotRepository keyed by (user_id, bot_id).
     #[derive(Default)]
@@ -199,7 +197,6 @@ mod tests {
             bots.clone(),
             runtimes.clone(),
             run_task,
-            Arc::new(FixedClock),
         );
 
         let outcome = uc
@@ -210,6 +207,7 @@ mod tests {
                 "td",
                 "container",
                 StopInfo { exit_code: 137, stop_code: "TaskFailedToStart".to_string() },
+                EVENT_AT,
             )
             .await
             .unwrap();
@@ -219,7 +217,7 @@ mod tests {
         let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
         assert_eq!(rt.phase, RuntimePhase::Stopped);
         assert_eq!(rt.task_id, None);
-        assert_eq!(rt.observed_at, 1_700_000_000);
+        assert_eq!(rt.observed_at, EVENT_AT);
     }
 
     #[tokio::test]
@@ -231,7 +229,6 @@ mod tests {
             bots,
             runtimes.clone(),
             run_task,
-            Arc::new(FixedClock),
         );
 
         // exit 0 => not memory related.
@@ -243,6 +240,7 @@ mod tests {
                 "td",
                 "container",
                 StopInfo { exit_code: 0, stop_code: "EssentialContainerExited".to_string() },
+                EVENT_AT,
             )
             .await
             .unwrap();
@@ -257,6 +255,7 @@ mod tests {
                 "td",
                 "container",
                 StopInfo { exit_code: 137, stop_code: "UserInitiated".to_string() },
+                EVENT_AT,
             )
             .await
             .unwrap();
@@ -271,7 +270,7 @@ mod tests {
         let bots = Arc::new(InMemoryBots::default());
         let runtimes = Arc::new(InMemoryRuntimes::default());
         let run_task = Arc::new(RunTaskUseCase::new(dummy_ecs_client()));
-        let uc = ReconcileStoppedTaskUseCase::new(bots, runtimes.clone(), run_task, Arc::new(FixedClock));
+        let uc = ReconcileStoppedTaskUseCase::new(bots, runtimes.clone(), run_task);
 
         let outcome = uc
             .execute(
@@ -281,6 +280,7 @@ mod tests {
                 "td",
                 "container",
                 StopInfo { exit_code: 137, stop_code: "TaskFailedToStart".to_string() },
+                EVENT_AT,
             )
             .await
             .unwrap();
@@ -333,7 +333,6 @@ mod tests {
             bots,
             runtimes.clone(),
             runner.clone(),
-            Arc::new(FixedClock),
         );
 
         // OOM stop: exit 137, not UserInitiated.
@@ -345,6 +344,7 @@ mod tests {
                 "td",
                 "container",
                 StopInfo { exit_code: 137, stop_code: "TaskFailedToStart".to_string() },
+                EVENT_AT,
             )
             .await
             .unwrap();
@@ -356,6 +356,6 @@ mod tests {
         assert_eq!(rt.phase, RuntimePhase::Running);
         assert_eq!(rt.task_id, Some("task-xyz".to_string()));
         assert_eq!(rt.version, 6, "version bumped to prev + 1");
-        assert_eq!(rt.observed_at, 1_700_000_000);
+        assert_eq!(rt.observed_at, EVENT_AT);
     }
 }

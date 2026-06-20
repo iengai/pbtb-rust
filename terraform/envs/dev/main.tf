@@ -100,8 +100,8 @@ module "dynamodb" {
   common_tags = var.common_tags
 }
 
-module "lambda_task_stopped_event_handler" {
-  source = "../../modules/lambda/task_stopped_event_handler"
+module "lambda_task_state_change_handler" {
+  source = "../../modules/lambda/task_state_change_handler"
 
   project     = var.project
   env         = var.env

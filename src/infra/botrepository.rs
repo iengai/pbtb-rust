@@ -199,15 +199,45 @@ impl BotRuntimeRepository for DynamoBotRepository {
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
-        self.client
+        // Monotonic, phase-aware write. Both writers (reconcile + record-running)
+        // stamp the EventBridge event time in whole seconds, so RUNNING and STOPPED
+        // of one bot can land on the same second; events can also arrive out of
+        // order or concurrently. Rules, enforced atomically at commit so a
+        // non-atomic read-then-write can't lose to a race:
+        //   - a strictly newer observation always wins;
+        //   - at an equal second a STOPPED wins the tie (terminal state), so a
+        //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
+        //     always precedes STOPPED for a task, so it is the reordered/stale one).
+        let put = self.client
             .put_item()
             .table_name(&self.table_name)
             .set_item(Some(metadata.to_item()))
-            .send()
-            .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB put_item failed: {e}")))?;
+            .expression_attribute_values(":observed_at", AttributeValue::N(runtime.observed_at.to_string()));
 
-        Ok(())
+        let put = match runtime.phase {
+            RuntimePhase::Stopped => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at"),
+            RuntimePhase::Running => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped)")
+                .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string())),
+        };
+
+        match put.send().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    // A newer (or tie-winning) observation already holds the row; dropping this one is correct.
+                    tracing::info!(
+                        "runtime write skipped (stale observed_at={}, phase={}): pk={}, sk={}",
+                        runtime.observed_at, runtime.phase.as_str(), metadata.pk, metadata.sk
+                    );
+                    Ok(())
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB put_item failed: {e}")))
+                }
+            }
+        }
     }
 }
 
