@@ -5,10 +5,10 @@ use aws_lambda_events::event::eventbridge::EventBridgeEvent;
 
 use pbtb_rust::config::configs::{load_config};
 use pbtb_rust::domain::bot::BotRepository;
-use pbtb_rust::domain::runtime::BotRuntimeRepository;
+use pbtb_rust::domain::runtime::{BotRuntimeRepository, StartLockRepository};
 use pbtb_rust::infra::client::{create_ecs_client, create_dynamodb_client};
 use pbtb_rust::infra::DynamoBotRepository;
-use pbtb_rust::usecase::{ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase, TaskRunner};
+use pbtb_rust::usecase::{ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase, TaskRunner, EcsTaskController, TaskController};
 use crate::config::TaskStateChangeConfig;
 
 mod event_handler;
@@ -38,16 +38,23 @@ async fn main() -> Result<(), Error> {
     let table_name = configs.dynamodb.table_name.clone();
     let repo = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
 
-    // The same repo satisfies both domain traits.
+    // The same repo satisfies every domain trait the use cases need.
     let bots: Arc<dyn BotRepository> = repo.clone();
     let runtimes: Arc<dyn BotRuntimeRepository> = repo.clone();
     let runtimes_for_record: Arc<dyn BotRuntimeRepository> = repo.clone();
+    let start_locks: Arc<dyn StartLockRepository> = repo.clone();
 
-    let run_task: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client));
+    let run_task: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client.clone()));
+    // Stops a just-restarted task if the bot was disabled mid-launch.
+    let stopper: Arc<dyn TaskController> = Arc::new(EcsTaskController::new(ecs_client));
+    // The auto-restart goes through the same exclusive start lock as the telebot,
+    // so a duplicate STOPPED event cannot launch a second live-trading task.
     let reconcile = Arc::new(ReconcileStoppedTaskUseCase::new(
         bots,
         runtimes,
+        start_locks,
         run_task,
+        stopper,
     ));
     // Observed-running recorder for the RUNNING branch.
     let record_running = Arc::new(RecordRunningTaskUseCase::new(runtimes_for_record));

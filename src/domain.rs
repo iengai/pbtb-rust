@@ -10,4 +10,4 @@ pub use bot::{Bot, BotRepository, ApiKeyRepository};
 pub use clock::SystemClock;
 pub use botconfig::RiskLevel;
 pub use configtemplate::ConfigTemplate;
-pub use runtime::{RuntimePhase, BotRuntimeRepository};
+pub use runtime::{RuntimePhase, BotRuntimeRepository, StartLockRepository};
