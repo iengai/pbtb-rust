@@ -27,6 +27,13 @@ common_tags = {
 
 ecs_cluster_name = "ecs-self-scaling-cluster"
 ecs_instance_type = "t4g.medium"
+
+# NAT instance is upsized to micro and also hosts the telebot container.
+nat_instance_type = "t4g.micro"
+telebot_image_tag = "latest"
+
+# GitHub repo allowed to assume the CI (build/deploy) roles via OIDC.
+github_repo = "iengai/pbtb-rust"
 min_size = 0
 max_size = 3
 passivbot_v741_image  = "025418542265.dkr.ecr.ap-northeast-1.amazonaws.com/passivbot-live:v7.4.1-arm"

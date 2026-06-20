@@ -160,13 +160,26 @@ resource "aws_security_group" "app_sg" {
 # create nat instance
 resource "aws_instance" "nat" {
   ami                         = var.nat_ami
-  instance_type               = "t4g.nano"
+  instance_type               = var.nat_instance_type
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.nat_sg.id]
   associate_public_ip_address = true
   source_dest_check           = false
+  iam_instance_profile        = var.nat_iam_instance_profile
 
-  user_data = file("../../modules/network/nat-userdata-al2023.sh")
+  # Enforce IMDSv2. hop_limit=2 (not 1) so the Docker-bridged telebot container
+  # — one hop from the host — can still reach IMDS for the instance-role creds;
+  # hop_limit=1 would block the container entirely and break the bot's AWS access.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  user_data = var.nat_user_data != null ? var.nat_user_data : file("${path.module}/nat-userdata-al2023.sh")
+  # Force a fresh instance when user-data changes, so cloud-init actually re-runs
+  # (an in-place instance_type/user_data change would NOT re-execute user-data).
+  user_data_replace_on_change = true
 
   tags = {
     Name = "nat-instance"

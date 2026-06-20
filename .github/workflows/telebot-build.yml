@@ -1,0 +1,146 @@
+name: telebot-build
+
+# Build the pbtb-rust telebot image (linux/arm64) and push it to ECR.
+# Does NOT touch the running NAT/EC2 — deployment is a separate workflow.
+#
+# Two layers of "don't compile if the source didn't change":
+#  1. push `paths:` filter   -> a docs-only push never triggers this workflow.
+#  2. content-hash gate below -> even on manual runs / re-runs / mixed pushes,
+#     the heavy arm build job is skipped when an image for this exact source
+#     already exists in ECR.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.devcontainer/Dockerfile'
+      - '.github/workflows/telebot-build.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force rebuild even if an image for this source already exists'
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write   # OIDC -> assume the AWS build role
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REPO: scalable-cluster-dev-telebot
+
+jobs:
+  # Cheap gate (standard runner, no compile): hash the build-relevant files and
+  # check whether ECR already has an image tagged with that hash. The expensive
+  # arm build job runs only when it does not.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.hash.outputs.tag }}
+      needs_build: ${{ steps.decide.outputs.needs_build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute source hash
+        id: hash
+        run: |
+          H='${{ hashFiles('src/**', 'Cargo.toml', 'Cargo.lock', '.devcontainer/Dockerfile', '.dockerignore') }}'
+          [ -n "$H" ] || { echo "hashFiles matched nothing — refusing to build a bogus tag" >&2; exit 1; }
+          echo "tag=src-$H" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Decide whether to build
+        id: decide
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Force rebuild requested."
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if aws ecr describe-images --repository-name "$ECR_REPO" \
+               --image-ids imageTag=${{ steps.hash.outputs.tag }} >/dev/null 2>&1; then
+            echo "Image for this source already exists (${{ steps.hash.outputs.tag }}) -> skip build."
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No image for this source (${{ steps.hash.outputs.tag }}) -> build."
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: ${{ needs.check.outputs.needs_build == 'true' }}
+    # Native arm64 runner — never cross-build via QEMU for this Rust project.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Persist cargo registry + target across runs so only changed crates recompile.
+      - name: Restore cargo build cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cargo-registry-cache
+            cargo-target-cache
+          key: telebot-buildkit-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            telebot-buildkit-
+
+      - name: Inject cargo cache into BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          cache-map: |
+            {
+              "cargo-registry-cache": "/usr/local/cargo/registry",
+              "cargo-target-cache": "/app/target"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          target: runtime
+          platforms: linux/arm64
+          build-args: |
+            BIN_NAME=pbtb-rust
+          push: true
+          # source-hash tag (drives the skip check), immutable :<sha>, and :latest
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ needs.check.outputs.tag }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Built & pushed"
+            echo "- \`$ECR_REPO:${{ needs.check.outputs.tag }}\` (source hash)"
+            echo "- \`$ECR_REPO:${{ github.sha }}\`"
+            echo "- \`$ECR_REPO:latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"

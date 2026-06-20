@@ -36,6 +36,11 @@ module "network" {
   private_subnet_cidrs = var.private_subnet_cidrs
   tags                 = var.common_tags
   nat_ami              = "ami-0ab96e70798e83256"
+
+  # Upsize the NAT to t4g.micro and co-locate the telebot container on it.
+  nat_instance_type        = var.nat_instance_type
+  nat_iam_instance_profile = aws_iam_instance_profile.telebot.name
+  nat_user_data            = local.telebot_user_data
 }
 
 module "ecs" {
