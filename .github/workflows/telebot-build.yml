@@ -48,7 +48,9 @@ jobs:
       - name: Compute source hash
         id: hash
         run: |
-          echo "tag=src-${{ hashFiles('src/**', 'Cargo.toml', 'Cargo.lock', '.devcontainer/Dockerfile') }}" >> "$GITHUB_OUTPUT"
+          H='${{ hashFiles('src/**', 'Cargo.toml', 'Cargo.lock', '.devcontainer/Dockerfile', '.dockerignore') }}'
+          [ -n "$H" ] || { echo "hashFiles matched nothing — refusing to build a bogus tag" >&2; exit 1; }
+          echo "tag=src-$H" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

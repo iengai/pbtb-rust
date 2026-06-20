@@ -167,6 +167,15 @@ resource "aws_instance" "nat" {
   source_dest_check           = false
   iam_instance_profile        = var.nat_iam_instance_profile
 
+  # Enforce IMDSv2. hop_limit=2 (not 1) so the Docker-bridged telebot container
+  # — one hop from the host — can still reach IMDS for the instance-role creds;
+  # hop_limit=1 would block the container entirely and break the bot's AWS access.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   user_data = var.nat_user_data != null ? var.nat_user_data : file("${path.module}/nat-userdata-al2023.sh")
   # Force a fresh instance when user-data changes, so cloud-init actually re-runs
   # (an in-place instance_type/user_data change would NOT re-execute user-data).

@@ -23,18 +23,24 @@ if [ ! -f /swapfile ]; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-dnf install -y docker
+# Retry helper for transient dnf/network failures during first boot.
+retry() { for _i in 1 2 3 4 5; do "$@" && return 0; echo "retry: $*"; sleep 10; done; return 1; }
+
+# Relax errexit for the package-install block so a transient failure cannot abort
+# the script BEFORE the self-healing telebot systemd unit (Part 3) is installed.
+set +e
+retry dnf install -y docker
 systemctl enable --now docker
 
 # Ensure AWS CLI v2 is available (used for ECR login + SSM token fetch)
 if ! command -v aws >/dev/null 2>&1; then
-  dnf install -y awscli-2 || {
-    dnf install -y unzip
-    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
-    unzip -q /tmp/awscliv2.zip -d /tmp
-    /tmp/aws/install
+  retry dnf install -y awscli-2 || {
+    retry dnf install -y unzip
+    retry curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip
+    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
   }
 fi
+set -e
 
 #####################################################################
 # Part 3: Telebot launch script + systemd service

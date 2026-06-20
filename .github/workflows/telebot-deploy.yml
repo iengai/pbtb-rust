@@ -65,7 +65,7 @@ jobs:
             --instance-ids "$NAT_ID" \
             --document-name AWS-RunShellScript \
             --comment "deploy telebot ${{ github.event.inputs.tag }}" \
-            --parameters 'commands=["systemctl restart telebot","sleep 10","systemctl --no-pager --lines=0 status telebot || true","docker ps -a --filter name=telebot"]' \
+            --parameters 'commands=["set -e","systemctl restart telebot","ok=0; for i in $(seq 1 12); do sleep 5; if docker ps --filter name=telebot --filter status=running | grep -q telebot; then ok=1; break; fi; done","if [ $ok -ne 1 ]; then echo telebot-not-running; systemctl --no-pager --lines=30 status telebot || true; docker logs --tail 50 telebot 2>&1 || true; exit 1; fi","echo telebot-up"]' \
             --query 'Command.CommandId' --output text)
           echo "SSM command: $CMD_ID"
 
