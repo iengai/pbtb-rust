@@ -121,7 +121,7 @@ jobs:
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$NAT_ID" \
             --document-name AWS-RunShellScript \
-            --comment "deploy telebot ${{ github.event.inputs.tag }} pb=${{ steps.td.outputs.arn }}" \
+            --comment "telebot deploy tag=${{ github.event.inputs.tag }} pb=${{ github.event.inputs.passivbot_revision }}" \
             --parameters "$PARAMS" \
             --query 'Command.CommandId' --output text)
           echo "SSM command: $CMD_ID"
