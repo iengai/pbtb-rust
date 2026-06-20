@@ -6,6 +6,12 @@ Project guidance for AI agents (Codex, Claude Code, etc.) working in this reposi
 - PBTB-Rust is a Telegram bot for managing Passivbot trading bot configurations.
 - Architecture: Interface → Use Case → Domain ← Infrastructure (Clean Architecture / DDD).
 
+## Development Environment
+
+**Develop inside the Dev Container (`.devcontainer/`) — do not configure a host toolchain.** It pins the Rust toolchain and AWS CLI (via Dev Container features) and supplies the native build deps `aws-lc-sys` needs (NASM/cmake, commonly missing on Windows), plus DynamoDB Local for integration tests. Open the repo with the Dev Containers extension and "Reopen in Container"; the running service is `app-node` (e.g. `docker exec -it app-node bash`). Run all `cargo build` / `test` / `clippy` there rather than on the host.
+
+Git worktrees: the container bind-mounts the folder it was opened on (`${localWorkspaceFolder}` → `/app`), so a session started in a worktree under a different path is **not** what the container builds. Reopen the container on the worktree, or run the build against the worktree path explicitly.
+
 ## Repo Layout (key paths)
 - `src/domain/` core entities + repository traits (no external deps)
 - `src/usecase/` business logic orchestrations
