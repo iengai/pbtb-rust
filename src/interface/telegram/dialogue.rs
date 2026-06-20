@@ -2,6 +2,7 @@ use teloxide::prelude::*;
 use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
 
 use super::{Deps, states::{DialogueState, BotContext}};
+use crate::usecase::{StartOutcome, StopOutcome};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -78,6 +79,7 @@ async fn handle_start_state(
 
                 // Actual state (observed task) from the runtime record.
                 let actual_text = match runtime.as_ref().map(|r| &r.phase) {
+                    Some(crate::domain::RuntimePhase::Starting) => "⏳ Starting",
                     Some(crate::domain::RuntimePhase::Running) => "▶️ Running",
                     Some(crate::domain::RuntimePhase::Stopped) => "⏹️ Stopped",
                     None => "❔ Unknown (no task record)",
@@ -304,22 +306,39 @@ async fn handle_start_state(
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
-                    match deps.set_bot_enabled_usecase.execute(&user_id, bot_id, true).await {
-                        Ok(_) => {
+                    match deps.start_bot_usecase.execute(&user_id, bot_id).await {
+                        Ok(StartOutcome::Started { task_id }) => {
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "▶️ Bot {} enabled (desired=on). \
-                                    It will be (re)started/kept running by the supervisor.",
-                                    bot_id
+                                    "▶️ Bot {} starting — launched ECS task {} (desired=on).",
+                                    bot_id, task_id
                                 )
                             )
+                                .await?;
+                        }
+                        Ok(StartOutcome::AlreadyRunning) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("▶️ Bot {} is already running (desired=on).", bot_id)
+                            )
+                                .await?;
+                        }
+                        Ok(StartOutcome::AlreadyStarting) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("⏳ Bot {} is already starting — give it a few seconds.", bot_id)
+                            )
+                                .await?;
+                        }
+                        Ok(StartOutcome::BotNotFound) => {
+                            bot.send_message(msg.chat.id, format!("❌ Bot {} not found.", bot_id))
                                 .await?;
                         }
                         Err(e) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!("❌ Failed to enable bot {}:\n\n{}", bot_id, e)
+                                format!("❌ Failed to start bot {}:\n\n{}", bot_id, e)
                             )
                                 .await?;
                         }
@@ -338,22 +357,43 @@ async fn handle_start_state(
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
-                    match deps.set_bot_enabled_usecase.execute(&user_id, bot_id, false).await {
-                        Ok(_) => {
+                    match deps.stop_bot_usecase.execute(&user_id, bot_id).await {
+                        Ok(StopOutcome::Stopped { task_id }) => {
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "⏹️ Bot {} disabled (desired=off). \
-                                    The supervisor will not restart it.",
+                                    "⏹️ Bot {} stopping — stopped ECS task {} (desired=off).",
+                                    bot_id, task_id
+                                )
+                            )
+                                .await?;
+                        }
+                        Ok(StopOutcome::NotRunning) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("⏹️ Bot {} disabled (desired=off). It was not running.", bot_id)
+                            )
+                                .await?;
+                        }
+                        Ok(StopOutcome::StartInProgress) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "⏳ Bot {} set to off, but a start is still in progress. \
+                                    Tap Stop again in a few seconds to stop the task.",
                                     bot_id
                                 )
                             )
                                 .await?;
                         }
+                        Ok(StopOutcome::BotNotFound) => {
+                            bot.send_message(msg.chat.id, format!("❌ Bot {} not found.", bot_id))
+                                .await?;
+                        }
                         Err(e) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!("❌ Failed to disable bot {}:\n\n{}", bot_id, e)
+                                format!("❌ Failed to stop bot {}:\n\n{}", bot_id, e)
                             )
                                 .await?;
                         }

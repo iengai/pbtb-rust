@@ -199,17 +199,20 @@ pub(crate) async fn function_handler(
 
             let cfg = &state.configs;
             let stop = StopInfo { exit_code: exit, stop_code: stop_code.to_string() };
+            let stopped_task_id = task_id_from_arn(task_arn);
 
             let outcome = state
                 .reconcile
                 .execute(
                     user_id,
                     bot_id,
+                    stopped_task_id,
                     &cfg.ecs.cluster_arn,
                     &cfg.ecs.td_passivbot_v741_arn,
                     &cfg.ecs.td_passivbot_v741_container_name,
                     stop,
                     observed_at,
+                    now_epoch(),
                 )
                 .await
                 .map_err(|e| Error::from(format!("Failed to reconcile stopped task: {e:#}")))?;
@@ -223,6 +226,9 @@ pub(crate) async fn function_handler(
                 }
                 ReconcileOutcome::SkippedNotMemoryRelated => {
                     tracing::warn!("Task did not exit due to a memory-related reason; skipping restart. taskArn={}", task_arn);
+                }
+                ReconcileOutcome::SkippedSuperseded => {
+                    tracing::warn!("Stopped task is no longer current (duplicate/late STOPPED); not restarting. taskArn={}", task_arn);
                 }
                 ReconcileOutcome::BotNotFound => {
                     tracing::warn!("Bot not found for user_id={:?}, bot_id={:?}; skipping restart. taskArn={}", user_id, bot_id, task_arn);

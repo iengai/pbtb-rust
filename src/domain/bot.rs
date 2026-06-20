@@ -80,6 +80,13 @@ impl Bot {
 #[async_trait]
 pub trait BotRepository: Send + Sync {
     async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot>;
+    /// Strongly-consistent read for decisions that must not act on a stale
+    /// replica — re-validating desired state (`enabled`) inside the restart lock
+    /// before launching. Defaults to `find`; the DynamoDB implementation
+    /// overrides it with a consistent read.
+    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
+        self.find(user_id, bot_id).await
+    }
     async fn save(&self, bot: &Bot) -> Result<(), DomainError>;
     async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot>;
     async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;

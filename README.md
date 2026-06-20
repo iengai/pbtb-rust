@@ -116,7 +116,7 @@ let use_case = AddBotUseCase::new(repository);
 #### Domain Layer (`src/domain/`)
 Core business entities and repository interfaces (no external dependencies):
 - `Bot` - Trading bot aggregate root with metadata. `Bot.enabled` is the bot's **desired state** (user intent), toggled via `enable`/`disable`.
-- `BotRuntime` - **Observed state** aggregate: whether the ECS task is actually running (`RuntimePhase::{Running, Stopped}`, plus `task_id`, `version`, `observed_at`). Kept separate from desired state.
+- `BotRuntime` - **Observed state** aggregate: whether the ECS task is actually running (`RuntimePhase::{Starting, Running, Stopped}`, plus `task_id`, `version`, `observed_at`). Kept separate from desired state. `Starting` is the transient exclusive-start-lock state.
 - `BotConfig` - User-specific bot configuration. Owns its business rules: `apply_risk_level` sets risk and derives leverage atomically; `from_template`/`set_live_user` bind the `live.user` field.
 - `ConfigTemplate` - Reusable configuration templates
 - `Exchange` - Supported exchanges (currently Bybit)
@@ -140,17 +140,19 @@ Business logic orchestration:
 - `GetBotConfigUseCase` - Retrieve bot configuration
 - `UpdateBotConfigUseCase` - Update full configuration
 - `UpdateRiskLevelUseCase` - Adjust risk parameters
-- `SetBotEnabledUseCase` - Set desired state (enable/disable a bot)
+- `StartBotUseCase` - "Run bot": flip desired ON and launch the ECS task behind the exclusive start lock
+- `StopBotUseCase` - "Stop bot": flip desired OFF and stop the running task
 - `GetBotRuntimeUseCase` - Read observed runtime (`BotRuntime`) for a bot
-- `ReconcileStoppedTaskUseCase` - Decide whether to restart a stopped task and record the resulting runtime
+- `ReconcileStoppedTaskUseCase` - Decide whether to restart a stopped task (restart claimed through the start lock, idempotent per stopped task)
 - `RunTaskUseCase` - Launch a Passivbot ECS task
+- `EcsTaskController` - Stop a task (`StopTask`) and check liveness (`DescribeTasks`)
 
 #### Interface Layer (`src/interface/telegram/`)
 Telegram bot implementation:
 - `router.rs` - Teloxide dispatcher setup
 - `commands.rs` - Slash command handlers (`/start`, `/list`)
 - `callbacks.rs` - Inline button handlers
-- `dialogue.rs` - Conversation state management. The **Status** view shows both **Desired** (from `Bot.enabled`) and **Actual** (the observed `RuntimePhase`); the **Run bot**/**Stop bot** buttons set desired state only (they do not start/stop the container directly).
+- `dialogue.rs` - Conversation state management. The **Status** view shows both **Desired** (from `Bot.enabled`) and **Actual** (the observed `RuntimePhase`); the **Run bot**/**Stop bot** buttons flip desired state **and** actuate ECS (`RunTask`/`StopTask`) via `StartBotUseCase`/`StopBotUseCase`.
 - `keyboards.rs` - Menu and button layouts
 
 ## Project Structure

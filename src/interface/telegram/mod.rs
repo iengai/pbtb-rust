@@ -31,5 +31,8 @@ pub struct Deps {
 
     // Runtime / desired-state management
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
-    pub set_bot_enabled_usecase: Arc<SetBotEnabledUseCase>,
+
+    // ECS actuation (desired state -> real RunTask/StopTask)
+    pub start_bot_usecase: Arc<StartBotUseCase>,
+    pub stop_bot_usecase: Arc<StopBotUseCase>,
 }

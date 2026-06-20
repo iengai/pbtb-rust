@@ -3,7 +3,7 @@ use aws_sdk_dynamodb::{Client};
 use aws_sdk_dynamodb::types::AttributeValue;
 use crate::domain::bot::{Bot, BotRepository};
 use crate::domain::error::DomainError;
-use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
+use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use async_trait::async_trait;
 use crate::domain::exchange::Exchange;
 
@@ -196,6 +196,23 @@ impl BotRuntimeRepository for DynamoBotRepository {
         }
     }
 
+    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Result<Option<BotRuntime>, DomainError> {
+        let result = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .consistent_read(true)
+            .send()
+            .await
+            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+
+        match result.item() {
+            Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
+            None => Ok(None),
+        }
+    }
+
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
@@ -221,6 +238,12 @@ impl BotRuntimeRepository for DynamoBotRepository {
                 .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped)")
                 .expression_attribute_names("#st", "status")
                 .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string())),
+            // The starting lock is normally written via StartLockRepository's
+            // conditional CAS, not this observed-write path. Keep the arm total
+            // and conservative: a transient `starting` may only win if strictly
+            // newer, so it never overwrites a same-second running/stopped.
+            RuntimePhase::Starting => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at"),
         };
 
         match put.send().await {
@@ -242,6 +265,190 @@ impl BotRuntimeRepository for DynamoBotRepository {
 }
 
 #[async_trait]
+impl StartLockRepository for DynamoBotRepository {
+    async fn try_acquire_start(&self, user_id: &str, bot_id: &str, now: i64, stale_after: i64) -> Result<StartClaim, DomainError> {
+        let pk = BotItem::construct_pk(user_id);
+        let sk = BotECSTaskMetadata::construct_sk(bot_id);
+        let stale_cutoff = now - stale_after;
+
+        // Strongly-consistent pre-read: lets us report AlreadyRunning /
+        // AlreadyStarting precisely and skip a doomed write. It is NOT the safety
+        // gate — two callers can both read `stopped` here. The conditional
+        // UpdateItem below is the gate.
+        let existing = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk.clone()))
+            .key("sk", AttributeValue::S(sk.clone()))
+            .consistent_read(true)
+            .send()
+            .await
+            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+
+        if let Some(meta) = existing.item().and_then(BotECSTaskMetadata::from_item) {
+            match meta.status.as_str() {
+                "running" => return Ok(StartClaim::AlreadyRunning),
+                "starting" if meta.updated_at > stale_cutoff => return Ok(StartClaim::AlreadyStarting),
+                _ => {} // stopped, missing, or a stale starting lock -> attempt to claim
+            }
+        }
+
+        // Authoritative compare-and-set. DynamoDB serializes conditional writes
+        // per item, so concurrent claimers cannot both satisfy the condition.
+        // Clearing task_id marks "launch in flight, id not yet known".
+        let res = self.client
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .update_expression("SET #st = :starting, task_updated_at = :now, task_id = :empty")
+            .condition_expression("attribute_not_exists(#st) OR #st = :stopped OR (#st = :starting AND task_updated_at <= :stale_cutoff)")
+            .expression_attribute_names("#st", "status")
+            .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
+            .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .expression_attribute_values(":empty", AttributeValue::S(String::new()))
+            .expression_attribute_values(":stale_cutoff", AttributeValue::N(stale_cutoff.to_string()))
+            .send()
+            .await;
+
+        match res {
+            Ok(_) => Ok(StartClaim::Acquired),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    // Lost the race between the pre-read and the CAS: the row is now
+                    // running or another fresh lock is held. Skipping the launch is correct.
+                    Ok(StartClaim::AlreadyStarting)
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
+                }
+            }
+        }
+    }
+
+    async fn try_acquire_restart(&self, user_id: &str, bot_id: &str, stopped_task_id: &str, now: i64) -> Result<StartClaim, DomainError> {
+        let pk = BotItem::construct_pk(user_id);
+        let sk = BotECSTaskMetadata::construct_sk(bot_id);
+
+        // Pre-read (consistent) only to classify the skip reason for logging.
+        let existing = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk.clone()))
+            .key("sk", AttributeValue::S(sk.clone()))
+            .consistent_read(true)
+            .send()
+            .await
+            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+
+        match existing.item().and_then(BotECSTaskMetadata::from_item) {
+            // No row, or the stopped task is no longer the row's current task (a
+            // replacement already exists, or it is already stopped with no id):
+            // nothing to restart.
+            None => return Ok(StartClaim::AlreadyRunning),
+            Some(meta) if meta.task_id != stopped_task_id => {
+                return Ok(if meta.status == "starting" { StartClaim::AlreadyStarting } else { StartClaim::AlreadyRunning });
+            }
+            Some(_) => {}
+        }
+
+        // Authoritative CAS: claim only while the stopped task is still current,
+        // bumping the restart counter. Concurrent/duplicate STOPPED events serialize
+        // per item — the first clears task_id, so the rest fail this condition.
+        let res = self.client
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .update_expression("SET #st = :starting, task_updated_at = :now, task_id = :empty, task_current_version = if_not_exists(task_current_version, :zero) + :one")
+            .condition_expression("task_id = :stopped AND (#st = :running OR #st = :starting)")
+            .expression_attribute_names("#st", "status")
+            .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
+            .expression_attribute_values(":running", AttributeValue::S("running".to_string()))
+            .expression_attribute_values(":stopped", AttributeValue::S(stopped_task_id.to_string()))
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .expression_attribute_values(":empty", AttributeValue::S(String::new()))
+            .expression_attribute_values(":zero", AttributeValue::N("0".to_string()))
+            .expression_attribute_values(":one", AttributeValue::N("1".to_string()))
+            .send()
+            .await;
+
+        match res {
+            Ok(_) => Ok(StartClaim::Acquired),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    // The stopped task stopped being current between the pre-read and
+                    // the CAS (a duplicate event or another launcher won). Skip.
+                    Ok(StartClaim::AlreadyStarting)
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
+                }
+            }
+        }
+    }
+
+    async fn attach_started_task(&self, user_id: &str, bot_id: &str, task_id: &str) -> Result<(), DomainError> {
+        // Only the task_id is set; the claim timestamp is left intact so the
+        // stale-lock clock keeps running from when the launch began. Conditional
+        // on the row still being `starting` so a RUNNING/STOPPED observation that
+        // already won the row is never reverted.
+        let res = self.client
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .update_expression("SET task_id = :tid")
+            .condition_expression("#st = :starting")
+            .expression_attribute_names("#st", "status")
+            .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
+            .expression_attribute_values(":tid", AttributeValue::S(task_id.to_string()))
+            .send()
+            .await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
+                }
+            }
+        }
+    }
+
+    async fn release_start(&self, user_id: &str, bot_id: &str, now: i64) -> Result<(), DomainError> {
+        // Roll a held lock back to stopped after a failed launch. Conditional on
+        // the row still being `starting` so a concurrent real observation wins.
+        let res = self.client
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .update_expression("SET #st = :stopped, task_updated_at = :now, task_id = :empty")
+            .condition_expression("#st = :starting")
+            .expression_attribute_names("#st", "status")
+            .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
+            .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .expression_attribute_values(":empty", AttributeValue::S(String::new()))
+            .send()
+            .await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                    Ok(())
+                } else {
+                    Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}")))
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
 impl BotRepository for DynamoBotRepository {
     async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
         // Note: We need user_id to construct PK, so this method uses scan (not efficient)
@@ -251,6 +458,22 @@ impl BotRepository for DynamoBotRepository {
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
             .key("sk", AttributeValue::S(bot_id.to_string()))
+            .send()
+            .await
+            .ok()?;
+
+        let item = result.item()?;
+        let bot_item = BotItem::from_item(item)?;
+        bot_item.to_domain()
+    }
+
+    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
+        let result = self.client
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key("sk", AttributeValue::S(bot_id.to_string()))
+            .consistent_read(true)
             .send()
             .await
             .ok()?;

@@ -12,7 +12,7 @@ use infra::{DynamoBotRepository, S3TemplateRepository, S3BotConfigRepository, S3
 use usecase::*;
 use domain::SystemClock;
 use pbtb_rust::config::configs::{load_config, Configs};
-use pbtb_rust::infra::client::{setup_dynamodb_with_configs,setup_s3_with_configs};
+use pbtb_rust::infra::client::{setup_dynamodb_with_configs,setup_s3_with_configs,setup_ecs_with_configs};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,6 +30,9 @@ async fn main() -> anyhow::Result<()> {
     let (dynamodb_client, table_name) = setup_dynamodb_with_configs(&configs).await;
     // Setup S3
     let (s3_client, bucket_name) = setup_s3_with_configs(&configs).await;
+    // Setup ECS (for telebot Run/Stop -> RunTask/StopTask actuation)
+    let (ecs_client, cluster_arn, td_arn) = setup_ecs_with_configs(&configs).await;
+    let container_name = configs.ecs.td_passivbot_v741_container_name.clone();
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
@@ -74,12 +77,34 @@ async fn main() -> anyhow::Result<()> {
     ));
 
     // Create use cases - Runtime / desired-state management
-    // DynamoBotRepository implements both BotRepository and BotRuntimeRepository,
-    // so coerce the same Arc into each trait object the use cases expect.
+    // DynamoBotRepository implements BotRepository, BotRuntimeRepository and
+    // StartLockRepository, so coerce the same Arc into each trait object.
     let bots_dyn: Arc<dyn domain::BotRepository> = bot_repository.clone();
     let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = bot_repository.clone();
-    let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn));
-    let set_bot_enabled_usecase = Arc::new(SetBotEnabledUseCase::new(bots_dyn, clock.clone()));
+    let start_locks: Arc<dyn domain::StartLockRepository> = bot_repository.clone();
+    let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone()));
+
+    // Create use cases - ECS actuation (Run/Stop buttons -> RunTask/StopTask)
+    let task_runner: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client.clone()));
+    let task_controller: Arc<dyn TaskController> = Arc::new(EcsTaskController::new(ecs_client));
+    let start_bot_usecase = Arc::new(StartBotUseCase::new(
+        bots_dyn.clone(),
+        runtimes_dyn.clone(),
+        start_locks,
+        task_runner,
+        task_controller.clone(),
+        clock.clone(),
+        cluster_arn.clone(),
+        td_arn,
+        container_name,
+    ));
+    let stop_bot_usecase = Arc::new(StopBotUseCase::new(
+        bots_dyn,
+        runtimes_dyn,
+        task_controller,
+        clock.clone(),
+        cluster_arn,
+    ));
 
     // Construct dependencies
     let deps = interface::telegram::Deps {
@@ -96,7 +121,9 @@ async fn main() -> anyhow::Result<()> {
         update_risk_level_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
-        set_bot_enabled_usecase,
+        // ECS actuation
+        start_bot_usecase,
+        stop_bot_usecase,
     };
 
     interface::telegram::router::run(bot, deps).await

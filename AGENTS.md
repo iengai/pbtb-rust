@@ -46,14 +46,23 @@ State uses two in-memory stores: `DialogueState` (current flow step) and `BotCon
 
 The model deliberately separates two concepts that used to be conflated:
 
-- **Desired state** = user intent. `Bot.enabled` (bool) records whether the user turned the bot on. It is toggled via `Bot::enable`/`Bot::disable` and the `SetBotEnabledUseCase`, which is wired to the Telegram "Run bot"/"Stop bot" buttons. These flip desired state only — they do **not** directly start or stop the ECS task.
-- **Observed state** = reality. The `BotRuntime` aggregate (`src/domain/runtime.rs`) records whether the ECS task is actually running (`RuntimePhase::{Running,Stopped}`, plus `task_id`, `version`, `observed_at`). It is written by the ECS Task State Change Lambda (`RecordRunningTaskUseCase` on RUNNING, `ReconcileStoppedTaskUseCase` on STOPPED) and read by `GetBotRuntimeUseCase`.
+- **Desired state** = user intent. `Bot.enabled` (bool) records whether the user turned the bot on, toggled via `Bot::enable`/`Bot::disable`. The Telegram "Run bot"/"Stop bot" buttons drive `StartBotUseCase`/`StopBotUseCase`, which flip desired state **and** actuate ECS — `StartBotUseCase` launches the task (`RunTask`) behind the exclusive start lock, `StopBotUseCase` stops it (`StopTask`).
+- **Observed state** = reality. The `BotRuntime` aggregate (`src/domain/runtime.rs`) records whether the ECS task is actually running (`RuntimePhase::{Starting,Running,Stopped}`, plus `task_id`, `version`, `observed_at`). `Running`/`Stopped` are written by the ECS Task State Change Lambda (`RecordRunningTaskUseCase` on RUNNING, `ReconcileStoppedTaskUseCase` on STOPPED); `Starting` is the transient lock state a launcher sets between claiming the start and the RUNNING event. Read via `GetBotRuntimeUseCase`.
 
 The old `Bot.status` field and its `Status` enum were removed — they mixed the two concepts and were never persisted correctly.
 
 ### Auto-restart Reconciliation
 
-`ReconcileStoppedTaskUseCase` owns the restart policy: it restarts a stopped task only when `enabled == true` (desired state ON) **and** the stop was memory-related (exit code 137 and not `UserInitiated`). It returns one of `Restarted { task_id }`, `SkippedNotEnabled`, `SkippedNotMemoryRelated`, or `BotNotFound`, and records the resulting `BotRuntime` either way. This fixes a prior bug where the Lambda restarted on OOM without checking `enabled`, resurrecting bots the user had manually disabled.
+`ReconcileStoppedTaskUseCase` owns the restart policy: it restarts a stopped task only when `enabled == true` (desired state ON) **and** the stop was memory-related (exit code 137 and not `UserInitiated`). The restart is claimed through the exclusive start lock (below), keyed on the stopped task id, so a duplicate/late STOPPED event cannot spawn a second task — it returns `SkippedSuperseded` in that case. Outcomes: `Restarted { task_id }`, `SkippedNotEnabled`, `SkippedNotMemoryRelated`, `SkippedSuperseded`, `BotNotFound`. This also fixes a prior bug where the Lambda restarted on OOM without checking `enabled`, resurrecting bots the user had manually disabled.
+
+### Exclusive Start Lock (no double-run)
+
+A bot must **never** run two live-trading tasks at once. Every launcher — the telebot "Run bot" and the Lambda auto-restart — claims an exclusive lock before `RunTask` via `StartLockRepository`, a `starting` row guarded by a DynamoDB **conditional write** (the write, not the read, is the authoritative gate):
+
+- `try_acquire_start` (cold start) claims from `stopped`/absent, or from a `starting` lock older than `START_LOCK_STALE_AFTER_SECS`. Before a stale reclaim of a lock that still carries a `task_id`, `StartBotUseCase` confirms via ECS `DescribeTasks` (`TaskController::liveness`) that the task is actually gone, so a live task whose RUNNING event was lost is never double-launched.
+- `try_acquire_restart` (Lambda) claims only while the stopped task is still the row's current `task_id`, making duplicate STOPPED events idempotent.
+
+After winning the lock the launcher calls `attach_started_task` (records the new `task_id`) on success or `release_start` on launch failure; the Lambda's RUNNING event then flips `starting → running`.
 
 ## Data Storage
 
