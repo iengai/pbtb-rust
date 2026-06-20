@@ -17,7 +17,7 @@ variable "common_tags" {
 
 variable "function_name" {
   type        = string
-  description = "Short function name suffix, e.g. task-stopped-event-handler"
+  description = "Short function name suffix, e.g. task-state-change-handler"
 }
 
 variable "bootstrap_path" {

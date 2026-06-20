@@ -1,4 +1,4 @@
-// terraform/modules/lambda/task_stopped_event_handler/main.tf
+// terraform/modules/lambda/task_state_change_handler/main.tf
 module "base" {
   source = "../base"
 
@@ -6,8 +6,8 @@ module "base" {
   env         = var.env
   common_tags = var.common_tags
 
-  function_name  = "task-stopped-event-handler"
-  bootstrap_path = "${path.root}/../../../target/lambda/task_stopped_event_handler/bootstrap"
+  function_name  = "task-state-change-handler"
+  bootstrap_path = "${path.root}/../../../target/lambda/task_state_change_handler/bootstrap"
   architecture   = "x86_64"
   code_s3_bucket = var.lambda_code_bucket
 
@@ -24,7 +24,7 @@ module "base" {
 
 # Allow this Lambda to run ECS tasks and pass the task roles.
 resource "aws_iam_role_policy" "ecs_run_task" {
-  name = "${var.project}-${var.env}-task-stopped-event-handler-ecs-run-task"
+  name = "${var.project}-${var.env}-task-state-change-handler-ecs-run-task"
   role = module.base.role_name
 
   policy = jsonencode({
@@ -63,7 +63,7 @@ resource "aws_iam_role_policy" "ecs_run_task" {
 
 resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
   name        = "${var.project}-${var.env}-ecs-task-state-change"
-  description = "Trigger task-stopped-event-handler on ECS task state change"
+  description = "Trigger task-state-change-handler on ECS task state change"
 
   event_pattern = jsonencode({
     "source" : ["aws.ecs"],
@@ -72,7 +72,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
       {
         "clusterArn" : [var.ecs_cluster_arn]
       },
-      { "lastStatus" : ["STOPPED"] }
+      { "lastStatus" : ["RUNNING", "STOPPED"] }
     )
   })
 
@@ -81,7 +81,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_state_change" {
 
 resource "aws_cloudwatch_event_target" "ecs_task_state_change_to_lambda" {
   rule      = aws_cloudwatch_event_rule.ecs_task_state_change.name
-  target_id = "task-stopped-event-handler"
+  target_id = "task-state-change-handler"
   arn       = module.base.function_arn
 }
 
