@@ -75,3 +75,17 @@ COPY --from=builder /out/bin/${BIN_NAME} /app/${BIN_NAME}
 
 USER appuser
 CMD ["/app/pbtb-rust"]
+
+######## Lambda export ########
+# Emits ONLY the Lambda bootstrap binary so CI can extract it without a runtime
+# image. Built against the same `builder` stage (FROM rust:1.89-bullseye, glibc
+# 2.31) so the binary stays below AL2023's glibc 2.34 — building on the CI host's
+# newer glibc could link symbols the Lambda runtime lacks.
+#
+#   docker build --target lambda-export \
+#     --build-arg BIN_NAME=task_state_change_handler \
+#     --platform linux/amd64 --output type=local,dest=artifact .
+# -> ./artifact/bootstrap
+FROM scratch AS lambda-export
+ARG BIN_NAME=task_state_change_handler
+COPY --from=builder /out/bin/${BIN_NAME} /bootstrap

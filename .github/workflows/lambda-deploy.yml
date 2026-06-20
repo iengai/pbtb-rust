@@ -1,0 +1,154 @@
+name: lambda-deploy
+
+# Build the task_state_change_handler Lambda bootstrap and ship it straight to
+# the function via `aws lambda update-function-code`. No Terraform — so this
+# never touches the env S3 state, the backend lock, or the NAT lifecycle. The
+# function's config/wiring stays Terraform-owned; only the code is shipped here
+# (the function ignores source_code_hash drift; see terraform/modules/lambda/base).
+#
+# The binary is built through the SAME builder stage the devcontainer/telebot use
+# (.devcontainer/Dockerfile, FROM rust:1.89-bullseye -> glibc 2.31), keeping it
+# below AL2023's glibc 2.34. A plain `cargo build` on the ubuntu-24.04 runner
+# links against glibc 2.39 and could fail at runtime on the Lambda host.
+#
+# Manual only: this updates code on the trading-control Lambda, so deploys are
+# deliberate (mirrors telebot-deploy).
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish an immutable Lambda version for rollback'
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write   # OIDC -> assume the lambda-deploy role
+  contents: read
+
+env:
+  # Mirrors terraform's "${project}-${env}-${function_name}" (project=scalable-cluster,
+  # env=dev). Keep in sync with terraform if the project/env or function name is
+  # renamed, or update-function-code 404s.
+  AWS_REGION: ap-northeast-1
+  FUNCTION_NAME: scalable-cluster-dev-task-state-change-handler
+  BIN_NAME: task_state_change_handler
+
+jobs:
+  deploy:
+    # x86_64 host matches the function arch (x86_64); the builder image builds
+    # linux/amd64 natively, no QEMU.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Persist cargo registry + target across runs so only changed crates recompile.
+      - name: Restore cargo build cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cargo-registry-cache
+            cargo-target-cache
+          key: lambda-buildkit-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            lambda-buildkit-
+
+      - name: Inject cargo cache into BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          cache-map: |
+            {
+              "cargo-registry-cache": "/usr/local/cargo/registry",
+              "cargo-target-cache": "/app/target"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+
+      # The lambda-export stage is FROM scratch with just /bootstrap; type=local
+      # writes it to ./artifact/bootstrap.
+      - name: Build bootstrap (devcontainer builder stage)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          target: lambda-export
+          platforms: linux/amd64
+          build-args: |
+            BIN_NAME=${{ env.BIN_NAME }}
+          outputs: type=local,dest=artifact
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Package zip (bootstrap at root)
+        run: |
+          set -euo pipefail
+          test -f artifact/bootstrap || { echo "bootstrap not produced by the build"; exit 1; }
+          chmod +x artifact/bootstrap
+          (cd artifact && zip -X -q ../out.zip bootstrap)
+          echo "LOCAL_SHA=$(openssl dgst -sha256 -binary out.zip | base64)" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_LAMBDA_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update function code
+        id: update
+        run: |
+          set -euo pipefail
+          PUBLISH=''
+          [ "${{ github.event.inputs.publish }}" = "true" ] && PUBLISH='--publish'
+          OUT=$(aws lambda update-function-code \
+            --function-name "$FUNCTION_NAME" \
+            --zip-file fileb://out.zip \
+            $PUBLISH \
+            --output json)
+          echo "$OUT" | jq '{FunctionArn, Version, CodeSha256, LastUpdateStatus}'
+          echo "remote_sha=$(echo "$OUT" | jq -r '.CodeSha256')" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the update to settle
+        run: aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+      - name: Verify CodeSha256
+        run: |
+          set -euo pipefail
+          echo "local : $LOCAL_SHA"
+          echo "remote: ${{ steps.update.outputs.remote_sha }}"
+          [ "$LOCAL_SHA" = "${{ steps.update.outputs.remote_sha }}" ] \
+            || { echo "CodeSha256 mismatch (upload corrupted?)"; exit 1; }
+
+      # A benign non-aws.ecs event hits the early-return in event_handler.rs
+      # (source/detail-type guard) -> Ok(()) before any ECS/DynamoDB call, so it
+      # NEVER launches a task. Never smoke-test with a real STOPPED event.
+      - name: Smoke invoke (ignored event -> 200, no FunctionError)
+        run: |
+          set -euo pipefail
+          PAYLOAD='{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
+          # AWS CLI v2 exits non-zero when the response carries a FunctionError;
+          # tolerate it so the explicit StatusCode/FunctionError checks below run
+          # (and print response.json) instead of set -e aborting with a raw exit.
+          RESP=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload "$PAYLOAD" \
+            --output json \
+            response.json) || true
+          echo "$RESP"
+          echo "body: $(cat response.json 2>/dev/null || true)"
+          STATUS=$(echo "$RESP" | jq -r '.StatusCode')
+          FERR=$(echo "$RESP" | jq -r '.FunctionError // "None"')
+          [ "$STATUS" = "200" ] || { echo "unexpected StatusCode=$STATUS"; exit 1; }
+          [ "$FERR" = "None" ] || { echo "FunctionError: $FERR"; cat response.json; exit 1; }
+          echo "smoke ok"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Lambda deployed"
+            echo "- function: \`$FUNCTION_NAME\`"
+            echo "- CodeSha256: \`${{ steps.update.outputs.remote_sha }}\`"
+            echo "- published version: \`$([ "${{ github.event.inputs.publish }}" = "true" ] && echo yes || echo no)\`"
+          } >> "$GITHUB_STEP_SUMMARY"

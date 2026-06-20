@@ -62,4 +62,13 @@ resource "aws_lambda_function" "this" {
     var.common_tags,
     { Name = "${var.project}-${var.env}-${var.function_name}" }
   )
+
+  # Function code is shipped out-of-band by CI (the lambda-deploy workflow calls
+  # `aws lambda update-function-code`), so a CI deploy is not treated as drift and
+  # reverted on the next apply. Terraform still owns the function's config/wiring.
+  # NOTE: shared base module — this assumes any lambda built on it has CI-managed
+  # code. To deploy code through Terraform in an emergency, use `-replace`.
+  lifecycle {
+    ignore_changes = [source_code_hash]
+  }
 }

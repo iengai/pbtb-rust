@@ -100,6 +100,31 @@ revision), then run **telebot-deploy** (the passivbot sync rule above).
 > exist (built separately). Build the lambda first, or the command errors on a
 > missing file.
 
+## Lambda (task-state-change-handler) deploy
+
+The `task_state_change_handler` Lambda ships code out-of-band, like telebot — via the
+**lambda-deploy** GitHub Actions workflow (manual `workflow_dispatch`), NOT terraform.
+It builds the bootstrap through the devcontainer's `lambda-export` Docker stage
+(`rust:1.89-bullseye`, glibc 2.31 < AL2023 2.34) and ships it with
+`aws lambda update-function-code`. It never touches the env S3 state, the backend
+lock, or the NAT.
+
+- **One-time bootstrap** (creates the deploy role + wires the secret):
+  ```
+  AWS_PROFILE=dev terraform apply \
+    -target=aws_iam_role.gh_lambda_deploy \
+    -target=aws_iam_role_policy.gh_lambda_deploy
+  ```
+  Then set GitHub secret `AWS_LAMBDA_DEPLOY_ROLE_ARN` from the
+  `lambda_task_state_change_gh_deploy_role_arn` output. As with any apply here, the
+  lambda `archive_file` needs `target/lambda/task_state_change_handler/bootstrap` to
+  exist — build it first.
+- **Ship new lambda code:** run the **lambda-deploy** workflow. It verifies CodeSha256
+  and smoke-invokes a benign non-ECS event (ignored → 200, never launches a task).
+- **Drift:** `aws_lambda_function.this` carries `ignore_changes = [source_code_hash]`,
+  so `terraform apply` does NOT revert CI-shipped code. To deploy lambda code through
+  terraform in an emergency, `-replace` the function.
+
 ## Recovery
 
 - **telebot down, egress fine:** just re-run **telebot-deploy** (no NAT impact).
