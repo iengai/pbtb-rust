@@ -181,17 +181,12 @@ resource "aws_instance" "nat" {
   # (an in-place instance_type/user_data change would NOT re-execute user-data).
   user_data_replace_on_change = true
 
-  # This NAT is the sole egress for all trading traffic and the telebot host, so
-  # routine churn must not replace it. The dev user-data embeds volatile values
-  # (the passivbot task-definition revision ARN and the telebot image tag) that
-  # would otherwise trip user_data_replace_on_change and destroy+recreate the
-  # instance on an ordinary `apply`; telebot/app updates ship out-of-band via SSM,
-  # not by re-running user-data. To deliberately re-bootstrap, drop user_data from
-  # ignore_changes and apply in a maintenance window.
-  lifecycle {
-    ignore_changes = [user_data]
-  }
-
+  # user_data is the NAT/host bootstrap ONLY — it carries no app-level config
+  # (telebot config is delivered out-of-band via SSM + the telebot-deploy
+  # pipeline), so it changes only on a deliberate bootstrap-script edit.
+  # user_data_replace_on_change then forces a fresh instance so cloud-init
+  # re-runs; because this NAT is the sole egress for all trading traffic, run
+  # such an apply in a maintenance window.
   tags = {
     Name = "nat-instance"
   }
