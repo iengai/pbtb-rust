@@ -61,11 +61,19 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Load config: APP__* (consumed by the container) + TELEBOT_* (used by this script).
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# Read the host-only TELEBOT_* values WITHOUT sourcing/eval, so a value with
+# shell metacharacters can never be expanded or executed on this egress host.
+val() { grep -m1 "^$1=" "$ENV_FILE" | cut -d= -f2-; }
+TELEBOT_REGION="$(val TELEBOT_REGION)"
+TELEBOT_ECR_REGISTRY="$(val TELEBOT_ECR_REGISTRY)"
+TELEBOT_IMAGE="$(val TELEBOT_IMAGE)"
+TELEBOT_TOKEN_PARAM="$(val TELEBOT_TOKEN_PARAM)"
+TELEBOT_MEMORY="$(val TELEBOT_MEMORY)"
+
+# Container env = APP__*/RUST_LOG only (exclude the TELEBOT_* host-orchestration
+# vars). Written to tmpfs and refreshed each start; docker parses it literally.
+install -d -m 700 /run/telebot
+grep -E '^(APP__|RUST_LOG=)' "$ENV_FILE" > /run/telebot/container.env
 
 # Token is fetched at runtime so it is never persisted to disk / the env file.
 TELOXIDE_TOKEN="$(aws ssm get-parameter --name "$TELEBOT_TOKEN_PARAM" --with-decryption --region "$TELEBOT_REGION" --query 'Parameter.Value' --output text)"
@@ -77,7 +85,7 @@ docker rm -f telebot >/dev/null 2>&1 || true
 exec docker run --rm --name telebot \
   --memory="$TELEBOT_MEMORY" --memory-swap="$TELEBOT_MEMORY" \
   --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 \
-  --env-file "$ENV_FILE" \
+  --env-file /run/telebot/container.env \
   -e TELOXIDE_TOKEN="$TELOXIDE_TOKEN" \
   "$TELEBOT_IMAGE"
 SCRIPT

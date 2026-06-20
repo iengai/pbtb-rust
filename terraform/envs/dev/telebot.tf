@@ -42,6 +42,14 @@ locals {
   # Stable telebot runtime config (everything except the SecureString token, which
   # is fetched from SSM at container start, and the passivbot task-def ARN, which
   # telebot-deploy resolves live so a passivbot bump never re-renders this).
+  #
+  # INVARIANTS (the host reads these via grep+cut and docker --env-file, both of
+  # which parse KEY=value literally):
+  #   - values must be plain, single-line, metacharacter-free tokens (no spaces,
+  #     quotes, `$`, or backticks) — they are NOT shell-quoted on the host.
+  #   - NEVER put the Telegram token or any secret here: this is a plaintext SSM
+  #     String that telebot-deploy writes to disk. Secrets stay in SecureString
+  #     params fetched at runtime.
   telebot_base_env = join("\n", [
     "RUST_LOG=info",
     "APP__DYNAMODB__REGION=${var.region}",
@@ -92,8 +100,11 @@ resource "aws_ssm_parameter" "telebot_token" {
 # the NAT. telebot-deploy reads this, appends the resolved passivbot task-def ARN,
 # and writes /etc/telebot/telebot.env on the NAT host.
 resource "aws_ssm_parameter" "telebot_base_env" {
-  name  = "/${var.project}/${var.env}/telebot/base-env"
-  type  = "String"
+  name = "/${var.project}/${var.env}/telebot/base-env"
+  type = "String"
+  # Intelligent-Tiering: this param is designed to grow as config is added, so
+  # auto-promote past the Standard 4096-byte limit instead of failing apply.
+  tier  = "Intelligent-Tiering"
   value = local.telebot_base_env
 
   tags = var.common_tags
