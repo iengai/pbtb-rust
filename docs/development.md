@@ -108,16 +108,16 @@ Run `cargo fmt && cargo clippy` before committing.
 
 Config is assembled in `src/config/configs.rs` (`load_config`), which adds sources in this order:
 
-1. `APP__*` environment variables (prefix `APP`, `__` as the nesting separator — e.g. `APP__DYNAMODB__ENDPOINT_URL` maps to `[dynamodb] endpoint_url`)
-2. `config/default.toml`
-3. `config/{RUN_MODE}.toml` (optional)
-4. `config/local.toml` (optional, gitignored)
+1. `config/default.toml`
+2. `config/{RUN_MODE}.toml` (optional)
+3. `config/local.toml` (optional, gitignored)
+4. `APP__*` environment variables (prefix `APP`, `__` as the nesting separator — e.g. `APP__DYNAMODB__ENDPOINT_URL` maps to `[dynamodb] endpoint_url`)
 
 The `config` crate gives **later-added sources higher priority**, so the effective precedence is, low → high:
 
-`APP__*` env  <  `config/default.toml`  <  `config/{RUN_MODE}.toml`  <  `config/local.toml`
+`config/default.toml`  <  `config/{RUN_MODE}.toml`  <  `config/local.toml`  <  `APP__*` env
 
-> ⚠️ **`APP__*` env is the lowest-priority layer** — any value present in a config file overrides the matching env var, the opposite of the usual "env wins" convention. This does not affect the deployed binaries: the telebot and Lambda images ship only the compiled binary (no `config/` directory), so the file sources are absent and `APP__*` env is the sole config source. It only bites when running from a checkout where `config/` is present (local dev).
+> ✅ **`APP__*` env is the highest-priority layer** — an env var overrides the matching value from any config file, the usual "env wins" convention. The deployed binaries rely on this: the telebot and Lambda images ship only the compiled binary (no `config/` directory), so the file sources are absent and `APP__*` env is the sole config source. From a checkout where `config/` is present (local dev), an `APP__*` override still wins over the file value.
 
 `RUN_MODE` is read from `APP__RUN_MODE`, falling back to `RUN_MODE`, defaulting to `default`.
 
