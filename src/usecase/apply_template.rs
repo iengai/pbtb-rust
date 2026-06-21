@@ -1,8 +1,7 @@
-
-use std::sync::Arc;
 use crate::domain::botconfig::{BotConfig, BotConfigRepository};
-use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::clock::Clock;
+use crate::domain::configtemplate::ConfigTemplateRepository;
+use std::sync::Arc;
 
 pub struct ApplyTemplateUseCase {
     template_repository: Arc<dyn ConfigTemplateRepository>,
@@ -35,13 +34,9 @@ impl ApplyTemplateUseCase {
         let now = self.clock.now();
 
         // 2. Create bot config from template (sets live.user internally)
-        let bot_config = BotConfig::from_template(
-            user_id.to_string(),
-            bot_id.to_string(),
-            &template,
-            now,
-        )
-        .map_err(|e| e.to_string())?;
+        let bot_config =
+            BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)
+                .map_err(|e| e.to_string())?;
 
         // 3. Save bot config to S3: {user_id}/{bot_id}.json
         self.bot_config_repository.save(&bot_config).await

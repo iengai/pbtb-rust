@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crate::domain::bot::{Bot, BotRepository};
+use std::sync::Arc;
 
 pub struct ListBotsUseCase {
     // Use concrete constraint where needed

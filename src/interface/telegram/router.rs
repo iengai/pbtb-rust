@@ -1,7 +1,10 @@
 // Rust
-use teloxide::{dispatching::Dispatcher, prelude::*};
+use crate::interface::telegram::{
+    Deps, callbacks, commands, dialogue, middlewares,
+    states::{BotContext, DialogueState},
+};
 use teloxide::dispatching::dialogue::InMemStorage;
-use crate::interface::telegram::{commands, callbacks, dialogue, middlewares, Deps, states::{DialogueState, BotContext}};
+use teloxide::{dispatching::Dispatcher, prelude::*};
 
 pub async fn run(bot: Bot, deps: Deps) -> anyhow::Result<()> {
     // Inject dependencies into DependencyMap for extraction in handlers

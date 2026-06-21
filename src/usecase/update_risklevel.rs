@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::RiskLevel;
+use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::clock::Clock;
+use std::sync::Arc;
 
 pub struct UpdateRiskLevelUseCase {
     bot_config_repository: Arc<dyn BotConfigRepository>,
@@ -9,10 +9,7 @@ pub struct UpdateRiskLevelUseCase {
 }
 
 impl UpdateRiskLevelUseCase {
-    pub fn new(
-        bot_config_repository: Arc<dyn BotConfigRepository>,
-        clock: Arc<dyn Clock>,
-    ) -> Self {
+    pub fn new(bot_config_repository: Arc<dyn BotConfigRepository>, clock: Arc<dyn Clock>) -> Self {
         Self {
             bot_config_repository,
             clock,
@@ -48,14 +45,16 @@ impl UpdateRiskLevelUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::domain::botconfig::{BotConfig, BotType};
     use async_trait::async_trait;
     use serde_json::json;
-    use crate::domain::botconfig::{BotConfig, BotType};
+    use std::sync::Mutex;
 
     struct FixedClock;
     impl Clock for FixedClock {
-        fn now(&self) -> i64 { 1_700_000_000 }
+        fn now(&self) -> i64 {
+            1_700_000_000
+        }
     }
 
     /// Mock BotConfigRepository holding a single config that `get` returns and
@@ -101,7 +100,9 @@ mod tests {
 
     #[tokio::test]
     async fn update_applies_risk_and_derives_leverage() {
-        let repo = Arc::new(InMemoryConfig { config: Mutex::new(sample_config()) });
+        let repo = Arc::new(InMemoryConfig {
+            config: Mutex::new(sample_config()),
+        });
         let uc = UpdateRiskLevelUseCase::new(repo.clone(), Arc::new(FixedClock));
 
         // long=3, short=5 => leverage = max(3,5)+1 = 6
@@ -119,7 +120,9 @@ mod tests {
 
     #[tokio::test]
     async fn out_of_range_risk_is_rejected() {
-        let repo = Arc::new(InMemoryConfig { config: Mutex::new(sample_config()) });
+        let repo = Arc::new(InMemoryConfig {
+            config: Mutex::new(sample_config()),
+        });
         let uc = UpdateRiskLevelUseCase::new(repo, Arc::new(FixedClock));
         // 11.0 is above the [0,10] range.
         let err = uc.execute("user-1", "bot-1", 11.0, 5.0).await.unwrap_err();

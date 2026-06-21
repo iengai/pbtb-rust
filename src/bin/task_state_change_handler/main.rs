@@ -1,18 +1,21 @@
 use std::sync::Arc;
 
-use lambda_runtime::{run, service_fn, tracing, Error, LambdaEvent};
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
+use lambda_runtime::{Error, LambdaEvent, run, service_fn, tracing};
 
-use pbtb_rust::config::configs::{load_config};
+use crate::config::TaskStateChangeConfig;
+use pbtb_rust::config::configs::load_config;
 use pbtb_rust::domain::bot::BotRepository;
 use pbtb_rust::domain::runtime::{BotRuntimeRepository, StartLockRepository};
-use pbtb_rust::infra::client::{create_ecs_client, create_dynamodb_client};
 use pbtb_rust::infra::DynamoBotRepository;
-use pbtb_rust::usecase::{ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase, TaskRunner, EcsTaskController, TaskController};
-use crate::config::TaskStateChangeConfig;
+use pbtb_rust::infra::client::{create_dynamodb_client, create_ecs_client};
+use pbtb_rust::usecase::{
+    EcsTaskController, ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase,
+    TaskController, TaskRunner,
+};
 
-mod event_handler;
 mod config;
+mod event_handler;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,8 +29,8 @@ async fn main() -> Result<(), Error> {
     tracing::init_default_subscriber();
 
     // 冷启动初始化：只执行一次
-    let configs: TaskStateChangeConfig = load_config()
-        .map_err(|e| Error::from(format!("Failed to load configs: {e:#}")))?;
+    let configs: TaskStateChangeConfig =
+        load_config().map_err(|e| Error::from(format!("Failed to load configs: {e:#}")))?;
 
     // ECS client for (re)starting tasks.
     let ecs_client = create_ecs_client(&configs.ecs).await;
@@ -73,5 +76,5 @@ async fn main() -> Result<(), Error> {
             async move { event_handler::function_handler(event, state).await }
         }
     }))
-        .await
+    .await
 }

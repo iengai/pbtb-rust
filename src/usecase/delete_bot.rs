@@ -1,5 +1,5 @@
+use crate::domain::bot::{ApiKeyRepository, BotRepository};
 use std::sync::Arc;
-use crate::domain::bot::{BotRepository, ApiKeyRepository};
 
 pub struct DeleteBotUseCase {
     bot_repository: Arc<dyn BotRepository + Send + Sync>,

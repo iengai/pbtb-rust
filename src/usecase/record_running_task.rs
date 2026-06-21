@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use anyhow::Result;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
+use anyhow::Result;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RecordRunningOutcome {
@@ -25,7 +25,13 @@ impl RecordRunningTaskUseCase {
         Self { runtimes }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str, task_id: &str, observed_at: i64) -> Result<RecordRunningOutcome> {
+    pub async fn execute(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        task_id: &str,
+        observed_at: i64,
+    ) -> Result<RecordRunningOutcome> {
         let existing = self
             .runtimes
             .find(user_id, bot_id)
@@ -65,11 +71,11 @@ impl RecordRunningTaskUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use async_trait::async_trait;
     use crate::domain::error::DomainError;
     use crate::domain::runtime::RuntimePhase;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     #[derive(Default)]
     struct InMemoryRuntimes {
@@ -77,11 +83,23 @@ mod tests {
     }
     #[async_trait]
     impl BotRuntimeRepository for InMemoryRuntimes {
-        async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<BotRuntime>, DomainError> {
-            Ok(self.runtimes.lock().unwrap().get(&(user_id.to_string(), bot_id.to_string())).cloned())
+        async fn find(
+            &self,
+            user_id: &str,
+            bot_id: &str,
+        ) -> Result<Option<BotRuntime>, DomainError> {
+            Ok(self
+                .runtimes
+                .lock()
+                .unwrap()
+                .get(&(user_id.to_string(), bot_id.to_string()))
+                .cloned())
         }
         async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
-            self.runtimes.lock().unwrap().insert((runtime.user_id.clone(), runtime.bot_id.clone()), runtime.clone());
+            self.runtimes.lock().unwrap().insert(
+                (runtime.user_id.clone(), runtime.bot_id.clone()),
+                runtime.clone(),
+            );
             Ok(())
         }
     }
@@ -105,17 +123,29 @@ mod tests {
     async fn preserves_version_from_prior_runtime() {
         let runtimes = Arc::new(InMemoryRuntimes::default());
         runtimes
-            .record(&BotRuntime::running("u".into(), "b".into(), "task-old".into(), 7, 1_699_000_000))
+            .record(&BotRuntime::running(
+                "u".into(),
+                "b".into(),
+                "task-old".into(),
+                7,
+                1_699_000_000,
+            ))
             .await
             .unwrap();
         let uc = RecordRunningTaskUseCase::new(runtimes.clone());
 
-        let outcome = uc.execute("u", "b", "task-new", 1_700_000_000).await.unwrap();
+        let outcome = uc
+            .execute("u", "b", "task-new", 1_700_000_000)
+            .await
+            .unwrap();
         assert_eq!(outcome, RecordRunningOutcome::Recorded { version: 7 });
 
         let rt = runtimes.find("u", "b").await.unwrap().unwrap();
         assert_eq!(rt.task_id.as_deref(), Some("task-new"));
-        assert_eq!(rt.version, 7, "observation must not bump the restart counter");
+        assert_eq!(
+            rt.version, 7,
+            "observation must not bump the restart counter"
+        );
     }
 
     #[tokio::test]
@@ -133,7 +163,11 @@ mod tests {
         assert_eq!(outcome, RecordRunningOutcome::SkippedStale);
 
         let rt = runtimes.find("u", "b").await.unwrap().unwrap();
-        assert_eq!(rt.phase, RuntimePhase::Stopped, "stale running must not flip it back to running");
+        assert_eq!(
+            rt.phase,
+            RuntimePhase::Stopped,
+            "stale running must not flip it back to running"
+        );
     }
 
     #[tokio::test]

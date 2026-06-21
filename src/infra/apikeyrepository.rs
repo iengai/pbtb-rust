@@ -1,9 +1,9 @@
-use aws_sdk_s3::Client;
-use aws_sdk_s3::primitives::ByteStream;
-use async_trait::async_trait;
-use serde_json::json;
 use crate::domain::Bot;
 use crate::domain::bot::ApiKeyRepository;
+use async_trait::async_trait;
+use aws_sdk_s3::Client;
+use aws_sdk_s3::primitives::ByteStream;
+use serde_json::json;
 
 pub struct S3ApiKeyRepository {
     client: Client,

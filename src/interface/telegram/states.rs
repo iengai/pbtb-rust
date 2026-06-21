@@ -1,12 +1,18 @@
-
 #[derive(Clone, Default)]
 pub enum DialogueState {
     #[default]
     Start,
     ReceiveBotName,
-    ReceiveApiKey { name: String },
-    ReceiveSecretKey { name: String, api_key: String },
-    ConfirmDelete { bot_id: String },
+    ReceiveApiKey {
+        name: String,
+    },
+    ReceiveSecretKey {
+        name: String,
+        api_key: String,
+    },
+    ConfirmDelete {
+        bot_id: String,
+    },
     ReceiveRiskLevel,
 }
 

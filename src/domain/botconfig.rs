@@ -1,8 +1,8 @@
+use crate::domain::ConfigTemplate;
+use crate::domain::error::DomainError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::domain::ConfigTemplate;
-use crate::domain::error::DomainError;
 
 /// Bot type enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -35,7 +35,11 @@ impl RiskLevel {
 
     fn check(value: f64) -> Result<(), DomainError> {
         if value < 0.0 || value > 10.0 {
-            return Err(DomainError::RiskOutOfRange { value, min: 0.0, max: 10.0 });
+            return Err(DomainError::RiskOutOfRange {
+                value,
+                min: 0.0,
+                max: 10.0,
+            });
         }
         Ok(())
     }
@@ -64,7 +68,11 @@ impl Leverage {
 
     fn check(value: f64) -> Result<(), DomainError> {
         if value < 1.0 || value > 125.0 {
-            return Err(DomainError::LeverageOutOfRange { value, min: 1.0, max: 125.0 });
+            return Err(DomainError::LeverageOutOfRange {
+                value,
+                min: 1.0,
+                max: 125.0,
+            });
         }
         Ok(())
     }
@@ -84,7 +92,10 @@ impl Coins {
 
     /// Get all unique coins from both long and short
     pub fn all_coins(&self) -> Vec<String> {
-        let mut all: Vec<String> = self.long.iter().cloned()
+        let mut all: Vec<String> = self
+            .long
+            .iter()
+            .cloned()
             .chain(self.short.iter().cloned())
             .collect();
         all.sort();
@@ -161,19 +172,25 @@ impl BotConfig {
     /// Extracts from config["bot"]["long"]["total_wallet_exposure_limit"] and
     /// config["bot"]["short"]["total_wallet_exposure_limit"]
     pub fn risk_level(&self) -> Result<RiskLevel, DomainError> {
-        let long = self.config_data
+        let long = self
+            .config_data
             .get("bot")
             .and_then(|bot| bot.get("long"))
             .and_then(|long| long.get("total_wallet_exposure_limit"))
             .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingConfigPath("bot.long.total_wallet_exposure_limit"))?;
+            .ok_or(DomainError::MissingConfigPath(
+                "bot.long.total_wallet_exposure_limit",
+            ))?;
 
-        let short = self.config_data
+        let short = self
+            .config_data
             .get("bot")
             .and_then(|bot| bot.get("short"))
             .and_then(|short| short.get("total_wallet_exposure_limit"))
             .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingConfigPath("bot.short.total_wallet_exposure_limit"))?;
+            .ok_or(DomainError::MissingConfigPath(
+                "bot.short.total_wallet_exposure_limit",
+            ))?;
 
         RiskLevel::new(long, short)
     }
@@ -182,7 +199,8 @@ impl BotConfig {
     /// Extracts from config["live"]["leverage"]
     /// Uses the same value for both long and short
     pub fn leverage(&self) -> Result<Leverage, DomainError> {
-        let leverage_value = self.config_data
+        let leverage_value = self
+            .config_data
             .get("live")
             .and_then(|live| live.get("leverage"))
             .and_then(|v| v.as_f64())
@@ -195,7 +213,8 @@ impl BotConfig {
     /// Extracts from config["live"]["approved_coins"]["long"] and
     /// config["live"]["approved_coins"]["short"]
     pub fn coins(&self) -> Result<Coins, DomainError> {
-        let long_coins = self.config_data
+        let long_coins = self
+            .config_data
             .get("live")
             .and_then(|live| live.get("approved_coins"))
             .and_then(|approved| approved.get("long"))
@@ -205,7 +224,8 @@ impl BotConfig {
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect::<Vec<String>>();
 
-        let short_coins = self.config_data
+        let short_coins = self
+            .config_data
             .get("live")
             .and_then(|live| live.get("approved_coins"))
             .and_then(|approved| approved.get("short"))
@@ -220,7 +240,8 @@ impl BotConfig {
 
     /// Update risk level in config data
     pub fn set_risk_level(&mut self, risk_level: &RiskLevel) -> Result<(), DomainError> {
-        let bot = self.config_data
+        let bot = self
+            .config_data
             .get_mut("bot")
             .ok_or(DomainError::MissingConfigPath("bot"))?;
 
@@ -243,7 +264,8 @@ impl BotConfig {
     pub fn set_leverage(&mut self, leverage: &Leverage) -> Result<(), DomainError> {
         // For passivbot, we typically use a single leverage value
         // We'll use the long value as the primary leverage
-        let live = self.config_data
+        let live = self
+            .config_data
             .get_mut("live")
             .ok_or(DomainError::MissingConfigPath("live"))?;
 
@@ -273,13 +295,14 @@ impl BotConfig {
     /// Override the `live.user` field with the given bot id.
     /// Errors if the `live` section is missing or is not a JSON object.
     pub fn set_live_user(&mut self, bot_id: &str) -> Result<(), DomainError> {
-        let live = self.config_data
+        let live = self
+            .config_data
             .get_mut("live")
             .ok_or(DomainError::MissingConfigPath("live"))?;
 
-        let obj = live
-            .as_object_mut()
-            .ok_or_else(|| DomainError::InvalidConfig("config.live is not an object".to_string()))?;
+        let obj = live.as_object_mut().ok_or_else(|| {
+            DomainError::InvalidConfig("config.live is not an object".to_string())
+        })?;
 
         obj.insert("user".to_string(), Value::String(bot_id.to_string()));
         Ok(())
@@ -386,10 +409,7 @@ mod tests {
     fn set_live_user_sets_and_validates() {
         let mut config = sample_config(0);
         config.set_live_user("bot-xyz").unwrap();
-        assert_eq!(
-            config.config_data["live"]["user"].as_str(),
-            Some("bot-xyz")
-        );
+        assert_eq!(config.config_data["live"]["user"].as_str(), Some("bot-xyz"));
 
         // missing live
         let mut bad = sample_config(0);

@@ -1,18 +1,19 @@
-
 mod config;
 mod domain;
 mod infra;
 mod interface;
 mod usecase;
 
-use std::sync::Arc;
 use anyhow::Context;
-use teloxide::prelude::*;
-use infra::{DynamoBotRepository, S3TemplateRepository, S3BotConfigRepository, S3ApiKeyRepository};
-use usecase::*;
 use domain::SystemClock;
-use pbtb_rust::config::configs::{load_config, Configs};
-use pbtb_rust::infra::client::{setup_dynamodb_with_configs,setup_s3_with_configs,setup_ecs_with_configs};
+use infra::{DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3TemplateRepository};
+use pbtb_rust::config::configs::{Configs, load_config};
+use pbtb_rust::infra::client::{
+    setup_dynamodb_with_configs, setup_ecs_with_configs, setup_s3_with_configs,
+};
+use std::sync::Arc;
+use teloxide::prelude::*;
+use usecase::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -23,8 +24,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Read token from TELEGRAM_BOT_TOKEN environment variable
     let bot = Bot::from_env();
-    let configs: Configs = load_config()
-        .context("Failed to setup application during startup")?;
+    let configs: Configs = load_config().context("Failed to setup application during startup")?;
 
     // Setup DynamoDB
     let (dynamodb_client, table_name) = setup_dynamodb_with_configs(&configs).await;
@@ -36,8 +36,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
-    let template_repository = Arc::new(S3TemplateRepository::new(s3_client.clone(), bucket_name.clone()));
-    let bot_config_repository = Arc::new(S3BotConfigRepository::new(s3_client.clone(), bucket_name.clone()));
+    let template_repository = Arc::new(S3TemplateRepository::new(
+        s3_client.clone(),
+        bucket_name.clone(),
+    ));
+    let bot_config_repository = Arc::new(S3BotConfigRepository::new(
+        s3_client.clone(),
+        bucket_name.clone(),
+    ));
     let api_keys_repository = Arc::new(S3ApiKeyRepository::new(s3_client, bucket_name));
     // Use cases depend on the domain ApiKeyRepository port, not the concrete infra impl.
     let api_keys_repo: Arc<dyn domain::ApiKeyRepository> = api_keys_repository.clone();

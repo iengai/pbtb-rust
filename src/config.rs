@@ -1,4 +1,4 @@
 pub mod configs;
 pub mod dynamodb;
-pub mod s3;
 pub mod ecs;
+pub mod s3;

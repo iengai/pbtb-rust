@@ -1,13 +1,15 @@
-use std::collections::HashMap;
-use aws_sdk_dynamodb::{Client};
-use aws_sdk_dynamodb::types::AttributeValue;
-use aws_sdk_dynamodb::error::SdkError;
-use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
 use crate::domain::bot::{Bot, BotRepository};
 use crate::domain::error::DomainError;
-use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
-use async_trait::async_trait;
 use crate::domain::exchange::Exchange;
+use crate::domain::runtime::{
+    BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
+};
+use async_trait::async_trait;
+use aws_sdk_dynamodb::Client;
+use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
+use aws_sdk_dynamodb::types::AttributeValue;
+use std::collections::HashMap;
 
 /// Collapse a conditional UpdateItem result: `acquired` on success, `contended`
 /// when the condition failed (we lost the race, or it is a benign no-op),
@@ -19,22 +21,30 @@ fn cas_result<T>(
 ) -> Result<T, DomainError> {
     match res {
         Ok(_) => Ok(acquired),
-        Err(e) if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) => Ok(contended),
-        Err(e) => Err(DomainError::Repository(format!("DynamoDB update_item failed: {e}"))),
+        Err(e)
+            if e.as_service_error()
+                .map(|se| se.is_conditional_check_failed_exception())
+                .unwrap_or(false) =>
+        {
+            Ok(contended)
+        }
+        Err(e) => Err(DomainError::Repository(format!(
+            "DynamoDB update_item failed: {e}"
+        ))),
     }
 }
 
 /// Storage model for the infra layer
 pub struct BotItem {
-    pub pk: String,        // user_id#<user_id>
-    pub sk: String,        // <bot_id>
+    pub pk: String, // user_id#<user_id>
+    pub sk: String, // <bot_id>
     pub name: String,
     pub exchange: String,
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
-    pub created_at: i64,   // Unix timestamp in seconds
-    pub updated_at: i64,   // Unix timestamp in seconds
+    pub created_at: i64, // Unix timestamp in seconds
+    pub updated_at: i64, // Unix timestamp in seconds
 }
 
 impl BotItem {
@@ -66,13 +76,28 @@ impl BotItem {
         let mut map = HashMap::new();
         map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
         map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
-        map.insert("exchange".to_string(), AttributeValue::S(self.exchange.clone()));
+        map.insert(
+            "exchange".to_string(),
+            AttributeValue::S(self.exchange.clone()),
+        );
         map.insert("name".to_string(), AttributeValue::S(self.name.clone()));
-        map.insert("api_key".to_string(), AttributeValue::S(self.api_key.clone()));
-        map.insert("secret_key".to_string(), AttributeValue::S(self.secret_key.clone()));
+        map.insert(
+            "api_key".to_string(),
+            AttributeValue::S(self.api_key.clone()),
+        );
+        map.insert(
+            "secret_key".to_string(),
+            AttributeValue::S(self.secret_key.clone()),
+        );
         map.insert("enabled".to_string(), AttributeValue::Bool(self.enabled));
-        map.insert("created_at".to_string(), AttributeValue::N(self.created_at.to_string()));
-        map.insert("updated_at".to_string(), AttributeValue::N(self.updated_at.to_string()));
+        map.insert(
+            "created_at".to_string(),
+            AttributeValue::N(self.created_at.to_string()),
+        );
+        map.insert(
+            "updated_at".to_string(),
+            AttributeValue::N(self.updated_at.to_string()),
+        );
         map
     }
 
@@ -80,7 +105,7 @@ impl BotItem {
         let user_id = Self::extract_user_id_from_pk(&self.pk)?;
         let exchange = Exchange::from_str(self.exchange.as_str())?;
         Some(Bot {
-            id: self.sk.clone(),  // bot_id from SK
+            id: self.sk.clone(), // bot_id from SK
             user_id,
             exchange,
             name: self.name.clone(),
@@ -112,8 +137,8 @@ impl BotItem {
 /// attributes: status (String), task_id (String), task_updated_at (Number),
 /// task_current_version (Number).
 struct BotECSTaskMetadata {
-    pk: String,        // user_id#<user_id>
-    sk: String,        // ecs_task_metadata#<bot_id>
+    pk: String, // user_id#<user_id>
+    sk: String, // ecs_task_metadata#<bot_id>
     status: String,
     task_id: String,
     updated_at: i64,
@@ -126,23 +151,36 @@ impl BotECSTaskMetadata {
     }
 
     fn get_bot_id(&self) -> String {
-        self.sk.strip_prefix("ecs_task_metadata#").unwrap_or(&self.sk).to_string()
+        self.sk
+            .strip_prefix("ecs_task_metadata#")
+            .unwrap_or(&self.sk)
+            .to_string()
     }
 
     fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
         Some(Self {
             pk: item.get("pk")?.as_s().ok()?.to_string(),
             sk: item.get("sk")?.as_s().ok()?.to_string(),
-            status: item.get("status")
+            status: item
+                .get("status")
                 .and_then(|v| v.as_s().ok())
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            task_id: item.get("task_id")
+            task_id: item
+                .get("task_id")
                 .and_then(|v| v.as_s().ok())
                 .map(|s| s.to_string())
                 .unwrap_or_default(),
-            updated_at: item.get("task_updated_at").and_then(|v| v.as_n().ok()).and_then(|s| s.parse().ok()).unwrap_or(0),
-            task_current_version: item.get("task_current_version").and_then(|v| v.as_n().ok()).and_then(|s| s.parse().ok()).unwrap_or(0),
+            updated_at: item
+                .get("task_updated_at")
+                .and_then(|v| v.as_n().ok())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+            task_current_version: item
+                .get("task_current_version")
+                .and_then(|v| v.as_n().ok())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
         })
     }
 
@@ -151,9 +189,18 @@ impl BotECSTaskMetadata {
         map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
         map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
         map.insert("status".to_string(), AttributeValue::S(self.status.clone()));
-        map.insert("task_id".to_string(), AttributeValue::S(self.task_id.clone()));
-        map.insert("task_updated_at".to_string(), AttributeValue::N(self.updated_at.to_string()));
-        map.insert("task_current_version".to_string(), AttributeValue::N(self.task_current_version.to_string()));
+        map.insert(
+            "task_id".to_string(),
+            AttributeValue::S(self.task_id.clone()),
+        );
+        map.insert(
+            "task_updated_at".to_string(),
+            AttributeValue::N(self.updated_at.to_string()),
+        );
+        map.insert(
+            "task_current_version".to_string(),
+            AttributeValue::N(self.task_current_version.to_string()),
+        );
         map
     }
 
@@ -171,7 +218,11 @@ impl BotECSTaskMetadata {
     fn to_domain(&self) -> BotRuntime {
         let user_id = BotItem::extract_user_id_from_pk(&self.pk).unwrap_or_default();
         let bot_id = self.get_bot_id();
-        let task_id = if self.task_id.is_empty() { None } else { Some(self.task_id.clone()) };
+        let task_id = if self.task_id.is_empty() {
+            None
+        } else {
+            Some(self.task_id.clone())
+        };
         let phase = RuntimePhase::from_str(&self.status).unwrap_or(RuntimePhase::Stopped);
         BotRuntime {
             user_id,
@@ -198,11 +249,15 @@ impl DynamoBotRepository {
 #[async_trait]
 impl BotRuntimeRepository for DynamoBotRepository {
     async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<BotRuntime>, DomainError> {
-        let result = self.client
+        let result = self
+            .client
             .get_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
-            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .key(
+                "sk",
+                AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)),
+            )
             .send()
             .await
             .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
@@ -213,12 +268,20 @@ impl BotRuntimeRepository for DynamoBotRepository {
         }
     }
 
-    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Result<Option<BotRuntime>, DomainError> {
-        let result = self.client
+    async fn find_consistent(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+    ) -> Result<Option<BotRuntime>, DomainError> {
+        let result = self
+            .client
             .get_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
-            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .key(
+                "sk",
+                AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)),
+            )
             .consistent_read(true)
             .send()
             .await
@@ -242,11 +305,15 @@ impl BotRuntimeRepository for DynamoBotRepository {
         //   - at an equal second a STOPPED wins the tie (terminal state), so a
         //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
         //     always precedes STOPPED for a task, so it is the reordered/stale one).
-        let put = self.client
+        let put = self
+            .client
             .put_item()
             .table_name(&self.table_name)
             .set_item(Some(metadata.to_item()))
-            .expression_attribute_values(":observed_at", AttributeValue::N(runtime.observed_at.to_string()));
+            .expression_attribute_values(
+                ":observed_at",
+                AttributeValue::N(runtime.observed_at.to_string()),
+            );
 
         let put = match runtime.phase {
             RuntimePhase::Stopped => put
@@ -266,15 +333,23 @@ impl BotRuntimeRepository for DynamoBotRepository {
         match put.send().await {
             Ok(_) => Ok(()),
             Err(e) => {
-                if e.as_service_error().map(|se| se.is_conditional_check_failed_exception()).unwrap_or(false) {
+                if e.as_service_error()
+                    .map(|se| se.is_conditional_check_failed_exception())
+                    .unwrap_or(false)
+                {
                     // A newer (or tie-winning) observation already holds the row; dropping this one is correct.
                     tracing::info!(
                         "runtime write skipped (stale observed_at={}, phase={}): pk={}, sk={}",
-                        runtime.observed_at, runtime.phase.as_str(), metadata.pk, metadata.sk
+                        runtime.observed_at,
+                        runtime.phase.as_str(),
+                        metadata.pk,
+                        metadata.sk
                     );
                     Ok(())
                 } else {
-                    Err(DomainError::Repository(format!("DynamoDB put_item failed: {e}")))
+                    Err(DomainError::Repository(format!(
+                        "DynamoDB put_item failed: {e}"
+                    )))
                 }
             }
         }
@@ -283,7 +358,13 @@ impl BotRuntimeRepository for DynamoBotRepository {
 
 #[async_trait]
 impl StartLockRepository for DynamoBotRepository {
-    async fn try_acquire_start(&self, user_id: &str, bot_id: &str, now: i64, stale_after: i64) -> Result<StartClaim, DomainError> {
+    async fn try_acquire_start(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        now: i64,
+        stale_after: i64,
+    ) -> Result<StartClaim, DomainError> {
         let pk = BotItem::construct_pk(user_id);
         let sk = BotECSTaskMetadata::construct_sk(bot_id);
         let stale_cutoff = now - stale_after;
@@ -292,7 +373,8 @@ impl StartLockRepository for DynamoBotRepository {
         // AlreadyStarting precisely and skip a doomed write. It is NOT the safety
         // gate — two callers can both read `stopped` here. The conditional
         // UpdateItem below is the gate.
-        let existing = self.client
+        let existing = self
+            .client
             .get_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(pk.clone()))
@@ -305,7 +387,9 @@ impl StartLockRepository for DynamoBotRepository {
         if let Some(meta) = existing.item().and_then(BotECSTaskMetadata::from_item) {
             match meta.status.as_str() {
                 "running" => return Ok(StartClaim::AlreadyRunning),
-                "starting" if meta.updated_at > stale_cutoff => return Ok(StartClaim::AlreadyStarting),
+                "starting" if meta.updated_at > stale_cutoff => {
+                    return Ok(StartClaim::AlreadyStarting);
+                }
                 _ => {} // stopped, missing, or a stale starting lock -> attempt to claim
             }
         }
@@ -334,7 +418,13 @@ impl StartLockRepository for DynamoBotRepository {
         cas_result(res, StartClaim::Acquired, StartClaim::AlreadyStarting)
     }
 
-    async fn try_acquire_restart(&self, user_id: &str, bot_id: &str, stopped_task_id: &str, now: i64) -> Result<StartClaim, DomainError> {
+    async fn try_acquire_restart(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        stopped_task_id: &str,
+        now: i64,
+    ) -> Result<StartClaim, DomainError> {
         // Authoritative CAS, no pre-read: claim only while the stopped task is
         // still the row's current task, bumping the restart counter. Concurrent or
         // duplicate STOPPED events serialize per item — the first clears task_id,
@@ -362,16 +452,25 @@ impl StartLockRepository for DynamoBotRepository {
         cas_result(res, StartClaim::Acquired, StartClaim::AlreadyStarting)
     }
 
-    async fn attach_started_task(&self, user_id: &str, bot_id: &str, task_id: &str) -> Result<(), DomainError> {
+    async fn attach_started_task(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        task_id: &str,
+    ) -> Result<(), DomainError> {
         // Only the task_id is set; the claim timestamp is left intact so the
         // stale-lock clock keeps running from when the launch began. Conditional
         // on the row still being `starting` so a RUNNING/STOPPED observation that
         // already won the row is never reverted.
-        let res = self.client
+        let res = self
+            .client
             .update_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
-            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .key(
+                "sk",
+                AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)),
+            )
             .update_expression("SET task_id = :tid")
             .condition_expression("#st = :starting")
             .expression_attribute_names("#st", "status")
@@ -383,14 +482,23 @@ impl StartLockRepository for DynamoBotRepository {
         cas_result(res, (), ())
     }
 
-    async fn release_start(&self, user_id: &str, bot_id: &str, now: i64) -> Result<(), DomainError> {
+    async fn release_start(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        now: i64,
+    ) -> Result<(), DomainError> {
         // Roll a held lock back to stopped after a failed launch. Conditional on
         // the row still being `starting` so a concurrent real observation wins.
-        let res = self.client
+        let res = self
+            .client
             .update_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
-            .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
+            .key(
+                "sk",
+                AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)),
+            )
             .update_expression("SET #st = :stopped, task_updated_at = :now, task_id = :empty")
             .condition_expression("#st = :starting")
             .expression_attribute_names("#st", "status")
@@ -410,7 +518,8 @@ impl BotRepository for DynamoBotRepository {
     async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
         // Note: We need user_id to construct PK, so this method uses scan (not efficient)
         // In production, consider adding bot_id as GSI or passing user_id as well
-        let result = self.client
+        let result = self
+            .client
             .get_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
@@ -425,7 +534,8 @@ impl BotRepository for DynamoBotRepository {
     }
 
     async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-        let result = self.client
+        let result = self
+            .client
             .get_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
@@ -458,7 +568,8 @@ impl BotRepository for DynamoBotRepository {
     async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
         let pk_value = BotItem::construct_pk(user_id);
 
-        let result = self.client
+        let result = self
+            .client
             .query()
             .table_name(&self.table_name)
             .key_condition_expression("pk = :pk")
@@ -467,13 +578,12 @@ impl BotRepository for DynamoBotRepository {
             .await;
 
         match result {
-            Ok(output) => {
-                output.items()
-                    .iter()
-                    .filter_map(|item| BotItem::from_item(item))
-                    .filter_map(|bot_item| bot_item.to_domain())
-                    .collect()
-            }
+            Ok(output) => output
+                .items()
+                .iter()
+                .filter_map(|item| BotItem::from_item(item))
+                .filter_map(|bot_item| bot_item.to_domain())
+                .collect(),
             Err(e) => {
                 tracing::error!("DynamoDB query error: {:?}", e);
                 Vec::new()

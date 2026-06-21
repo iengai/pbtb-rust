@@ -1,7 +1,7 @@
+use crate::domain::botconfig::{BotConfig, BotConfigRepository, BotType};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
-use crate::domain::botconfig::{BotConfig, BotConfigRepository, BotType};
 
 pub struct S3BotConfigRepository {
     client: Client,
@@ -51,12 +51,14 @@ impl BotConfigRepository for S3BotConfigRepository {
         let json_value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| format!("Failed to parse bot config JSON: {:?}", e))?;
 
-        let template_name = json_value.get("name")
+        let template_name = json_value
+            .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
 
-        let created_at = json_value.get("created_at")
+        let created_at = json_value
+            .get("created_at")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| {
                 std::time::SystemTime::now()
@@ -65,7 +67,8 @@ impl BotConfigRepository for S3BotConfigRepository {
                     .as_secs() as i64
             });
 
-        let updated_at = json_value.get("updated_at")
+        let updated_at = json_value
+            .get("updated_at")
             .and_then(|v| v.as_i64())
             .unwrap_or_else(|| {
                 std::time::SystemTime::now()
@@ -79,8 +82,8 @@ impl BotConfigRepository for S3BotConfigRepository {
             bot_id: bot_id.to_string(),
             bot_type: BotType::Passivbot,
             template_name,
-            template_version:Option::from("".to_string()),
-            config_data:json_value,
+            template_version: Option::from("".to_string()),
+            config_data: json_value,
             created_at,
             updated_at,
         })

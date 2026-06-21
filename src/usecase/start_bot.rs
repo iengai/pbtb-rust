@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
+use std::sync::Arc;
 
 /// Seconds after which a `starting` lock is treated as abandoned and may be
 /// re-claimed. Deliberately generous — longer than any real task-start latency —
@@ -52,7 +52,17 @@ impl StartBotUseCase {
         td_arn: String,
         container_name: String,
     ) -> Self {
-        Self { bots, runtimes, locks, runner, controller, clock, cluster_arn, td_arn, container_name }
+        Self {
+            bots,
+            runtimes,
+            locks,
+            runner,
+            controller,
+            clock,
+            cluster_arn,
+            td_arn,
+            container_name,
+        }
     }
 
     pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StartOutcome, String> {
@@ -71,15 +81,24 @@ impl StartBotUseCase {
         // the stale window whose task is actually alive (its RUNNING event was
         // lost) must NOT be reclaimed — relaunching would double-run. Confirm with
         // ECS that the carried task is gone before allowing the reclaim below.
-        let runtime = self.runtimes.find_consistent(user_id, bot_id).await.map_err(|e| e.to_string())?;
+        let runtime = self
+            .runtimes
+            .find_consistent(user_id, bot_id)
+            .await
+            .map_err(|e| e.to_string())?;
         if let Some(rt) = &runtime {
-            let stale = rt.phase == RuntimePhase::Starting && rt.observed_at <= now - START_LOCK_STALE_AFTER_SECS;
+            let stale = rt.phase == RuntimePhase::Starting
+                && rt.observed_at <= now - START_LOCK_STALE_AFTER_SECS;
             if stale {
                 if let Some(task_id) = rt.task_id.as_deref() {
                     match self.controller.liveness(&self.cluster_arn, task_id).await {
                         Ok(TaskLiveness::Alive) => return Ok(StartOutcome::AlreadyRunning),
                         Ok(TaskLiveness::Gone) => {}
-                        Err(e) => return Err(format!("could not verify the in-flight task is stopped: {e}")),
+                        Err(e) => {
+                            return Err(format!(
+                                "could not verify the in-flight task is stopped: {e}"
+                            ));
+                        }
                     }
                 }
                 // No task id was recorded (a crash before it could be attached):
@@ -89,7 +108,12 @@ impl StartBotUseCase {
         }
 
         // Claim the exclusive right to launch exactly one task.
-        match self.locks.try_acquire_start(user_id, bot_id, now, START_LOCK_STALE_AFTER_SECS).await.map_err(|e| e.to_string())? {
+        match self
+            .locks
+            .try_acquire_start(user_id, bot_id, now, START_LOCK_STALE_AFTER_SECS)
+            .await
+            .map_err(|e| e.to_string())?
+        {
             StartClaim::AlreadyRunning => return Ok(StartOutcome::AlreadyRunning),
             StartClaim::AlreadyStarting => return Ok(StartOutcome::AlreadyStarting),
             StartClaim::Acquired => {}
@@ -97,13 +121,29 @@ impl StartBotUseCase {
 
         // Lock held: launch, then attach the task id. On failure release the lock
         // so the user can retry (desired stays ON, observed returns to stopped).
-        match self.runner.run(user_id, bot_id, &self.cluster_arn, &self.td_arn, &self.container_name).await {
+        match self
+            .runner
+            .run(
+                user_id,
+                bot_id,
+                &self.cluster_arn,
+                &self.td_arn,
+                &self.container_name,
+            )
+            .await
+        {
             Ok(task_id) => {
-                self.locks.attach_started_task(user_id, bot_id, &task_id).await.map_err(|e| e.to_string())?;
+                self.locks
+                    .attach_started_task(user_id, bot_id, &task_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 Ok(StartOutcome::Started { task_id })
             }
             Err(e) => {
-                let _ = self.locks.release_start(user_id, bot_id, self.clock.now()).await;
+                let _ = self
+                    .locks
+                    .release_start(user_id, bot_id, self.clock.now())
+                    .await;
                 Err(e.to_string())
             }
         }
@@ -113,20 +153,22 @@ impl StartBotUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use anyhow::{anyhow, Result};
-    use async_trait::async_trait;
     use crate::domain::bot::Bot;
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use crate::domain::runtime::BotRuntime;
+    use anyhow::{Result, anyhow};
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     const NOW: i64 = 1_700_000_000;
 
     struct FixedClock;
     impl Clock for FixedClock {
-        fn now(&self) -> i64 { NOW }
+        fn now(&self) -> i64 {
+            NOW
+        }
     }
 
     #[derive(Default)]
@@ -137,10 +179,16 @@ mod tests {
         fn with(bot: Bot) -> Self {
             let mut map = HashMap::new();
             map.insert((bot.user_id.clone(), bot.id.clone()), bot);
-            Self { bots: Mutex::new(map) }
+            Self {
+                bots: Mutex::new(map),
+            }
         }
         fn get(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-            self.bots.lock().unwrap().get(&(user_id.to_string(), bot_id.to_string())).cloned()
+            self.bots
+                .lock()
+                .unwrap()
+                .get(&(user_id.to_string(), bot_id.to_string()))
+                .cloned()
         }
     }
     #[async_trait]
@@ -149,14 +197,26 @@ mod tests {
             self.get(user_id, bot_id)
         }
         async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
-            self.bots.lock().unwrap().insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
+            self.bots
+                .lock()
+                .unwrap()
+                .insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
             Ok(())
         }
         async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
-            self.bots.lock().unwrap().values().filter(|b| b.user_id == user_id).cloned().collect()
+            self.bots
+                .lock()
+                .unwrap()
+                .values()
+                .filter(|b| b.user_id == user_id)
+                .cloned()
+                .collect()
         }
         async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
-            self.bots.lock().unwrap().remove(&(user_id.to_string(), bot_id.to_string()));
+            self.bots
+                .lock()
+                .unwrap()
+                .remove(&(user_id.to_string(), bot_id.to_string()));
             Ok(())
         }
     }
@@ -169,16 +229,30 @@ mod tests {
         fn with(rt: BotRuntime) -> Self {
             let mut map = HashMap::new();
             map.insert((rt.user_id.clone(), rt.bot_id.clone()), rt);
-            Self { runtimes: Mutex::new(map) }
+            Self {
+                runtimes: Mutex::new(map),
+            }
         }
     }
     #[async_trait]
     impl BotRuntimeRepository for InMemoryRuntimes {
-        async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<BotRuntime>, DomainError> {
-            Ok(self.runtimes.lock().unwrap().get(&(user_id.to_string(), bot_id.to_string())).cloned())
+        async fn find(
+            &self,
+            user_id: &str,
+            bot_id: &str,
+        ) -> Result<Option<BotRuntime>, DomainError> {
+            Ok(self
+                .runtimes
+                .lock()
+                .unwrap()
+                .get(&(user_id.to_string(), bot_id.to_string()))
+                .cloned())
         }
         async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
-            self.runtimes.lock().unwrap().insert((runtime.user_id.clone(), runtime.bot_id.clone()), runtime.clone());
+            self.runtimes.lock().unwrap().insert(
+                (runtime.user_id.clone(), runtime.bot_id.clone()),
+                runtime.clone(),
+            );
             Ok(())
         }
     }
@@ -193,19 +267,41 @@ mod tests {
     }
     impl MockLock {
         fn new(claim: StartClaim) -> Self {
-            Self { claim, acquire_calls: Mutex::new(0), attached: Mutex::new(None), released: Mutex::new(0) }
+            Self {
+                claim,
+                acquire_calls: Mutex::new(0),
+                attached: Mutex::new(None),
+                released: Mutex::new(0),
+            }
         }
     }
     #[async_trait]
     impl StartLockRepository for MockLock {
-        async fn try_acquire_start(&self, _u: &str, _b: &str, _now: i64, _stale: i64) -> Result<StartClaim, DomainError> {
+        async fn try_acquire_start(
+            &self,
+            _u: &str,
+            _b: &str,
+            _now: i64,
+            _stale: i64,
+        ) -> Result<StartClaim, DomainError> {
             *self.acquire_calls.lock().unwrap() += 1;
             Ok(self.claim.clone())
         }
-        async fn try_acquire_restart(&self, _u: &str, _b: &str, _stopped: &str, _now: i64) -> Result<StartClaim, DomainError> {
+        async fn try_acquire_restart(
+            &self,
+            _u: &str,
+            _b: &str,
+            _stopped: &str,
+            _now: i64,
+        ) -> Result<StartClaim, DomainError> {
             Ok(StartClaim::Acquired)
         }
-        async fn attach_started_task(&self, _u: &str, _b: &str, task_id: &str) -> Result<(), DomainError> {
+        async fn attach_started_task(
+            &self,
+            _u: &str,
+            _b: &str,
+            task_id: &str,
+        ) -> Result<(), DomainError> {
             *self.attached.lock().unwrap() = Some(task_id.to_string());
             Ok(())
         }
@@ -221,9 +317,21 @@ mod tests {
         calls: Mutex<usize>,
     }
     impl MockRunner {
-        fn ok(task_id: &str) -> Self { Self { result: Ok(task_id.to_string()), calls: Mutex::new(0) } }
-        fn fail(msg: &str) -> Self { Self { result: Err(msg.to_string()), calls: Mutex::new(0) } }
-        fn call_count(&self) -> usize { *self.calls.lock().unwrap() }
+        fn ok(task_id: &str) -> Self {
+            Self {
+                result: Ok(task_id.to_string()),
+                calls: Mutex::new(0),
+            }
+        }
+        fn fail(msg: &str) -> Self {
+            Self {
+                result: Err(msg.to_string()),
+                calls: Mutex::new(0),
+            }
+        }
+        fn call_count(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
     }
     #[async_trait]
     impl TaskRunner for MockRunner {
@@ -240,12 +348,17 @@ mod tests {
     }
     impl MockController {
         fn new(liveness: TaskLiveness) -> Self {
-            Self { liveness, liveness_calls: Mutex::new(0) }
+            Self {
+                liveness,
+                liveness_calls: Mutex::new(0),
+            }
         }
     }
     #[async_trait]
     impl TaskController for MockController {
-        async fn stop(&self, _c: &str, _t: &str, _r: &str) -> Result<()> { Ok(()) }
+        async fn stop(&self, _c: &str, _t: &str, _r: &str) -> Result<()> {
+            Ok(())
+        }
         async fn liveness(&self, _c: &str, _t: &str) -> Result<TaskLiveness> {
             *self.liveness_calls.lock().unwrap() += 1;
             Ok(self.liveness)
@@ -304,13 +417,31 @@ mod tests {
         let locks = Arc::new(MockLock::new(StartClaim::Acquired));
         let runner = Arc::new(MockRunner::ok("task-xyz"));
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
-        let uc = use_case(bots.clone(), runtimes, locks.clone(), runner.clone(), controller);
+        let uc = use_case(
+            bots.clone(),
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller,
+        );
 
         let out = uc.execute("user-1", "bot-1").await.unwrap();
-        assert_eq!(out, StartOutcome::Started { task_id: "task-xyz".to_string() });
-        assert!(bots.get("user-1", "bot-1").unwrap().enabled, "desired state flipped on");
+        assert_eq!(
+            out,
+            StartOutcome::Started {
+                task_id: "task-xyz".to_string()
+            }
+        );
+        assert!(
+            bots.get("user-1", "bot-1").unwrap().enabled,
+            "desired state flipped on"
+        );
         assert_eq!(runner.call_count(), 1, "exactly one launch");
-        assert_eq!(*locks.attached.lock().unwrap(), Some("task-xyz".to_string()), "task id attached to lock");
+        assert_eq!(
+            *locks.attached.lock().unwrap(),
+            Some("task-xyz".to_string()),
+            "task id attached to lock"
+        );
         assert_eq!(*locks.released.lock().unwrap(), 0);
     }
 
@@ -326,7 +457,11 @@ mod tests {
         let out = uc.execute("user-1", "bot-1").await.unwrap();
         assert_eq!(out, StartOutcome::AlreadyRunning);
         assert!(bots.get("user-1", "bot-1").unwrap().enabled);
-        assert_eq!(runner.call_count(), 0, "must not launch when already running");
+        assert_eq!(
+            runner.call_count(),
+            0,
+            "must not launch when already running"
+        );
     }
 
     #[tokio::test]
@@ -350,13 +485,26 @@ mod tests {
         let locks = Arc::new(MockLock::new(StartClaim::Acquired));
         let runner = Arc::new(MockRunner::fail("ecs run_task failed"));
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
-        let uc = use_case(bots.clone(), runtimes, locks.clone(), runner.clone(), controller);
+        let uc = use_case(
+            bots.clone(),
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller,
+        );
 
         let err = uc.execute("user-1", "bot-1").await.unwrap_err();
         assert!(err.contains("run_task"));
         assert_eq!(runner.call_count(), 1);
-        assert_eq!(*locks.released.lock().unwrap(), 1, "lock released after failed launch");
-        assert!(bots.get("user-1", "bot-1").unwrap().enabled, "desired stays on for retry");
+        assert_eq!(
+            *locks.released.lock().unwrap(),
+            1,
+            "lock released after failed launch"
+        );
+        assert!(
+            bots.get("user-1", "bot-1").unwrap().enabled,
+            "desired stays on for retry"
+        );
     }
 
     #[tokio::test]
@@ -370,38 +518,87 @@ mod tests {
 
         let out = uc.execute("user-1", "ghost").await.unwrap();
         assert_eq!(out, StartOutcome::BotNotFound);
-        assert_eq!(*locks.acquire_calls.lock().unwrap(), 0, "no lock attempt for a missing bot");
+        assert_eq!(
+            *locks.acquire_calls.lock().unwrap(),
+            0,
+            "no lock attempt for a missing bot"
+        );
         assert_eq!(runner.call_count(), 0);
     }
 
     #[tokio::test]
     async fn stale_lock_with_live_task_does_not_relaunch() {
         let bots = Arc::new(InMemoryBots::with(bot(true)));
-        let runtimes = Arc::new(InMemoryRuntimes::with(stale_starting(Some("old-task".to_string()))));
+        let runtimes = Arc::new(InMemoryRuntimes::with(stale_starting(Some(
+            "old-task".to_string(),
+        ))));
         let locks = Arc::new(MockLock::new(StartClaim::Acquired));
         let runner = Arc::new(MockRunner::ok("task-new"));
         let controller = Arc::new(MockController::new(TaskLiveness::Alive));
-        let uc = use_case(bots, runtimes, locks.clone(), runner.clone(), controller.clone());
+        let uc = use_case(
+            bots,
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller.clone(),
+        );
 
         let out = uc.execute("user-1", "bot-1").await.unwrap();
-        assert_eq!(out, StartOutcome::AlreadyRunning, "a live task must not be double-launched");
-        assert_eq!(*controller.liveness_calls.lock().unwrap(), 1, "liveness checked before reclaim");
-        assert_eq!(runner.call_count(), 0, "no relaunch while the task is alive");
-        assert_eq!(*locks.acquire_calls.lock().unwrap(), 0, "lock not claimed when task is alive");
+        assert_eq!(
+            out,
+            StartOutcome::AlreadyRunning,
+            "a live task must not be double-launched"
+        );
+        assert_eq!(
+            *controller.liveness_calls.lock().unwrap(),
+            1,
+            "liveness checked before reclaim"
+        );
+        assert_eq!(
+            runner.call_count(),
+            0,
+            "no relaunch while the task is alive"
+        );
+        assert_eq!(
+            *locks.acquire_calls.lock().unwrap(),
+            0,
+            "lock not claimed when task is alive"
+        );
     }
 
     #[tokio::test]
     async fn stale_lock_with_dead_task_reclaims_and_launches() {
         let bots = Arc::new(InMemoryBots::with(bot(true)));
-        let runtimes = Arc::new(InMemoryRuntimes::with(stale_starting(Some("old-task".to_string()))));
+        let runtimes = Arc::new(InMemoryRuntimes::with(stale_starting(Some(
+            "old-task".to_string(),
+        ))));
         let locks = Arc::new(MockLock::new(StartClaim::Acquired));
         let runner = Arc::new(MockRunner::ok("task-new"));
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
-        let uc = use_case(bots, runtimes, locks.clone(), runner.clone(), controller.clone());
+        let uc = use_case(
+            bots,
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller.clone(),
+        );
 
         let out = uc.execute("user-1", "bot-1").await.unwrap();
-        assert_eq!(out, StartOutcome::Started { task_id: "task-new".to_string() });
-        assert_eq!(*controller.liveness_calls.lock().unwrap(), 1, "liveness checked");
-        assert_eq!(runner.call_count(), 1, "relaunch once the task is confirmed gone");
+        assert_eq!(
+            out,
+            StartOutcome::Started {
+                task_id: "task-new".to_string()
+            }
+        );
+        assert_eq!(
+            *controller.liveness_calls.lock().unwrap(),
+            1,
+            "liveness checked"
+        );
+        assert_eq!(
+            runner.call_count(),
+            1,
+            "relaunch once the task is confirmed gone"
+        );
     }
 }

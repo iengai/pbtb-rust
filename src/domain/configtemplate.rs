@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-
 /// Configuration template entity (predefined templates)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigTemplate {

@@ -20,7 +20,9 @@ use aws_sdk_dynamodb::types::{
 };
 
 use pbtb_rust::domain::bot::{Bot, BotRepository};
-use pbtb_rust::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
+use pbtb_rust::domain::runtime::{
+    BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
+};
 use pbtb_rust::infra::botrepository::DynamoBotRepository;
 
 use testcontainers::core::{IntoContainerPort, WaitFor};
@@ -173,7 +175,9 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- mutate (enable) then save then find reflects the update ---
     let mut updated = found.clone();
     updated.enable(1_700_000_100);
-    repo.save(&updated).await.expect("update save should succeed");
+    repo.save(&updated)
+        .await
+        .expect("update save should succeed");
 
     let refound = BotRepository::find(&repo, "user-1", "alpha-bot")
         .await
@@ -227,7 +231,12 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- record(stopped) then find returns Stopped with task_id None ---
     BotRuntimeRepository::record(
         &repo,
-        &BotRuntime::stopped("user-1".to_string(), "alpha-bot".to_string(), 1, 1_700_000_300),
+        &BotRuntime::stopped(
+            "user-1".to_string(),
+            "alpha-bot".to_string(),
+            1,
+            1_700_000_300,
+        ),
     )
     .await
     .expect("record stopped should succeed");
@@ -260,46 +269,86 @@ async fn start_lock_cas_and_lifecycle() {
     let (u, b) = ("user-1", "lock-bot");
 
     // Absent row -> claim succeeds; row is `starting` with no task id yet.
-    assert_eq!(repo.try_acquire_start(u, b, 1000, 600).await.unwrap(), StartClaim::Acquired);
-    let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
+    assert_eq!(
+        repo.try_acquire_start(u, b, 1000, 600).await.unwrap(),
+        StartClaim::Acquired
+    );
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(rt.phase, RuntimePhase::Starting);
     assert_eq!(rt.task_id, None);
 
     // A fresh `starting` lock blocks a second claim — never two launches.
-    assert_eq!(repo.try_acquire_start(u, b, 1001, 600).await.unwrap(), StartClaim::AlreadyStarting);
+    assert_eq!(
+        repo.try_acquire_start(u, b, 1001, 600).await.unwrap(),
+        StartClaim::AlreadyStarting
+    );
 
     // Attaching the task id keeps the lock `starting` and the claim timestamp.
     repo.attach_started_task(u, b, "task-1").await.unwrap();
-    let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(rt.phase, RuntimePhase::Starting);
     assert_eq!(rt.task_id.as_deref(), Some("task-1"));
 
     // The Lambda's RUNNING write (later observed_at) transitions starting->running.
-    BotRuntimeRepository::record(&repo, &BotRuntime::running(u.into(), b.into(), "task-1".into(), 1, 1010))
-        .await
-        .unwrap();
-    assert_eq!(BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap().phase, RuntimePhase::Running);
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 1, 1010),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        RuntimePhase::Running
+    );
 
     // While running, a claim reports AlreadyRunning (no relaunch).
-    assert_eq!(repo.try_acquire_start(u, b, 1020, 600).await.unwrap(), StartClaim::AlreadyRunning);
+    assert_eq!(
+        repo.try_acquire_start(u, b, 1020, 600).await.unwrap(),
+        StartClaim::AlreadyRunning
+    );
 
     // After a stop, a new claim succeeds.
     BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 1, 1030))
         .await
         .unwrap();
-    assert_eq!(repo.try_acquire_start(u, b, 1040, 600).await.unwrap(), StartClaim::Acquired);
+    assert_eq!(
+        repo.try_acquire_start(u, b, 1040, 600).await.unwrap(),
+        StartClaim::Acquired
+    );
 
     // release_start rolls a held lock back to stopped.
     repo.release_start(u, b, 1050).await.unwrap();
-    let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(rt.phase, RuntimePhase::Stopped);
     assert_eq!(rt.task_id, None);
 
     // Stale-lock recovery: a held lock is not stealable while fresh, but is
     // reclaimable once older than stale_after.
-    assert_eq!(repo.try_acquire_start(u, b, 2000, 600).await.unwrap(), StartClaim::Acquired);
-    assert_eq!(repo.try_acquire_start(u, b, 2100, 600).await.unwrap(), StartClaim::AlreadyStarting);
-    assert_eq!(repo.try_acquire_start(u, b, 2700, 600).await.unwrap(), StartClaim::Acquired);
+    assert_eq!(
+        repo.try_acquire_start(u, b, 2000, 600).await.unwrap(),
+        StartClaim::Acquired
+    );
+    assert_eq!(
+        repo.try_acquire_start(u, b, 2100, 600).await.unwrap(),
+        StartClaim::AlreadyStarting
+    );
+    assert_eq!(
+        repo.try_acquire_start(u, b, 2700, 600).await.unwrap(),
+        StartClaim::Acquired
+    );
 }
 
 /// The restart lock keyed on the stopped task id: a stopped task can be replaced
@@ -313,32 +362,71 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
     let (u, b) = ("user-1", "restart-bot");
 
     // A task is observed running at version 5.
-    BotRuntimeRepository::record(&repo, &BotRuntime::running(u.into(), b.into(), "task-1".into(), 5, 1000))
-        .await
-        .unwrap();
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 5, 1000),
+    )
+    .await
+    .unwrap();
 
     // First STOPPED(task-1): claim succeeds, row -> starting, version bumped, id cleared.
-    assert_eq!(repo.try_acquire_restart(u, b, "task-1", 1100).await.unwrap(), StartClaim::Acquired);
-    let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
+    assert_eq!(
+        repo.try_acquire_restart(u, b, "task-1", 1100)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(rt.phase, RuntimePhase::Starting);
-    assert_eq!(rt.task_id, None, "task id cleared while the replacement launches");
+    assert_eq!(
+        rt.task_id, None,
+        "task id cleared while the replacement launches"
+    );
     assert_eq!(rt.version, 6, "restart counter bumped");
 
     // Duplicate STOPPED(task-1): the id is already cleared, so the claim is refused.
     // The restart path only distinguishes Acquired from "nothing to restart".
-    assert_ne!(repo.try_acquire_restart(u, b, "task-1", 1101).await.unwrap(), StartClaim::Acquired);
+    assert_ne!(
+        repo.try_acquire_restart(u, b, "task-1", 1101)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
 
     // The replacement comes up as task-2.
-    BotRuntimeRepository::record(&repo, &BotRuntime::running(u.into(), b.into(), "task-2".into(), 6, 1200))
-        .await
-        .unwrap();
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-2".into(), 6, 1200),
+    )
+    .await
+    .unwrap();
 
     // A late STOPPED(task-1) after task-2 is running is rejected — task-1 is no longer current.
-    assert_ne!(repo.try_acquire_restart(u, b, "task-1", 1300).await.unwrap(), StartClaim::Acquired);
-    let rt = BotRuntimeRepository::find(&repo, u, b).await.unwrap().unwrap();
-    assert_eq!(rt.phase, RuntimePhase::Running, "the live task-2 is untouched by the stale event");
+    assert_ne!(
+        repo.try_acquire_restart(u, b, "task-1", 1300)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rt.phase,
+        RuntimePhase::Running,
+        "the live task-2 is untouched by the stale event"
+    );
     assert_eq!(rt.task_id.as_deref(), Some("task-2"));
 
     // STOPPED(task-2) (the current task) is honoured.
-    assert_eq!(repo.try_acquire_restart(u, b, "task-2", 1400).await.unwrap(), StartClaim::Acquired);
+    assert_eq!(
+        repo.try_acquire_restart(u, b, "task-2", 1400)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
 }

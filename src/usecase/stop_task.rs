@@ -45,7 +45,11 @@ impl EcsTaskController {
         Ok(())
     }
 
-    pub async fn describe_liveness(&self, cluster_arn: &str, task_id: &str) -> Result<TaskLiveness> {
+    pub async fn describe_liveness(
+        &self,
+        cluster_arn: &str,
+        task_id: &str,
+    ) -> Result<TaskLiveness> {
         let resp = self
             .ecs_client
             .describe_tasks()

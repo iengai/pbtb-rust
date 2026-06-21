@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::domain::exchange::Exchange;
 use crate::domain::error::DomainError;
+use crate::domain::exchange::Exchange;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
 pub struct Bot {
@@ -11,8 +11,8 @@ pub struct Bot {
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
-    pub created_at: i64,  // Unix timestamp in seconds
-    pub updated_at: i64,  // Unix timestamp in seconds
+    pub created_at: i64, // Unix timestamp in seconds
+    pub updated_at: i64, // Unix timestamp in seconds
 }
 
 impl Bot {
@@ -106,7 +106,13 @@ mod tests {
 
     #[test]
     fn create_sets_defaults() {
-        let bot = Bot::create("user-1".into(), "mybot".into(), "ak".into(), "sk".into(), 42);
+        let bot = Bot::create(
+            "user-1".into(),
+            "mybot".into(),
+            "ak".into(),
+            "sk".into(),
+            42,
+        );
         assert_eq!(bot.id, "mybot");
         assert_eq!(bot.name, "mybot");
         assert_eq!(bot.user_id, "user-1");

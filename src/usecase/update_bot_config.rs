@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::clock::Clock;
+use std::sync::Arc;
 
 pub struct UpdateBotConfigUseCase {
     bot_config_repository: Arc<dyn BotConfigRepository>,
@@ -8,10 +8,7 @@ pub struct UpdateBotConfigUseCase {
 }
 
 impl UpdateBotConfigUseCase {
-    pub fn new(
-        bot_config_repository: Arc<dyn BotConfigRepository>,
-        clock: Arc<dyn Clock>,
-    ) -> Self {
+    pub fn new(bot_config_repository: Arc<dyn BotConfigRepository>, clock: Arc<dyn Clock>) -> Self {
         Self {
             bot_config_repository,
             clock,
