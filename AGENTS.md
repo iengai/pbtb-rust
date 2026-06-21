@@ -40,7 +40,7 @@ These are irreversible or trading-impacting; they are inline here on purpose, no
 - `src/infra/` — AWS implementations (DynamoDB, S3, ECS)
 - `src/interface/telegram/` — Telegram handlers (router: commands → callbacks → dialogue)
 - `src/bin/task_state_change_handler/` — the ECS task-state Lambda
-- `config/` — layered config (see [docs/development.md](docs/development.md))
+- Runtime config — all `APP__*` env, no config files; the Dev Container injects the local-dev values via `.devcontainer/docker-compose.yaml` (see [docs/development.md](docs/development.md))
 - `terraform/` — AWS IaC; deploy via `terraform/envs/dev/`
 - `.devcontainer/` — Dev Container + the `lambda-export` build stage
 

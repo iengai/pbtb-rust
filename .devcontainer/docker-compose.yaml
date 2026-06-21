@@ -22,15 +22,27 @@ services:
     depends_on:
       - dynamodb-local
     environment:
-      # Dummy AWS credentials so the SDK/CLI never reach real AWS from the dev container.
-      # All three parts are stubbed so an inherited AWS_SESSION_TOKEN can't complete a
-      # real credential triple. DynamoDB Local ignores the values.
+      # Dummy AWS credentials so the SDK/CLI never reach real AWS from the dev
+      # container. All three parts are stubbed so an inherited AWS_SESSION_TOKEN
+      # can't complete a real credential triple. DynamoDB Local ignores them.
       AWS_ACCESS_KEY_ID: 'DUMMYIDEXAMPLE'
       AWS_SECRET_ACCESS_KEY: 'DUMMYEXAMPLEKEY'
       AWS_SESSION_TOKEN: 'DUMMYSESSIONTOKEN'
       AWS_DEFAULT_REGION: 'ap-northeast-1'
-      # Point the application at the local DynamoDB instead of real AWS.
+      # Local-dev app config. The binary reads APP__* straight from the process
+      # env; this dev-container definition is where they are injected (no env file
+      # in the repo). DynamoDB points at the compose service; ECS/S3 are
+      # non-functional offline stubs. Set TELOXIDE_TOKEN in your own environment.
+      APP__DYNAMODB__REGION: 'us-east-1'
+      APP__DYNAMODB__TABLE_NAME: 'bots'
       APP__DYNAMODB__ENDPOINT_URL: 'http://dynamodb-local:8000'
+      APP__S3__REGION: 'us-east-1'
+      APP__S3__BUCKET_NAME: 'local-bot-configs'
+      APP__S3__ENDPOINT_URL: 'http://localhost:9000'
+      APP__ECS__REGION: 'us-east-1'
+      APP__ECS__CLUSTER_ARN: 'arn:aws:ecs:us-east-1:000000000000:cluster/local-dev'
+      APP__ECS__TD_PASSIVBOT_V741_ARN: 'arn:aws:ecs:us-east-1:000000000000:task-definition/local-dev:1'
+      APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME: 'passivbot-v741-container'
     # The devcontainer will overrideCommand and run as the vscode user
     # You can add init: true here to avoid orphan processes
     init: true
