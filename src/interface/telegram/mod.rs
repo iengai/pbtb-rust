@@ -1,17 +1,17 @@
 // Rust
-pub mod router;
-pub mod middlewares;
-pub mod keyboards;
-pub mod views;
-pub mod commands;
 pub mod callbacks;
+pub mod commands;
 pub mod dialogue;
-pub mod types;
+pub mod keyboards;
+pub mod middlewares;
+pub mod router;
 pub mod states;
+pub mod types;
+pub mod views;
 
 // Dependencies aggregation for handlers
-use std::sync::Arc;
 use crate::usecase::*;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Deps {

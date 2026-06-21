@@ -1,25 +1,30 @@
+use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
-use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
 
-use super::{Deps, states::{DialogueState, BotContext}};
+use super::{
+    Deps,
+    states::{BotContext, DialogueState},
+};
 use crate::usecase::{StartOutcome, StopOutcome};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
 
 pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
-    dptree::entry()
-        .branch(
-            Update::filter_message()
-                .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
-                .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
-                .branch(dptree::case![DialogueState::Start].endpoint(handle_start_state))
-                .branch(dptree::case![DialogueState::ReceiveBotName].endpoint(receive_bot_name))
-                .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
-                .branch(dptree::case![DialogueState::ReceiveSecretKey { name, api_key }].endpoint(receive_secret_key))
-                .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
-                .branch(dptree::case![DialogueState::ReceiveRiskLevel].endpoint(receive_risk_level))
-        )
+    dptree::entry().branch(
+        Update::filter_message()
+            .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
+            .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
+            .branch(dptree::case![DialogueState::Start].endpoint(handle_start_state))
+            .branch(dptree::case![DialogueState::ReceiveBotName].endpoint(receive_bot_name))
+            .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
+            .branch(
+                dptree::case![DialogueState::ReceiveSecretKey { name, api_key }]
+                    .endpoint(receive_secret_key),
+            )
+            .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
+            .branch(dptree::case![DialogueState::ReceiveRiskLevel].endpoint(receive_risk_level)),
+    )
 }
 
 async fn handle_start_state(
@@ -498,11 +503,16 @@ async fn receive_bot_name(
     let result = async {
         match msg.text() {
             Some(name) => {
-                bot.send_message(msg.chat.id, format!("✅ Bot name: {}\n\nNow, please enter the API key:", name))
+                bot.send_message(
+                    msg.chat.id,
+                    format!("✅ Bot name: {}\n\nNow, please enter the API key:", name),
+                )
+                .await?;
+                dialogue
+                    .update(DialogueState::ReceiveApiKey {
+                        name: name.to_string(),
+                    })
                     .await?;
-                dialogue.update(DialogueState::ReceiveApiKey {
-                    name: name.to_string(),
-                }).await?;
             }
             None => {
                 bot.send_message(msg.chat.id, "❌ Please send text for bot name.")
@@ -510,7 +520,8 @@ async fn receive_bot_name(
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }
@@ -525,12 +536,17 @@ async fn receive_api_key(
     let result = async {
         match msg.text() {
             Some(api_key) => {
-                bot.send_message(msg.chat.id, "✅ API key received!\n\nFinally, please enter the secret key:")
+                bot.send_message(
+                    msg.chat.id,
+                    "✅ API key received!\n\nFinally, please enter the secret key:",
+                )
+                .await?;
+                dialogue
+                    .update(DialogueState::ReceiveSecretKey {
+                        name,
+                        api_key: api_key.to_string(),
+                    })
                     .await?;
-                dialogue.update(DialogueState::ReceiveSecretKey {
-                    name,
-                    api_key: api_key.to_string(),
-                }).await?;
             }
             None => {
                 bot.send_message(msg.chat.id, "❌ Please send text for API key.")
@@ -538,7 +554,8 @@ async fn receive_api_key(
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }
@@ -554,17 +571,17 @@ async fn receive_secret_key(
     let result = async {
         match msg.text() {
             Some(secret_key) => {
-                let user_id = msg.from()
+                let user_id = msg
+                    .from()
                     .map(|user| user.id.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
                 // Save bot using use case
-                match deps.add_bot_usecase.execute(
-                    &user_id,
-                    name.clone(),
-                    api_key,
-                    secret_key.to_string(),
-                ).await {
+                match deps
+                    .add_bot_usecase
+                    .execute(&user_id, name.clone(), api_key, secret_key.to_string())
+                    .await
+                {
                     Ok(new_bot) => {
                         bot.send_message(
                             msg.chat.id,
@@ -574,17 +591,13 @@ async fn receive_secret_key(
                                 🆔 ID: {}\n\
                                 ⏸️ Status: Disabled (default)\n\n\
                                 You can enable it later.",
-                                new_bot.name,
-                                new_bot.id
+                                new_bot.name, new_bot.id
                             ),
                         )
-                            .await?;
+                        .await?;
                     }
                     Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("❌ Error saving bot: {}", e),
-                        )
+                        bot.send_message(msg.chat.id, format!("❌ Error saving bot: {}", e))
                             .await?;
                     }
                 }
@@ -598,7 +611,8 @@ async fn receive_secret_key(
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }
@@ -616,37 +630,34 @@ async fn confirm_delete(
             Some(text) => {
                 if text.trim().eq_ignore_ascii_case("yes") {
                     // User confirmed deletion
-                    let user_id = msg.from()
+                    let user_id = msg
+                        .from()
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.delete_bot_usecase.execute(&user_id, &bot_id).await {
                         Ok(_) => {
                             // Clear the selected bot from context
-                            bot_context.update(BotContext {
-                                selected_bot_id: None,
-                            }).await?;
+                            bot_context
+                                .update(BotContext {
+                                    selected_bot_id: None,
+                                })
+                                .await?;
 
                             bot.send_message(
                                 msg.chat.id,
                                 format!("✅ Bot deleted successfully!\n\n🤖 Bot ID: {}", bot_id),
                             )
-                                .await?;
+                            .await?;
                         }
                         Err(e) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Error deleting bot: {}", e),
-                            )
+                            bot.send_message(msg.chat.id, format!("❌ Error deleting bot: {}", e))
                                 .await?;
                         }
                     }
                 } else {
                     // User cancelled
-                    bot.send_message(
-                        msg.chat.id,
-                        "🚫 Deletion cancelled.",
-                    )
+                    bot.send_message(msg.chat.id, "🚫 Deletion cancelled.")
                         .await?;
                 }
 
@@ -659,7 +670,8 @@ async fn confirm_delete(
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }
@@ -669,11 +681,7 @@ fn format_template_list(templates: &[String]) -> String {
     let mut message = String::from("⚙️ Available Configuration Templates:\n\n");
 
     for (index, template_name) in templates.iter().enumerate() {
-        message.push_str(&format!(
-            "{}. 📄 {}\n",
-            index + 1,
-            template_name
-        ));
+        message.push_str(&format!("{}. 📄 {}\n", index + 1, template_name));
     }
 
     message.push_str("\n💡 Tip: These are predefined trading bot configurations.\n");
@@ -708,9 +716,9 @@ async fn receive_risk_level(
                         msg.chat.id,
                         "❌ Invalid format. Please enter two numbers separated by /\n\n\
                         Example: `3.0/1.5`\n\
-                        Or send 'cancel' to abort."
+                        Or send 'cancel' to abort.",
                     )
-                        .await?;
+                    .await?;
                     return Ok(());
                 }
 
@@ -721,9 +729,9 @@ async fn receive_risk_level(
                         bot.send_message(
                             msg.chat.id,
                             "❌ Invalid long risk value. Please enter a decimal number.\n\n\
-                            Example: `3.0/1.5`"
+                            Example: `3.0/1.5`",
                         )
-                            .await?;
+                        .await?;
                         return Ok(());
                     }
                 };
@@ -734,9 +742,9 @@ async fn receive_risk_level(
                         bot.send_message(
                             msg.chat.id,
                             "❌ Invalid short risk value. Please enter a decimal number.\n\n\
-                            Example: `3.0/1.5`"
+                            Example: `3.0/1.5`",
                         )
-                            .await?;
+                        .await?;
                         return Ok(());
                     }
                 };
@@ -746,32 +754,35 @@ async fn receive_risk_level(
                     bot.send_message(
                         msg.chat.id,
                         "❌ Risk values must be between 0.0 and 10.0.\n\n\
-                        Please try again or send 'cancel'."
+                        Please try again or send 'cancel'.",
                     )
-                        .await?;
+                    .await?;
                     return Ok(());
                 }
 
                 // Get user_id and bot_id
-                let user_id = msg.from()
+                let user_id = msg
+                    .from()
                     .map(|user| user.id.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
-                let ctx = bot_context.get().await?
-                    .unwrap_or_default();
+                let ctx = bot_context.get().await?.unwrap_or_default();
 
                 let bot_id = match ctx.selected_bot_id {
                     Some(id) => id,
                     None => {
-                        bot.send_message(msg.chat.id, "❌ No bot selected.")
-                            .await?;
+                        bot.send_message(msg.chat.id, "❌ No bot selected.").await?;
                         dialogue.update(DialogueState::Start).await?;
                         return Ok(());
                     }
                 };
 
                 // Update risk level
-                match deps.update_risk_level_usecase.execute(&user_id, &bot_id, risk_long, risk_short).await {
+                match deps
+                    .update_risk_level_usecase
+                    .execute(&user_id, &bot_id, risk_long, risk_short)
+                    .await
+                {
                     Ok(_) => {
                         let max_risk = risk_long.max(risk_short);
                         let leverage = max_risk + 1.0;
@@ -786,20 +797,17 @@ async fn receive_risk_level(
                                    • Short: {:.2}\n\
                                 📈 Leverage automatically set to: {:.1}x\n\n\
                                 The configuration has been saved.",
-                                bot_id,
-                                risk_long,
-                                risk_short,
-                                leverage
-                            )
+                                bot_id, risk_long, risk_short, leverage
+                            ),
                         )
-                            .await?;
+                        .await?;
                     }
                     Err(e) => {
                         bot.send_message(
                             msg.chat.id,
-                            format!("❌ Failed to update risk level:\n\n{}", e)
+                            format!("❌ Failed to update risk level:\n\n{}", e),
                         )
-                            .await?;
+                        .await?;
                     }
                 }
 
@@ -812,7 +820,8 @@ async fn receive_risk_level(
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }

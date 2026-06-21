@@ -1,12 +1,12 @@
+use crate::config::configs::{Configs, load_config};
+use crate::config::dynamodb::DynamoDBConfig;
+use crate::config::ecs::EcsConfig;
+use crate::config::s3::S3Config;
 use anyhow::{Context, Result};
 use aws_config::BehaviorVersion;
 use aws_sdk_dynamodb::Client as DynamoDbClient;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_ecs::Client as EcsClient;
-use crate::config::configs::{load_config, Configs};
-use crate::config::dynamodb::DynamoDBConfig;
-use crate::config::s3::S3Config;
-use crate::config::ecs::EcsConfig;
+use aws_sdk_s3::Client as S3Client;
 
 pub async fn create_dynamodb_client(config: &DynamoDBConfig) -> DynamoDbClient {
     let mut builder = aws_config::defaults(BehaviorVersion::latest())
@@ -34,7 +34,8 @@ pub async fn create_s3_client(config: &S3Config) -> S3Client {
     // This allows AWS SDK to use credentials from ~/.aws/credentials
     if !config.endpoint_url.is_empty()
         && !config.endpoint_url.starts_with("https://s3.")
-        && !config.endpoint_url.starts_with("https://s3-") {
+        && !config.endpoint_url.starts_with("https://s3-")
+    {
         config_builder = config_builder.endpoint_url(&config.endpoint_url);
     }
 

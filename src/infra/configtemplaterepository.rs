@@ -1,6 +1,6 @@
+use crate::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
-use crate::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
 
 pub struct S3TemplateRepository {
     client: Client,
@@ -48,8 +48,8 @@ impl ConfigTemplateRepository for S3TemplateRepository {
         Ok(ConfigTemplate {
             name: template_name.to_string(),
             description: Option::from("".to_string()),
-            version:Option::from("".to_string()),
-            config_data:json_value,
+            version: Option::from("".to_string()),
+            config_data: json_value,
         })
     }
 

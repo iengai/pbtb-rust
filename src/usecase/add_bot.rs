@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use crate::domain::bot::{Bot, BotRepository, ApiKeyRepository};
+use crate::domain::bot::{ApiKeyRepository, Bot, BotRepository};
 use crate::domain::clock::Clock;
+use std::sync::Arc;
 
 pub struct AddBotUseCase {
     bot_repository: Arc<dyn BotRepository + Send + Sync>,
@@ -55,15 +55,17 @@ impl AddBotUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use async_trait::async_trait;
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
 
     struct FixedClock;
     impl Clock for FixedClock {
-        fn now(&self) -> i64 { 1_700_000_000 }
+        fn now(&self) -> i64 {
+            1_700_000_000
+        }
     }
 
     #[derive(Default)]
@@ -72,7 +74,11 @@ mod tests {
     }
     impl InMemoryBots {
         fn get(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-            self.bots.lock().unwrap().get(&(user_id.to_string(), bot_id.to_string())).cloned()
+            self.bots
+                .lock()
+                .unwrap()
+                .get(&(user_id.to_string(), bot_id.to_string()))
+                .cloned()
         }
     }
     #[async_trait]
@@ -81,14 +87,26 @@ mod tests {
             self.get(user_id, bot_id)
         }
         async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
-            self.bots.lock().unwrap().insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
+            self.bots
+                .lock()
+                .unwrap()
+                .insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
             Ok(())
         }
         async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
-            self.bots.lock().unwrap().values().filter(|b| b.user_id == user_id).cloned().collect()
+            self.bots
+                .lock()
+                .unwrap()
+                .values()
+                .filter(|b| b.user_id == user_id)
+                .cloned()
+                .collect()
         }
         async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
-            self.bots.lock().unwrap().remove(&(user_id.to_string(), bot_id.to_string()));
+            self.bots
+                .lock()
+                .unwrap()
+                .remove(&(user_id.to_string(), bot_id.to_string()));
             Ok(())
         }
     }
@@ -118,7 +136,12 @@ mod tests {
 
         // Full success path: both DynamoDB and S3 saves succeed.
         let bot = uc
-            .execute("user-1", "my-bot".to_string(), "ak".to_string(), "sk".to_string())
+            .execute(
+                "user-1",
+                "my-bot".to_string(),
+                "ak".to_string(),
+                "sk".to_string(),
+            )
             .await
             .expect("execute succeeds when both repos succeed");
 
@@ -137,7 +160,12 @@ mod tests {
         assert!(!saved.enabled);
 
         // The api keys repo received the same bot.
-        let api_saved = api_keys.saved.lock().unwrap().clone().expect("api keys saved");
+        let api_saved = api_keys
+            .saved
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("api keys saved");
         assert_eq!(api_saved.id, "my-bot");
         assert_eq!(api_saved.exchange, Exchange::Bybit);
     }

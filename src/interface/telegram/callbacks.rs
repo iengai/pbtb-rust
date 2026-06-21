@@ -1,24 +1,32 @@
-
+use super::{
+    Deps,
+    states::{BotContext, DialogueState},
+    types,
+};
+use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::types::CallbackQuery;
-use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
-use super::{types, Deps, states::{DialogueState, BotContext}};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
 
 pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
-    dptree::entry()
-        .branch(
-            Update::filter_callback_query()
-                .enter_dialogue::<CallbackQuery, InMemStorage<DialogueState>, DialogueState>()
-                .enter_dialogue::<CallbackQuery, InMemStorage<BotContext>, BotContext>()
-                .endpoint(|bot: Bot, q: CallbackQuery, deps: Deps, dialogue: MyDialogue, bot_context: MyBotContext| async move {
+    dptree::entry().branch(
+        Update::filter_callback_query()
+            .enter_dialogue::<CallbackQuery, InMemStorage<DialogueState>, DialogueState>()
+            .enter_dialogue::<CallbackQuery, InMemStorage<BotContext>, BotContext>()
+            .endpoint(
+                |bot: Bot,
+                 q: CallbackQuery,
+                 deps: Deps,
+                 dialogue: MyDialogue,
+                 bot_context: MyBotContext| async move {
                     handle_callback(bot, q, deps, dialogue, bot_context)
                         .await
                         .map_err(|_e| DependencyMap::new())
-                }),
-        )
+                },
+            ),
+    )
 }
 async fn handle_callback(
     bot: Bot,
@@ -67,7 +75,6 @@ async fn handle_callback(
     Ok(())
 }
 
-
 async fn handle_action(
     bot: Bot,
     q: CallbackQuery,
@@ -106,9 +113,11 @@ async fn handle_bot_selection(
                 .await?;
 
             // Update bot context with selected bot_id
-            bot_context.update(BotContext {
-                selected_bot_id: Some(bot_id.clone()),
-            }).await?;
+            bot_context
+                .update(BotContext {
+                    selected_bot_id: Some(bot_id.clone()),
+                })
+                .await?;
 
             // Confirm to user
             if let Some(Message { chat, .. }) = q.message {
@@ -139,8 +148,7 @@ async fn handle_template_selection(
             // Get user_id and bot_id from context
             let user_id = q.from.id.to_string();
 
-            let ctx = bot_context.get().await?
-                .unwrap_or_default();
+            let ctx = bot_context.get().await?.unwrap_or_default();
 
             let bot_id = match ctx.selected_bot_id {
                 Some(id) => id,
@@ -159,7 +167,11 @@ async fn handle_template_selection(
                 .await?;
 
             // Apply template: copy to {user_id}/{bot_id}.json and override live.user
-            match deps.apply_template_usecase.execute(&user_id, &bot_id, template_name).await {
+            match deps
+                .apply_template_usecase
+                .execute(&user_id, &bot_id, template_name)
+                .await
+            {
                 Ok(_) => {
                     // Success message
                     if let Some(Message { chat, .. }) = q.message {
@@ -171,13 +183,10 @@ async fn handle_template_selection(
                                 🤖 Bot ID: {}\n\
                                 📁 Saved to: {}/{}.json\n\n\
                                 The configuration has been customized for this bot.",
-                                template_name,
-                                bot_id,
-                                user_id,
-                                bot_id
-                            )
+                                template_name, bot_id, user_id, bot_id
+                            ),
                         )
-                            .await?;
+                        .await?;
                     }
                 }
                 Err(e) => {
@@ -190,9 +199,9 @@ async fn handle_template_selection(
                                 Error: {}\n\n\
                                 Please try again or contact support.",
                                 e
-                            )
+                            ),
                         )
-                            .await?;
+                        .await?;
                     }
                 }
             }
@@ -203,10 +212,7 @@ async fn handle_template_selection(
 }
 
 /// Handle cancel template selection callback
-async fn handle_cancel_template_selection(
-    bot: Bot,
-    q: CallbackQuery,
-) -> anyhow::Result<()> {
+async fn handle_cancel_template_selection(bot: Bot, q: CallbackQuery) -> anyhow::Result<()> {
     // Answer callback
     bot.answer_callback_query(&q.id)
         .text("❌ Cancelled")
@@ -214,14 +220,9 @@ async fn handle_cancel_template_selection(
 
     // Update message
     if let Some(Message { id, chat, .. }) = q.message {
-        bot.edit_message_text(
-            chat.id,
-            id,
-            "❌ Template selection cancelled."
-        )
+        bot.edit_message_text(chat.id, id, "❌ Template selection cancelled.")
             .await?;
     }
 
     Ok(())
 }
-

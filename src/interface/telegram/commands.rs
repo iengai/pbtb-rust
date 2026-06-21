@@ -1,10 +1,12 @@
-
 // Rust
+use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::utils::command::BotCommands;
-use teloxide::dispatching::dialogue::{InMemStorage, Dialogue};
 
-use super::{keyboards, Deps, states::{DialogueState, BotContext}};
+use super::{
+    Deps, keyboards,
+    states::{BotContext, DialogueState},
+};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -19,14 +21,13 @@ pub enum Command {
 }
 
 pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
-    dptree::entry()
-        .branch(
-            Update::filter_message()
-                .filter_command::<Command>()
-                .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
-                .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
-                .endpoint(dispatch_command),
-        )
+    dptree::entry().branch(
+        Update::filter_message()
+            .filter_command::<Command>()
+            .enter_dialogue::<Message, InMemStorage<DialogueState>, DialogueState>()
+            .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
+            .endpoint(dispatch_command),
+    )
 }
 
 async fn dispatch_command(
@@ -44,8 +45,7 @@ async fn dispatch_command(
                 dialogue.update(DialogueState::Start).await?;
 
                 // Get current bot context to show selected bot info
-                let ctx = bot_context.get().await?
-                    .unwrap_or_default();
+                let ctx = bot_context.get().await?.unwrap_or_default();
 
                 let welcome_msg = if let Some(ref bot_id) = ctx.selected_bot_id {
                     let user_id = msg.from()
@@ -69,7 +69,8 @@ async fn dispatch_command(
                     )
                 } else {
                     "👋 Welcome! Choose an action from the menu below.\n\n\
-                    🤖 No bot selected".to_string()
+                    🤖 No bot selected"
+                        .to_string()
                 };
 
                 bot.send_message(msg.chat.id, welcome_msg)
@@ -78,7 +79,8 @@ async fn dispatch_command(
             }
             Command::List => {
                 // Get user_id from telegram message
-                let user_id = msg.from()
+                let user_id = msg
+                    .from()
                     .map(|user| user.id.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -90,10 +92,9 @@ async fn dispatch_command(
                                 msg.chat.id,
                                 "📋 Your bots:\n\n(No bots configured yet)",
                             )
-                                .await?;
+                            .await?;
                         } else {
-                            let ctx = bot_context.get().await?
-                                .unwrap_or_default();
+                            let ctx = bot_context.get().await?.unwrap_or_default();
 
                             let header = if let Some(ref bot_id) = ctx.selected_bot_id {
                                 let selected = bots.iter()
@@ -116,17 +117,15 @@ async fn dispatch_command(
                         }
                     }
                     Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("❌ Error fetching bots: {}", e),
-                        )
+                        bot.send_message(msg.chat.id, format!("❌ Error fetching bots: {}", e))
                             .await?;
                     }
                 }
             }
         }
         anyhow::Ok(())
-    }.await;
+    }
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }

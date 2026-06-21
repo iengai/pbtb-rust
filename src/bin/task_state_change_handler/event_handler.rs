@@ -1,10 +1,10 @@
-use std::sync::Arc;
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
+use std::sync::Arc;
 
-use lambda_runtime::{tracing, Error, LambdaEvent};
-use serde::Deserialize;
-use pbtb_rust::usecase::{ReconcileOutcome, RecordRunningOutcome, StopInfo};
 use crate::AppState;
+use lambda_runtime::{Error, LambdaEvent, tracing};
+use pbtb_rust::usecase::{ReconcileOutcome, RecordRunningOutcome, StopInfo};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct EcsTaskStateChangeDetail {
@@ -79,7 +79,11 @@ fn extract_user_bot(detail: &EcsTaskStateChangeDetail) -> (Option<String>, Optio
         }
     }
 
-    tracing::info!("Extracted from overrides: user_id={:?}, bot_id={:?}", user_id, bot_id);
+    tracing::info!(
+        "Extracted from overrides: user_id={:?}, bot_id={:?}",
+        user_id,
+        bot_id
+    );
 
     (user_id, bot_id)
 }
@@ -116,7 +120,10 @@ pub(crate) async fn function_handler(
     // Use the event time (when the transition actually happened) as the observation
     // timestamp. This lets the RUNNING path drop stale/reordered events. Fall back
     // to wall-clock if EventBridge omits it.
-    let observed_at = payload.time.map(|t| t.timestamp()).unwrap_or_else(now_epoch);
+    let observed_at = payload
+        .time
+        .map(|t| t.timestamp())
+        .unwrap_or_else(now_epoch);
 
     // 2) parse detail
     let detail: EcsTaskStateChangeDetail = serde_json::from_value(payload.detail.clone())
@@ -124,7 +131,10 @@ pub(crate) async fn function_handler(
 
     let last_status = detail.last_status.as_deref().unwrap_or("");
     let task_arn = detail.task_arn.as_deref().unwrap_or("<unknown-task-arn>");
-    let cluster_arn = detail.cluster_arn.as_deref().unwrap_or("<unknown-cluster-arn>");
+    let cluster_arn = detail
+        .cluster_arn
+        .as_deref()
+        .unwrap_or("<unknown-cluster-arn>");
 
     // user_id/bot_id identify the bot for every state we act on. Skip if absent.
     let (user_id, bot_id) = extract_user_bot(&detail);
@@ -158,7 +168,11 @@ pub(crate) async fn function_handler(
 
             match outcome {
                 RecordRunningOutcome::Recorded { version } => {
-                    tracing::info!("Recorded observed-running: task_id={}, version={}", task_id, version);
+                    tracing::info!(
+                        "Recorded observed-running: task_id={}, version={}",
+                        task_id,
+                        version
+                    );
                 }
                 RecordRunningOutcome::SkippedStale => {
                     tracing::warn!("Stale RUNNING event ignored. taskArn={}", task_arn);
@@ -182,7 +196,10 @@ pub(crate) async fn function_handler(
             let container = match detail.containers.as_ref().and_then(|v| v.first()) {
                 Some(c) => c,
                 None => {
-                    tracing::info!("No containers found in task detail; skip container-based handling. taskArn={}", task_arn);
+                    tracing::info!(
+                        "No containers found in task detail; skip container-based handling. taskArn={}",
+                        task_arn
+                    );
                     return Ok(());
                 }
             };
@@ -198,7 +215,10 @@ pub(crate) async fn function_handler(
             );
 
             let cfg = &state.configs;
-            let stop = StopInfo { exit_code: exit, stop_code: stop_code.to_string() };
+            let stop = StopInfo {
+                exit_code: exit,
+                stop_code: stop_code.to_string(),
+            };
             let stopped_task_id = task_id_from_arn(task_arn);
 
             let outcome = state
@@ -222,16 +242,30 @@ pub(crate) async fn function_handler(
                     tracing::info!("Started replacement task_id={}", task_id);
                 }
                 ReconcileOutcome::SkippedNotEnabled => {
-                    tracing::warn!("Bot desired state is OFF; not restarting. taskArn={}", task_arn);
+                    tracing::warn!(
+                        "Bot desired state is OFF; not restarting. taskArn={}",
+                        task_arn
+                    );
                 }
                 ReconcileOutcome::SkippedNotMemoryRelated => {
-                    tracing::warn!("Task did not exit due to a memory-related reason; skipping restart. taskArn={}", task_arn);
+                    tracing::warn!(
+                        "Task did not exit due to a memory-related reason; skipping restart. taskArn={}",
+                        task_arn
+                    );
                 }
                 ReconcileOutcome::SkippedSuperseded => {
-                    tracing::warn!("Stopped task is no longer current (duplicate/late STOPPED); not restarting. taskArn={}", task_arn);
+                    tracing::warn!(
+                        "Stopped task is no longer current (duplicate/late STOPPED); not restarting. taskArn={}",
+                        task_arn
+                    );
                 }
                 ReconcileOutcome::BotNotFound => {
-                    tracing::warn!("Bot not found for user_id={:?}, bot_id={:?}; skipping restart. taskArn={}", user_id, bot_id, task_arn);
+                    tracing::warn!(
+                        "Bot not found for user_id={:?}, bot_id={:?}; skipping restart. taskArn={}",
+                        user_id,
+                        bot_id,
+                        task_arn
+                    );
                 }
             }
             Ok(())

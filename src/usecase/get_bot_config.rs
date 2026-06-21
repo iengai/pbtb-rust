@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crate::domain::botconfig::{BotConfig, BotConfigRepository};
+use std::sync::Arc;
 
 pub struct GetBotConfigUseCase {
     bot_config_repository: Arc<dyn BotConfigRepository>,
@@ -7,7 +7,9 @@ pub struct GetBotConfigUseCase {
 
 impl GetBotConfigUseCase {
     pub fn new(bot_config_repository: Arc<dyn BotConfigRepository>) -> Self {
-        Self { bot_config_repository }
+        Self {
+            bot_config_repository,
+        }
     }
 
     pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, String> {

@@ -1,9 +1,9 @@
+use super::dynamodb::DynamoDBConfig;
+use super::ecs::EcsConfig;
+use super::s3::S3Config;
 use anyhow::Context;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use super::s3::S3Config;
-use super::dynamodb::DynamoDBConfig;
-use super::ecs::EcsConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Configs {
@@ -33,8 +33,12 @@ where
         .build()
         .context("Failed to build config from APP__* environment")?;
 
-    cfg.try_deserialize::<T>()
-        .with_context(|| format!("Failed to deserialize config into struct: {}", std::any::type_name::<T>()))
+    cfg.try_deserialize::<T>().with_context(|| {
+        format!(
+            "Failed to deserialize config into struct: {}",
+            std::any::type_name::<T>()
+        )
+    })
 }
 
 #[cfg(test)]

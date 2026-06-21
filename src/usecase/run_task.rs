@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use aws_sdk_ecs::types::{ContainerOverride, KeyValuePair, PropagateTags, TaskOverride};
 
@@ -6,7 +6,14 @@ use aws_sdk_ecs::types::{ContainerOverride, KeyValuePair, PropagateTags, TaskOve
 /// abstraction (testable with a mock) rather than the concrete RunTaskUseCase.
 #[async_trait]
 pub trait TaskRunner: Send + Sync {
-    async fn run(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str) -> Result<String>;
+    async fn run(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        cluster_arn: &str,
+        td_arn: &str,
+        container_name: &str,
+    ) -> Result<String>;
 }
 
 pub struct RunTaskUseCase {
@@ -30,7 +37,12 @@ impl RunTaskUseCase {
             .container_overrides(
                 ContainerOverride::builder()
                     .name(container_name)
-                    .environment(KeyValuePair::builder().name("USER_ID").value(user_id).build())
+                    .environment(
+                        KeyValuePair::builder()
+                            .name("USER_ID")
+                            .value(user_id)
+                            .build(),
+                    )
                     .environment(KeyValuePair::builder().name("BOT_ID").value(bot_id).build())
                     .build(),
             )
@@ -50,7 +62,11 @@ impl RunTaskUseCase {
 
         let started = resp.tasks().len();
         let failed = resp.failures().len();
-        tracing::info!("ecs run_task done: started_tasks={}, failures={}", started, failed);
+        tracing::info!(
+            "ecs run_task done: started_tasks={}, failures={}",
+            started,
+            failed
+        );
 
         if failed > 0 {
             tracing::error!("ecs run_task failures detail: {:?}", resp.failures());
@@ -75,7 +91,15 @@ impl RunTaskUseCase {
 
 #[async_trait]
 impl TaskRunner for RunTaskUseCase {
-    async fn run(&self, user_id: &str, bot_id: &str, cluster_arn: &str, td_arn: &str, container_name: &str) -> Result<String> {
-        self.execute(user_id, bot_id, cluster_arn, td_arn, container_name).await
+    async fn run(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        cluster_arn: &str,
+        td_arn: &str,
+        container_name: &str,
+    ) -> Result<String> {
+        self.execute(user_id, bot_id, cluster_arn, td_arn, container_name)
+            .await
     }
 }
