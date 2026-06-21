@@ -48,10 +48,24 @@ async fn dispatch_command(
                     .unwrap_or_default();
 
                 let welcome_msg = if let Some(ref bot_id) = ctx.selected_bot_id {
+                    let user_id = msg.from()
+                        .map(|user| user.id.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    let bot_info = deps.list_bots_usecase.execute(&user_id).await
+                        .ok()
+                        .and_then(|bots| bots.into_iter().find(|b| &b.id == bot_id))
+                        .map(|b| format!(
+                            "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}",
+                            b.exchange.as_str().to_uppercase(),
+                            b.name,
+                            b.id
+                        ))
+                        .unwrap_or_else(|| format!("🤖 Selected Bot: {}", bot_id));
+
                     format!(
-                        "👋 Welcome! Choose an action from the menu below.\n\n\
-                        🤖 Selected Bot: {}",
-                        bot_id
+                        "👋 Welcome! Choose an action from the menu below.\n\n{}",
+                        bot_info
                     )
                 } else {
                     "👋 Welcome! Choose an action from the menu below.\n\n\
@@ -82,7 +96,16 @@ async fn dispatch_command(
                                 .unwrap_or_default();
 
                             let header = if let Some(ref bot_id) = ctx.selected_bot_id {
-                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", bot_id)
+                                let selected = bots.iter()
+                                    .find(|b| &b.id == bot_id)
+                                    .map(|b| format!(
+                                        "{} | {} | {}",
+                                        b.exchange.as_str().to_uppercase(),
+                                        b.name,
+                                        b.id
+                                    ))
+                                    .unwrap_or_else(|| bot_id.clone());
+                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", selected)
                             } else {
                                 "📋 Select a bot:\n\n(No bot selected)".to_string()
                             };

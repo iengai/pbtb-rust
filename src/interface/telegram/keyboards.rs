@@ -20,7 +20,13 @@ pub(crate) fn bot_list_keyboard(bots: &[crate::domain::bot::Bot]) -> InlineKeybo
 
     for bot in bots {
         let status = if bot.enabled { "✅" } else { "⏸️" };
-        let button_text = format!("{} {}", status, bot.name);
+        let button_text = format!(
+            "{} {} | {} | {}",
+            status,
+            bot.exchange.as_str().to_uppercase(),
+            bot.name,
+            bot.id
+        );
 
         // Callback data format: "select_bot:<bot_id>"
         let callback_data = format!("select_bot:{}", bot.id);

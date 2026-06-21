@@ -56,15 +56,15 @@ async fn handle_start_state(
                     .map(|user| user.id.to_string())
                     .unwrap_or_else(|| "unknown".to_string());
 
-                // Fetch the bot once and reuse it for both name and desired state.
-                let (bot_name, bot_enabled) = match deps.list_bots_usecase.execute(&user_id).await {
+                // Fetch the bot once and reuse it for name, exchange, and desired state.
+                let (bot_name, bot_exchange, bot_enabled) = match deps.list_bots_usecase.execute(&user_id).await {
                     Ok(bots) => {
                         bots.iter()
                             .find(|b| &b.id == bot_id)
-                            .map(|b| (b.name.clone(), b.enabled))
-                            .unwrap_or_else(|| (bot_id.clone(), false))
+                            .map(|b| (b.name.clone(), b.exchange.as_str().to_uppercase(), b.enabled))
+                            .unwrap_or_else(|| (bot_id.clone(), "UNKNOWN".to_string(), false))
                     }
-                    Err(_) => (bot_id.clone(), false),
+                    Err(_) => (bot_id.clone(), "UNKNOWN".to_string(), false),
                 };
 
                 // Observed runtime (actual task phase), independent of desired state.
@@ -128,6 +128,7 @@ async fn handle_start_state(
                         let status_message = format!(
                             "📊 Bot Status\n\n\
                             🤖 Bot Information:\n\
+                               • Exchange: {}\n\
                                • Name: {}\n\
                                • ID: {}\n\
                                • Desired: {}\n\
@@ -140,6 +141,7 @@ async fn handle_start_state(
                             📈 Leverage: {}\n\n\
                             💰 Trading Coins:\n\
                             {}",
+                            bot_exchange,
                             bot_name,
                             bot_id,
                             desired_text,
@@ -164,12 +166,14 @@ async fn handle_start_state(
                             format!(
                                 "📊 Bot Status\n\n\
                                 🤖 Bot Information:\n\
+                                   • Exchange: {}\n\
                                    • Name: {}\n\
                                    • ID: {}\n\
                                    • Desired: {}\n\
                                    • Actual: {}\n\n\
                                 ⚠️ No configuration found for this bot.\n\n\
                                 Please apply a configuration template first using 'Choose config...'.",
+                                bot_exchange,
                                 bot_name,
                                 bot_id,
                                 desired_text,
