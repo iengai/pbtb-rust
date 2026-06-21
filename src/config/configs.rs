@@ -12,28 +12,26 @@ pub struct Configs {
     pub ecs: EcsConfig,
 }
 
+/// Build the config from `APP__*` environment variables, the single config
+/// source in every environment. The `APP` prefix and `__` separator map onto the
+/// nested structs: `APP__DYNAMODB__TABLE_NAME` -> `[dynamodb] table_name`.
+///
+/// Local dev supplies these from `config/dev.env` (the Dev Container loads it via
+/// compose `env_file`; on the host you `source` it); the deployed binaries get
+/// them from SSM `base-env` (telebot) and Terraform (Lambda). No config file
+/// ships inside the images, so env is the only source.
 pub fn load_config<T>() -> anyhow::Result<T>
 where
     T: DeserializeOwned,
 {
-    let run_mode = std::env::var("APP__RUN_MODE")
-        .or_else(|_| std::env::var("RUN_MODE"))
-        .unwrap_or_else(|_| "default".into());
-
-    // `config` v0.13 gives later-added sources higher priority. File layers are added
-    // first (each later file overriding the earlier), then `APP__*` env on top so it
-    // wins over every file value.
     let cfg = config::Config::builder()
-        .add_source(config::File::with_name("config/default").required(false))
-        .add_source(config::File::with_name(&format!("config/{}", run_mode)).required(false))
-        .add_source(config::File::with_name("config/local").required(false))
         .add_source(
             config::Environment::with_prefix("APP")
                 .separator("__")
                 .try_parsing(true),
         )
         .build()
-        .with_context(|| format!("Failed to build config. run_mode={}, search_path=config/", run_mode))?;
+        .context("Failed to build config from APP__* environment")?;
 
     cfg.try_deserialize::<T>()
         .with_context(|| format!("Failed to deserialize config into struct: {}", std::any::type_name::<T>()))
@@ -43,20 +41,25 @@ where
 mod tests {
     use super::*;
 
-    // `config/default.toml` sets `dynamodb.table_name = "bots"`, so this exercises the
-    // file-vs-env precedence: the file layer must load, and an `APP__*` override must win.
+    // `APP__*` env deserializes into the nested config struct via the `APP`
+    // prefix and `__` nesting separator.
     #[test]
-    fn app_env_overrides_config_file() {
-        // SAFETY: env is process-global; all mutation is confined to this single test,
-        // and no other test reads config, so there is no cross-thread race on this key.
-        unsafe { std::env::remove_var("APP__DYNAMODB__TABLE_NAME") };
-        let from_file = load_config::<Configs>().expect("load config from file");
-        assert_eq!(from_file.dynamodb.table_name, "bots");
+    fn app_env_populates_nested_config() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Mini {
+            dynamodb: MiniDynamo,
+        }
+        #[derive(Debug, serde::Deserialize)]
+        struct MiniDynamo {
+            table_name: String,
+        }
 
-        unsafe { std::env::set_var("APP__DYNAMODB__TABLE_NAME", "env_wins") };
-        let with_env = load_config::<Configs>().expect("load config with env override");
-        assert_eq!(with_env.dynamodb.table_name, "env_wins");
-
+        // SAFETY: env is process-global; this is the only test that mutates this
+        // key and the only one that calls load_config, so there is no cross-thread
+        // race on it.
+        unsafe { std::env::set_var("APP__DYNAMODB__TABLE_NAME", "from_env") };
+        let cfg = load_config::<Mini>().expect("load config from APP__* env");
+        assert_eq!(cfg.dynamodb.table_name, "from_env");
         unsafe { std::env::remove_var("APP__DYNAMODB__TABLE_NAME") };
     }
 }

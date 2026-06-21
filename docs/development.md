@@ -106,43 +106,25 @@ Run `cargo fmt && cargo clippy` before committing.
 
 ## Configuration
 
-Config is assembled in `src/config/configs.rs` (`load_config`), which adds sources in this order:
+All configuration comes from `APP__*` environment variables — there is no config file, in the repo or in the running binaries. `load_config` (`src/config/configs.rs`) deserializes the process environment into the nested structs, mapping the `APP` prefix and `__` separator:
 
-1. `config/default.toml`
-2. `config/{RUN_MODE}.toml` (optional)
-3. `config/local.toml` (optional, gitignored)
-4. `APP__*` environment variables (prefix `APP`, `__` as the nesting separator — e.g. `APP__DYNAMODB__ENDPOINT_URL` maps to `[dynamodb] endpoint_url`)
+- `APP__DYNAMODB__TABLE_NAME` → `[dynamodb] table_name`
+- `APP__S3__ENDPOINT_URL` → `[s3] endpoint_url`
+- …and so on for every field of `Configs` (dynamodb / s3 / ecs).
 
-The `config` crate gives **later-added sources higher priority**, so the effective precedence is, low → high:
+How those variables reach the process is environment-specific and external to the application code:
 
-`config/default.toml`  <  `config/{RUN_MODE}.toml`  <  `config/local.toml`  <  `APP__*` env
-
-> ✅ **`APP__*` env is the highest-priority layer** — an env var overrides the matching value from any config file, the usual "env wins" convention. The deployed binaries rely on this: the telebot and Lambda images ship only the compiled binary (no `config/` directory), so the file sources are absent and `APP__*` env is the sole config source. From a checkout where `config/` is present (local dev), an `APP__*` override still wins over the file value.
-
-`RUN_MODE` is read from `APP__RUN_MODE`, falling back to `RUN_MODE`, defaulting to `default`.
-
-Example local override (`config/local.toml` — highest priority):
-
-```toml
-[dynamodb]
-endpoint_url = "http://localhost:8000"
-region = "us-east-1"
-table_name = "bots"
-```
-
-Notes:
-
-- `config/default.toml` omits `dynamodb.endpoint_url` (DynamoDB targets real AWS unless overridden) but does set `s3.endpoint_url = "http://localhost:9000"` plus placeholder `region` / `table_name` / `bucket_name` / ECS ARNs for local use.
-- Hostnames are context-dependent. **Inside the Dev Container**, use the compose service name (`http://dynamodb-local:8000`, injected as `APP__DYNAMODB__ENDPOINT_URL`). **From the host**, use `http://localhost:8000`.
+- **Dev Container:** `.devcontainer/docker-compose.yaml` sets them — DynamoDB points at the `dynamodb-local` service, ECS/S3 are non-functional offline stubs, and dummy AWS credentials keep the SDK off real AWS. Set `TELOXIDE_TOKEN` yourself (e.g. `export TELOXIDE_TOKEN=...`).
+- **Host (no container):** export the `APP__*` vars (and `TELOXIDE_TOKEN`) however you prefer — shell, direnv, your own dotenv loader. The repo neither ships nor loads any env file.
+- **Production:** SSM `base-env` (telebot) and Terraform (Lambda) inject them; the images ship only the binary.
 
 ### Key environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `TELOXIDE_TOKEN` | Telegram Bot API token |
+| `TELOXIDE_TOKEN` | Telegram Bot API token (from SSM in prod) |
 | `RUST_LOG` | Log level (e.g., `info`, `debug`) |
-| `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override |
-| `APP__S3__ENDPOINT_URL` | S3 endpoint override |
-| `APP__RUN_MODE` / `RUN_MODE` | Selects `config/{RUN_MODE}.toml` |
+| `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override (local dev) |
+| `APP__S3__ENDPOINT_URL` | S3 endpoint override (local dev) |
 
 Do not commit `.env` files, secrets, or hardcoded credentials.
