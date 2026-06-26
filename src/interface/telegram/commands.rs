@@ -52,16 +52,28 @@ async fn dispatch_command(
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
-                    let bot_info = deps.list_bots_usecase.execute(&user_id).await
+                    let selected = deps.list_bots_usecase.execute(&user_id).await
                         .ok()
-                        .and_then(|bots| bots.into_iter().find(|b| &b.id == bot_id))
-                        .map(|b| format!(
-                            "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}",
+                        .and_then(|bots| bots.into_iter().find(|b| &b.id == bot_id));
+
+                    let bot_info = if let Some(b) = selected {
+                        let strategy = deps
+                            .get_bot_config_usecase
+                            .execute(&user_id, &b.id)
+                            .await
+                            .ok()
+                            .and_then(|c| c.strategy_name().map(str::to_owned))
+                            .unwrap_or_else(|| "—".to_string());
+                        format!(
+                            "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}\n• Strategy: {}",
                             b.exchange.as_str().to_uppercase(),
                             b.name,
-                            b.id
-                        ))
-                        .unwrap_or_else(|| format!("🤖 Selected Bot: {}", bot_id));
+                            b.id,
+                            strategy
+                        )
+                    } else {
+                        format!("🤖 Selected Bot: {}", bot_id)
+                    };
 
                     format!(
                         "👋 Welcome! Choose an action from the menu below.\n\n{}",
