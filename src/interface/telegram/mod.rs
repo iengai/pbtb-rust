@@ -10,8 +10,31 @@ pub mod types;
 pub mod views;
 
 // Dependencies aggregation for handlers
+use crate::domain::bot::Bot;
+use crate::domain::runtime::RuntimePhase;
 use crate::usecase::*;
 use std::sync::Arc;
+
+/// Pair each bot with its OBSERVED runtime phase (for list buttons / status
+/// lines). One runtime read per bot; phase is `None` when no record exists.
+pub(crate) async fn bots_with_phase(
+    deps: &Deps,
+    user_id: &str,
+    bots: Vec<Bot>,
+) -> Vec<(Bot, Option<RuntimePhase>)> {
+    let mut out = Vec::with_capacity(bots.len());
+    for b in bots {
+        let phase = deps
+            .get_bot_runtime_usecase
+            .execute(user_id, &b.id)
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.phase);
+        out.push((b, phase));
+    }
+    out
+}
 
 #[derive(Clone)]
 pub struct Deps {

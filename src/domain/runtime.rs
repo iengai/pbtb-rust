@@ -6,11 +6,15 @@ use async_trait::async_trait;
 /// `Starting` is the transient lock state the telebot stamps the instant it
 /// claims the right to launch a task and before the ECS RUNNING event arrives.
 /// It exists so a concurrent launch can be rejected and so a stop issued during
-/// startup can locate the task. The Lambda only ever writes `Running`/`Stopped`.
+/// startup can locate the task. `Stopping` is the mirror transient state the
+/// telebot stamps the instant it issues StopTask, before the ECS STOPPED event
+/// arrives, so the UI shows the wind-down and a racing Run sees `stopping`
+/// instead of a stale `running`. The Lambda only ever writes `Running`/`Stopped`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimePhase {
     Starting,
     Running,
+    Stopping,
     Stopped,
 }
 
@@ -19,6 +23,7 @@ impl RuntimePhase {
         match self {
             RuntimePhase::Starting => "starting",
             RuntimePhase::Running => "running",
+            RuntimePhase::Stopping => "stopping",
             RuntimePhase::Stopped => "stopped",
         }
     }
@@ -26,6 +31,7 @@ impl RuntimePhase {
         match s.to_lowercase().as_str() {
             "starting" => Some(Self::Starting),
             "running" => Some(Self::Running),
+            "stopping" => Some(Self::Stopping),
             "stopped" => Some(Self::Stopped),
             _ => None,
         }
@@ -69,6 +75,25 @@ impl BotRuntime {
             observed_at: now,
         }
     }
+    /// Observed `Stopping`: a task that has been asked to stop but whose terminal
+    /// STOPPED event has not yet landed. Keeps the `task_id` so the winding-down
+    /// task can still be located (and its liveness verified before any reclaim).
+    pub fn stopping(
+        user_id: String,
+        bot_id: String,
+        task_id: String,
+        version: i64,
+        now: i64,
+    ) -> Self {
+        Self {
+            user_id,
+            bot_id,
+            task_id: Some(task_id),
+            phase: RuntimePhase::Stopping,
+            version,
+            observed_at: now,
+        }
+    }
 }
 
 #[async_trait]
@@ -96,6 +121,9 @@ pub enum StartClaim {
     AlreadyRunning,
     /// Another launch is already in flight (a fresh `starting` lock is held).
     AlreadyStarting,
+    /// The task is still winding down (a fresh `stopping` state is held); the
+    /// caller must wait for it to finish before a new launch can be claimed.
+    AlreadyStopping,
 }
 
 /// The exclusive-start lock that prevents a bot from ever getting two
@@ -153,16 +181,30 @@ mod tests {
     #[test]
     fn runtime_phase_round_trip() {
         assert_eq!(RuntimePhase::Running.as_str(), "running");
+        assert_eq!(RuntimePhase::Stopping.as_str(), "stopping");
         assert_eq!(RuntimePhase::Stopped.as_str(), "stopped");
         assert_eq!(
             RuntimePhase::from_str("running"),
             Some(RuntimePhase::Running)
         );
         assert_eq!(
+            RuntimePhase::from_str("STOPPING"),
+            Some(RuntimePhase::Stopping)
+        );
+        assert_eq!(
             RuntimePhase::from_str("STOPPED"),
             Some(RuntimePhase::Stopped)
         );
         assert_eq!(RuntimePhase::from_str("bogus"), None);
+    }
+
+    #[test]
+    fn stopping_constructor_keeps_task_id() {
+        let r = BotRuntime::stopping("u".into(), "b".into(), "task-9".into(), 5, 300);
+        assert_eq!(r.task_id.as_deref(), Some("task-9"));
+        assert_eq!(r.phase, RuntimePhase::Stopping);
+        assert_eq!(r.version, 5);
+        assert_eq!(r.observed_at, 300);
     }
 
     #[test]

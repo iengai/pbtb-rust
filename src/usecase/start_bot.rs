@@ -15,9 +15,14 @@ pub const START_LOCK_STALE_AFTER_SECS: i64 = 600;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum StartOutcome {
-    Started { task_id: String },
+    Started {
+        task_id: String,
+    },
     AlreadyRunning,
     AlreadyStarting,
+    /// The previous task is still winding down (observed `stopping`); the user
+    /// should retry once it settles. Launching now is refused to never double-run.
+    Stopping,
     BotNotFound,
 }
 
@@ -87,7 +92,7 @@ impl StartBotUseCase {
             .await
             .map_err(|e| e.to_string())?;
         if let Some(rt) = &runtime {
-            let stale = rt.phase == RuntimePhase::Starting
+            let stale = matches!(rt.phase, RuntimePhase::Starting | RuntimePhase::Stopping)
                 && rt.observed_at <= now - START_LOCK_STALE_AFTER_SECS;
             if stale {
                 if let Some(task_id) = rt.task_id.as_deref() {
@@ -116,6 +121,7 @@ impl StartBotUseCase {
         {
             StartClaim::AlreadyRunning => return Ok(StartOutcome::AlreadyRunning),
             StartClaim::AlreadyStarting => return Ok(StartOutcome::AlreadyStarting),
+            StartClaim::AlreadyStopping => return Ok(StartOutcome::Stopping),
             StartClaim::Acquired => {}
         }
 
@@ -461,6 +467,24 @@ mod tests {
             runner.call_count(),
             0,
             "must not launch when already running"
+        );
+    }
+
+    #[tokio::test]
+    async fn already_stopping_does_not_launch() {
+        let bots = Arc::new(InMemoryBots::with(bot(false)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::AlreadyStopping));
+        let runner = Arc::new(MockRunner::ok("task-xyz"));
+        let controller = Arc::new(MockController::new(TaskLiveness::Gone));
+        let uc = use_case(bots, runtimes, locks, runner.clone(), controller);
+
+        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        assert_eq!(out, StartOutcome::Stopping);
+        assert_eq!(
+            runner.call_count(),
+            0,
+            "must not launch while the task is still stopping"
         );
     }
 

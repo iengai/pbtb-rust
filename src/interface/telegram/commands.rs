@@ -64,12 +64,21 @@ async fn dispatch_command(
                             .ok()
                             .map(|c| super::views::format_strategies(&c.strategies()))
                             .unwrap_or_else(|| "—".to_string());
+                        let runtime = deps
+                            .get_bot_runtime_usecase
+                            .execute(&user_id, &b.id)
+                            .await
+                            .ok()
+                            .flatten();
+                        let status =
+                            super::views::format_runtime_phase(runtime.as_ref().map(|r| &r.phase));
                         format!(
-                            "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}\n• Strategy: {}",
+                            "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}\n• Strategy: {}\n• Status: {}",
                             b.exchange.as_str().to_uppercase(),
                             b.name,
                             b.id,
-                            strategy
+                            strategy,
+                            status
                         )
                     } else {
                         format!("🤖 Selected Bot: {}", bot_id)
@@ -123,8 +132,9 @@ async fn dispatch_command(
                                 "📋 Select a bot:\n\n(No bot selected)".to_string()
                             };
 
+                            let augmented = super::bots_with_phase(&deps, &user_id, bots).await;
                             bot.send_message(msg.chat.id, header)
-                                .reply_markup(keyboards::bot_list_keyboard(&bots))
+                                .reply_markup(keyboards::bot_list_keyboard(&augmented))
                                 .await?;
                         }
                     }

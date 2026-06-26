@@ -126,21 +126,31 @@ async fn handle_bot_selection(
                 })
                 .await?;
 
-            let details = deps
+            let selected = deps
                 .list_bots_usecase
                 .execute(&user_id)
                 .await
                 .ok()
-                .and_then(|bots| bots.into_iter().find(|b| b.id == bot_id))
-                .map(|b| {
-                    format!(
-                        "🤖 Exchange: {}\n• Name: {}\n• ID: {}",
-                        b.exchange.as_str().to_uppercase(),
-                        b.name,
-                        b.id
-                    )
-                })
-                .unwrap_or_else(|| format!("🤖 Bot ID: {}", bot_id));
+                .and_then(|bots| bots.into_iter().find(|b| b.id == bot_id));
+
+            let details = if let Some(b) = selected {
+                let runtime = deps
+                    .get_bot_runtime_usecase
+                    .execute(&user_id, &b.id)
+                    .await
+                    .ok()
+                    .flatten();
+                let status = super::views::format_runtime_phase(runtime.as_ref().map(|r| &r.phase));
+                format!(
+                    "🤖 Exchange: {}\n• Name: {}\n• ID: {}\n• Status: {}",
+                    b.exchange.as_str().to_uppercase(),
+                    b.name,
+                    b.id,
+                    status
+                )
+            } else {
+                format!("🤖 Bot ID: {}", bot_id)
+            };
 
             // Confirm to user
             if let Some(Message { chat, .. }) = q.message {

@@ -13,7 +13,7 @@ Bot row      pk = "user_id#<user_id>", sk = "<bot_id>"
              (enabled = desired state; there is no status attribute)
 
 Runtime row  pk = "user_id#<user_id>", sk = "ecs_task_metadata#<bot_id>"
-             Attributes: status (running/stopped), task_id,
+             Attributes: status (starting/running/stopping/stopped), task_id,
                          task_updated_at, task_current_version
              (observed ECS task state)
 ```
@@ -40,7 +40,7 @@ The observed `BotRuntime` for a bot — whether the ECS task is actually running
 
 | Attribute | Description |
 |-----------|-------------|
-| `status` | Observed phase (`running` / `stopped`) |
+| `status` | Observed phase (`starting` / `running` / `stopping` / `stopped`) |
 | `task_id` | ECS task identifier |
 | `task_updated_at` | Timestamp of the last observed update |
 | `task_current_version` | Version counter for the runtime row |

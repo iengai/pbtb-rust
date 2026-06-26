@@ -430,3 +430,152 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
         StartClaim::Acquired
     );
 }
+
+/// The observed `Stopping` write is identity-guarded: it marks the task it
+/// actually stopped, but must NEVER clobber a newer generation (a restart lock a
+/// concurrent reconcile just claimed, which clears the id and bumps the version).
+/// A stale StopBot snapshot clobbering that lock would orphan the relaunched task
+/// and break the runtime-row mirror the no-double-run invariant depends on.
+#[tokio::test]
+async fn stopping_write_is_identity_guarded() {
+    let Some((_container, client)) = start_dynamodb().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let (u, b) = ("user-1", "stop-bot");
+
+    // task-1 is running.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 1, 1000),
+    )
+    .await
+    .unwrap();
+
+    // POSITIVE: a Stopping write for the CURRENT task is honoured.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::stopping(u.into(), b.into(), "task-1".into(), 1, 1100),
+    )
+    .await
+    .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.phase, RuntimePhase::Stopping);
+    assert_eq!(rt.task_id.as_deref(), Some("task-1"));
+
+    // Reset to running, then a concurrent restart claim supersedes task-1: the row
+    // becomes `starting` with the id cleared and the version bumped.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 1, 1200),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.try_acquire_restart(u, b, "task-1", 1300)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
+    let claimed = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.phase, RuntimePhase::Starting);
+    assert_eq!(claimed.task_id, None, "restart cleared the id");
+    let claimed_version = claimed.version;
+
+    // NEGATIVE (the regression guard): a stale StopBot Stopping write for the OLD
+    // task-1 must NOT clobber the fresh restart lock.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::stopping(u.into(), b.into(), "task-1".into(), 1, 9999),
+    )
+    .await
+    .unwrap();
+    let after = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        after.phase,
+        RuntimePhase::Starting,
+        "stale stopping must not clobber the restart lock"
+    );
+    assert_eq!(after.task_id, None, "the relaunch id is not orphaned");
+    assert_eq!(after.version, claimed_version, "version untouched");
+}
+
+/// A terminal STOPPED always settles a `stopping` row, even one stamped slightly
+/// in the future by a clock-ahead telebot — otherwise a dropped settlement would
+/// leave the row stuck `stopping` forever (there is no sweeper). The same clause
+/// must NOT let a stale STOPPED clobber a genuinely newer `running` row.
+#[tokio::test]
+async fn terminal_stopped_settles_future_stamped_stopping() {
+    let Some((_container, client)) = start_dynamodb().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let (u, b) = ("user-1", "settle-bot");
+
+    // Running task-1 at ua=4000, then a Stopping stamped in the FUTURE (ua=5000).
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 1, 4000),
+    )
+    .await
+    .unwrap();
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::stopping(u.into(), b.into(), "task-1".into(), 1, 5000),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        RuntimePhase::Stopping
+    );
+
+    // A terminal STOPPED with an EARLIER observed_at still settles it.
+    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 1, 3000))
+        .await
+        .unwrap();
+    let settled = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        settled.phase,
+        RuntimePhase::Stopped,
+        "STOPPED settles a future-stamped stopping row"
+    );
+    assert_eq!(settled.task_id, None);
+
+    // Guard: a stale STOPPED must NOT clobber a genuinely newer RUNNING row.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-2".into(), 2, 6000),
+    )
+    .await
+    .unwrap();
+    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 2, 3500))
+        .await
+        .unwrap();
+    let still = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        still.phase,
+        RuntimePhase::Running,
+        "a stale stopped must not clobber a newer running row"
+    );
+    assert_eq!(still.task_id.as_deref(), Some("task-2"));
+}
