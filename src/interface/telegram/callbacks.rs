@@ -39,7 +39,7 @@ async fn handle_callback(
 
     // Check if this is a bot selection callback
     if data.starts_with("select_bot:") {
-        handle_bot_selection(bot, q, dialogue, bot_context).await?;
+        handle_bot_selection(bot, q, deps, bot_context).await?;
         return Ok(());
     }
 
@@ -100,12 +100,13 @@ async fn handle_action(
 async fn handle_bot_selection(
     bot: Bot,
     q: CallbackQuery,
-    _dialogue: MyDialogue,
+    deps: Deps,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
     if let Some(data) = &q.data {
         if data.starts_with("select_bot:") {
             let bot_id = data.strip_prefix("select_bot:").unwrap_or("").to_string();
+            let user_id = q.from.id.to_string();
 
             // Answer callback to remove loading state
             bot.answer_callback_query(&q.id)
@@ -119,13 +120,32 @@ async fn handle_bot_selection(
                 })
                 .await?;
 
+            let details = deps
+                .list_bots_usecase
+                .execute(&user_id)
+                .await
+                .ok()
+                .and_then(|bots| bots.into_iter().find(|b| b.id == bot_id))
+                .map(|b| {
+                    format!(
+                        "🤖 Exchange: {}\n• Name: {}\n• ID: {}",
+                        b.exchange.as_str().to_uppercase(),
+                        b.name,
+                        b.id
+                    )
+                })
+                .unwrap_or_else(|| format!("🤖 Bot ID: {}", bot_id));
+
             // Confirm to user
             if let Some(Message { chat, .. }) = q.message {
                 bot.send_message(
                     chat.id,
-                    format!("✅ Bot selected!\n\n🤖 Bot ID: {}\n\nYou can now use 'Run bot', 'Stop bot' and other operations.", bot_id)
+                    format!(
+                        "✅ Bot selected!\n\n{}\n\nYou can now use 'Run bot', 'Stop bot' and other operations.",
+                        details
+                    ),
                 )
-                    .await?;
+                .await?;
             }
         }
     }
