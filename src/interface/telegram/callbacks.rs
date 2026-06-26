@@ -43,6 +43,12 @@ async fn handle_callback(
         return Ok(());
     }
 
+    // Check if this is a strategy-side toggle callback
+    if data.starts_with("toggle_side:") {
+        handle_toggle_side(bot, q, deps, bot_context).await?;
+        return Ok(());
+    }
+
     // Check if this is a template selection callback
     if data.starts_with("select_template:") {
         handle_template_selection(bot, q, dialogue, bot_context, deps).await?;
@@ -225,6 +231,80 @@ async fn handle_template_selection(
                     }
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle a strategy-side toggle callback (`toggle_side:long`/`toggle_side:short`).
+/// Flips the selected bot's side via the use case and re-renders the keyboard.
+async fn handle_toggle_side(
+    bot: Bot,
+    q: CallbackQuery,
+    deps: Deps,
+    bot_context: MyBotContext,
+) -> anyhow::Result<()> {
+    let side = q
+        .data
+        .as_deref()
+        .and_then(|d| d.strip_prefix("toggle_side:"))
+        .unwrap_or("")
+        .to_string();
+    let user_id = q.from.id.to_string();
+
+    let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
+        Some(id) => id,
+        None => {
+            bot.answer_callback_query(&q.id)
+                .text("❌ No bot selected")
+                .show_alert(true)
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Read the current state and flip it.
+    let current = deps
+        .get_bot_config_usecase
+        .execute(&user_id, &bot_id)
+        .await
+        .ok()
+        .map(|c| c.side_enabled(&side))
+        .unwrap_or(true);
+
+    match deps
+        .set_strategy_side_usecase
+        .execute(&user_id, &bot_id, &side, !current)
+        .await
+    {
+        Ok(now_enabled) => {
+            bot.answer_callback_query(&q.id)
+                .text(format!(
+                    "{} {} — applies on next 'Run bot'",
+                    side,
+                    if now_enabled { "enabled" } else { "disabled" }
+                ))
+                .await?;
+
+            // Re-render both toggles from the freshly saved config.
+            if let Ok(cfg) = deps.get_bot_config_usecase.execute(&user_id, &bot_id).await {
+                if let Some(Message { id, chat, .. }) = q.message {
+                    bot.edit_message_reply_markup(chat.id, id)
+                        .reply_markup(super::keyboards::strategy_sides_keyboard(
+                            cfg.side_enabled("long"),
+                            cfg.side_enabled("short"),
+                        ))
+                        .await
+                        .ok();
+                }
+            }
+        }
+        Err(e) => {
+            bot.answer_callback_query(&q.id)
+                .text(format!("❌ {}", e))
+                .show_alert(true)
+                .await?;
         }
     }
 

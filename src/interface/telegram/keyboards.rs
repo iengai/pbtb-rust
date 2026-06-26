@@ -21,10 +21,30 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         vec![
             KeyboardButton::new("Delete API key"),
             KeyboardButton::new("List"),
+            KeyboardButton::new("Sides"),
         ],
     ])
     .resize_keyboard(true)
     .one_time_keyboard(false)
+}
+
+/// Inline keyboard to toggle a bot's strategy sides on/off. Each button shows
+/// the current state; tapping flips it (callback `toggle_side:<side>`).
+pub(crate) fn strategy_sides_keyboard(
+    long_enabled: bool,
+    short_enabled: bool,
+) -> InlineKeyboardMarkup {
+    let label = |name: &str, on: bool| format!("{}: {}", name, if on { "🟢 ON" } else { "🔴 OFF" });
+    InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback(
+            label("Long", long_enabled),
+            "toggle_side:long",
+        )],
+        vec![InlineKeyboardButton::callback(
+            label("Short", short_enabled),
+            "toggle_side:short",
+        )],
+    ])
 }
 
 /// Create inline keyboard for bot list

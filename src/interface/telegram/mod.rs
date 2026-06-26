@@ -28,6 +28,7 @@ pub struct Deps {
     pub get_bot_config_usecase: Arc<GetBotConfigUseCase>,
     pub update_bot_config_usecase: Arc<UpdateBotConfigUseCase>,
     pub update_risk_level_usecase: Arc<UpdateRiskLevelUseCase>,
+    pub set_strategy_side_usecase: Arc<SetStrategySideUseCase>,
 
     // Runtime / desired-state management
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
