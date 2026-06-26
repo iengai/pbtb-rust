@@ -292,6 +292,14 @@ impl BotConfig {
         Ok(())
     }
 
+    /// Strategy name the config derives from (the `predefined/` template stem),
+    /// read from the top-level `strategy_name` field. `None` when absent.
+    pub fn strategy_name(&self) -> Option<&str> {
+        self.config_data
+            .get("strategy_name")
+            .and_then(|v| v.as_str())
+    }
+
     /// Override the `live.user` field with the given bot id.
     /// Errors if the `live` section is missing or is not a JSON object.
     pub fn set_live_user(&mut self, bot_id: &str) -> Result<(), DomainError> {
