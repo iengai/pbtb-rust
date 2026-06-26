@@ -81,6 +81,10 @@ async fn main() -> anyhow::Result<()> {
         bot_config_repository.clone(),
         clock.clone(),
     ));
+    let set_strategy_side_usecase = Arc::new(SetStrategySideUseCase::new(
+        bot_config_repository.clone(),
+        clock.clone(),
+    ));
 
     // Create use cases - Runtime / desired-state management
     // DynamoBotRepository implements BotRepository, BotRuntimeRepository and
@@ -125,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
         get_bot_config_usecase,
         update_bot_config_usecase,
         update_risk_level_usecase,
+        set_strategy_side_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
         // ECS actuation

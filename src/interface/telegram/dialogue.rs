@@ -99,6 +99,14 @@ async fn handle_start_state(
                             .and_then(|v| v.as_str())
                             .unwrap_or(&config.template_name);
 
+                        // 1b. Strategies involved + per-side on/off state.
+                        let strategy_info = super::views::format_strategies(&config.strategies());
+                        let sides_info = format!(
+                            "Long {}, Short {}",
+                            if config.side_enabled("long") { "🟢 on" } else { "🔴 off" },
+                            if config.side_enabled("short") { "🟢 on" } else { "🔴 off" },
+                        );
+
                         // 2. Get risk level (long and short)
                         let risk_info = match config.risk_level() {
                             Ok(risk) => format!("   • Long: {:.2}\n   • Short: {:.2}", risk.long, risk.short),
@@ -140,6 +148,8 @@ async fn handle_start_state(
                                • Actual: {}\n\n\
                             📋 Configuration:\n\
                                • Template: {}\n\
+                               • Strategy: {}\n\
+                               • Sides: {}\n\
                             {}\n\n\
                             ⚠️ Risk Level:\n\
                             {}\n\n\
@@ -152,6 +162,8 @@ async fn handle_start_state(
                             desired_text,
                             actual_text,
                             template_name,
+                            strategy_info,
+                            sides_info,
                             config.template_version
                                 .as_ref()
                                 .map(|v| format!("   • Version: {}", v))
@@ -410,6 +422,58 @@ async fn handle_start_state(
                 } else {
                     bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
                         .await?;
+                }
+            }
+            "Sides" => {
+                let ctx = bot_context.get().await?.unwrap_or_default();
+
+                let bot_id = match ctx.selected_bot_id.as_ref() {
+                    Some(id) => id,
+                    None => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ No bot selected. Please use 'List' to select a bot first.",
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                };
+
+                let user_id = msg
+                    .from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
+                    Ok(config) => {
+                        let strategy_info = super::views::format_strategies(&config.strategies());
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🎛️ Strategy Sides\n\n\
+                                🤖 Bot: {}\n\
+                                📋 Strategy: {}\n\n\
+                                Tap a side to turn it on/off.\n\
+                                Off uses passivbot graceful_stop (no new entries, \
+                                existing positions closed gracefully).\n\
+                                ⚠️ Applies on the next 'Run bot'.",
+                                bot_id, strategy_info
+                            ),
+                        )
+                        .reply_markup(super::keyboards::strategy_sides_keyboard(
+                            config.side_enabled("long"),
+                            config.side_enabled("short"),
+                        ))
+                        .await?;
+                    }
+                    Err(_) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ No configuration found for this bot.\n\n\
+                            Please apply a configuration template first using 'Choose config...'.",
+                        )
+                        .await?;
+                    }
                 }
             }
             "Unstuck" => {

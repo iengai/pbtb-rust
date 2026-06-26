@@ -62,7 +62,7 @@ async fn dispatch_command(
                             .execute(&user_id, &b.id)
                             .await
                             .ok()
-                            .and_then(|c| c.strategy_name().map(str::to_owned))
+                            .map(|c| super::views::format_strategies(&c.strategies()))
                             .unwrap_or_else(|| "—".to_string());
                         format!(
                             "🤖 Selected Bot:\n• Exchange: {}\n• Name: {}\n• ID: {}\n• Strategy: {}",

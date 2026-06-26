@@ -114,6 +114,15 @@ impl Coins {
     }
 }
 
+/// A strategy reference attached to a config: which predefined strategy
+/// supplies a given side. A single-direction bot lists one; a combined bot
+/// lists several (e.g. one strategy on `long`, another on `short`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StrategyRef {
+    pub name: String,
+    pub side: String,
+}
+
 /// Bot configuration entity (user's bot-specific config)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BotConfig {
@@ -298,6 +307,89 @@ impl BotConfig {
         self.config_data
             .get("strategy_name")
             .and_then(|v| v.as_str())
+    }
+
+    /// All strategies involved in this config, parsed from the top-level
+    /// `strategies` array (`[{name, side}]`). A combined bot lists one entry per
+    /// side. Falls back to a single `long` entry derived from `strategy_name`
+    /// when the array is absent.
+    pub fn strategies(&self) -> Vec<StrategyRef> {
+        if let Some(arr) = self
+            .config_data
+            .get("strategies")
+            .and_then(|v| v.as_array())
+        {
+            let refs: Vec<StrategyRef> = arr
+                .iter()
+                .filter_map(|item| {
+                    let name = item.get("name").and_then(|v| v.as_str())?;
+                    let side = item.get("side").and_then(|v| v.as_str()).unwrap_or("long");
+                    Some(StrategyRef {
+                        name: name.to_string(),
+                        side: side.to_string(),
+                    })
+                })
+                .collect();
+            if !refs.is_empty() {
+                return refs;
+            }
+        }
+        match self.strategy_name() {
+            Some(name) => vec![StrategyRef {
+                name: name.to_string(),
+                side: "long".to_string(),
+            }],
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether a side (`"long"`/`"short"`) is enabled, read from passivbot's
+    /// `live.forced_mode_<side>`. Enabled when the mode is empty or `"normal"`;
+    /// any other mode (e.g. `"graceful_stop"`) means the side is turned off.
+    pub fn side_enabled(&self, side: &str) -> bool {
+        let key = format!("forced_mode_{}", side);
+        let mode = self
+            .config_data
+            .get("live")
+            .and_then(|live| live.get(&key))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        mode.is_empty() || mode == "normal"
+    }
+
+    /// Turn a side (`"long"`/`"short"`) on or off via `live.forced_mode_<side>`:
+    /// on clears the mode, off sets `"graceful_stop"` (stop new entries, close
+    /// existing positions gracefully). Bumps `updated_at`. Errors if the side is
+    /// not `"long"`/`"short"`, or `live` is missing or not an object.
+    pub fn set_side_enabled(
+        &mut self,
+        side: &str,
+        enabled: bool,
+        now: i64,
+    ) -> Result<(), DomainError> {
+        if side != "long" && side != "short" {
+            return Err(DomainError::InvalidConfig(format!(
+                "invalid side: {}",
+                side
+            )));
+        }
+
+        let live = self
+            .config_data
+            .get_mut("live")
+            .ok_or(DomainError::MissingConfigPath("live"))?;
+
+        let obj = live.as_object_mut().ok_or_else(|| {
+            DomainError::InvalidConfig("config.live is not an object".to_string())
+        })?;
+
+        let value = if enabled { "" } else { "graceful_stop" };
+        obj.insert(
+            format!("forced_mode_{}", side),
+            Value::String(value.to_string()),
+        );
+        self.updated_at = now;
+        Ok(())
     }
 
     /// Override the `live.user` field with the given bot id.
