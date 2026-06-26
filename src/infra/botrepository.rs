@@ -316,12 +316,38 @@ impl BotRuntimeRepository for DynamoBotRepository {
             );
 
         let put = match runtime.phase {
+            // A terminal STOPPED always settles the row, INCLUDING a `stopping`
+            // one stamped slightly in the future by a clock-ahead telebot — without
+            // the `#st = :stopping` clause a dropped settlement could leave the row
+            // stuck `stopping` forever (there is no periodic sweeper). It only ever
+            // fires while the row is actually `stopping`, so it cannot clobber a
+            // newer `running`.
             RuntimePhase::Stopped => put
-                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at"),
-            RuntimePhase::Running => put
-                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped)")
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at OR #st = :stopping")
                 .expression_attribute_names("#st", "status")
-                .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string())),
+                .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
+            // A same-second RUNNING must not resurrect a terminal Stopped NOR a
+            // just-written Stopping (the task is on its way down), so the tie-break
+            // excludes both. A strictly-newer RUNNING still wins (a real relaunch).
+            RuntimePhase::Running => put
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped AND #st <> :stopping)")
+                .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
+                .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
+            // Stopping is stamped synchronously by StopBot the instant StopTask is
+            // issued. IDENTITY-GUARDED: it may only mark the row while it still
+            // refers to the exact task we stopped (`task_id = :expected_task`) and
+            // that task is still running/starting. It must NEVER clobber a newer
+            // generation — e.g. a restart lock a concurrent reconcile just claimed
+            // (which clears task_id and bumps the version) — or the relaunched
+            // task's id would be silently orphaned, breaking the runtime-row mirror
+            // the no-double-run invariant depends on.
+            RuntimePhase::Stopping => put
+                .condition_expression("(#st = :running OR #st = :starting) AND task_id = :expected_task")
+                .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":running", AttributeValue::S("running".to_string()))
+                .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
+                .expression_attribute_values(":expected_task", AttributeValue::S(metadata.task_id.clone())),
             // The starting lock is normally written via StartLockRepository's
             // conditional CAS, not this observed-write path. Keep the arm total
             // and conservative: a transient `starting` may only win if strictly
@@ -390,7 +416,14 @@ impl StartLockRepository for DynamoBotRepository {
                 "starting" if meta.updated_at > stale_cutoff => {
                     return Ok(StartClaim::AlreadyStarting);
                 }
-                _ => {} // stopped, missing, or a stale starting lock -> attempt to claim
+                // A freshly-stopping task is still winding down — refuse to launch
+                // and tell the caller to retry once it settles. A stale `stopping`
+                // (a dropped STOPPED event) falls through to the CAS, whose reclaim
+                // is gated by the ECS-liveness check in start_bot.
+                "stopping" if meta.updated_at > stale_cutoff => {
+                    return Ok(StartClaim::AlreadyStopping);
+                }
+                _ => {} // stopped, missing, or a stale starting/stopping lock -> attempt to claim
             }
         }
 
@@ -403,10 +436,11 @@ impl StartLockRepository for DynamoBotRepository {
             .key("pk", AttributeValue::S(pk))
             .key("sk", AttributeValue::S(sk))
             .update_expression("SET #st = :starting, task_updated_at = :now, task_id = :empty")
-            .condition_expression("attribute_not_exists(#st) OR #st = :stopped OR (#st = :starting AND task_updated_at <= :stale_cutoff)")
+            .condition_expression("attribute_not_exists(#st) OR #st = :stopped OR (#st = :starting AND task_updated_at <= :stale_cutoff) OR (#st = :stopping AND task_updated_at <= :stale_cutoff)")
             .expression_attribute_names("#st", "status")
             .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
             .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
+            .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string()))
             .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
             .expression_attribute_values(":empty", AttributeValue::S(String::new()))
             .expression_attribute_values(":stale_cutoff", AttributeValue::N(stale_cutoff.to_string()))

@@ -1,6 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
-use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase};
+use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
 use crate::usecase::stop_task::TaskController;
 use std::sync::Arc;
 
@@ -14,6 +14,9 @@ pub enum StopOutcome {
     /// cannot be located to stop. Desired state is already off; a retry once the
     /// RUNNING event lands will stop it.
     StartInProgress,
+    /// The task is already winding down (a prior Stop is still in flight); there
+    /// is nothing new to do.
+    AlreadyStopping,
     BotNotFound,
 }
 
@@ -67,17 +70,36 @@ impl StopBotUseCase {
             .map_err(|e| e.to_string())?;
         match runtime {
             Some(rt) if matches!(rt.phase, RuntimePhase::Running | RuntimePhase::Starting) => {
+                let version = rt.version;
                 match rt.task_id {
                     Some(task_id) => {
                         self.stopper
                             .stop(&self.cluster_arn, &task_id, "stopped by user via telebot")
                             .await
                             .map_err(|e| e.to_string())?;
+                        // Stamp observed Stopping so the UI shows the wind-down and
+                        // a racing Run sees `stopping` rather than a stale `running`.
+                        // Best-effort: a failed stamp must not fail the stop — the
+                        // Lambda's STOPPED event still settles the row.
+                        if let Err(e) = self
+                            .runtimes
+                            .record(&BotRuntime::stopping(
+                                user_id.to_string(),
+                                bot_id.to_string(),
+                                task_id.clone(),
+                                version,
+                                now,
+                            ))
+                            .await
+                        {
+                            tracing::warn!("failed to record stopping phase for bot {bot_id}: {e}");
+                        }
                         Ok(StopOutcome::Stopped { task_id })
                     }
                     None => Ok(StopOutcome::StartInProgress),
                 }
             }
+            Some(rt) if rt.phase == RuntimePhase::Stopping => Ok(StopOutcome::AlreadyStopping),
             _ => Ok(StopOutcome::NotRunning),
         }
     }
@@ -354,5 +376,57 @@ mod tests {
 
         let out = uc.execute("user-1", "ghost").await.unwrap();
         assert_eq!(out, StopOutcome::BotNotFound);
+    }
+
+    #[tokio::test]
+    async fn stop_records_stopping_phase_keeping_task_id_and_version() {
+        let bots = Arc::new(InMemoryBots::with(bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::with(BotRuntime::running(
+            "user-1".to_string(),
+            "bot-1".to_string(),
+            "task-xyz".to_string(),
+            3,
+            1_699_999_000,
+        )));
+        let stopper = Arc::new(MockStopper::default());
+        let uc = use_case(bots, runtimes.clone(), stopper);
+
+        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        assert_eq!(
+            out,
+            StopOutcome::Stopped {
+                task_id: "task-xyz".to_string()
+            }
+        );
+
+        let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+        assert_eq!(
+            rt.phase,
+            RuntimePhase::Stopping,
+            "observed flips to stopping"
+        );
+        assert_eq!(rt.task_id.as_deref(), Some("task-xyz"));
+        assert_eq!(rt.version, 3, "stopping preserves the version");
+    }
+
+    #[tokio::test]
+    async fn second_stop_on_stopping_reports_already_stopping_without_re_stopping() {
+        let bots = Arc::new(InMemoryBots::with(bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::with(BotRuntime::stopping(
+            "user-1".to_string(),
+            "bot-1".to_string(),
+            "task-xyz".to_string(),
+            3,
+            1_699_999_000,
+        )));
+        let stopper = Arc::new(MockStopper::default());
+        let uc = use_case(bots, runtimes, stopper.clone());
+
+        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        assert_eq!(out, StopOutcome::AlreadyStopping);
+        assert!(
+            stopper.stopped.lock().unwrap().is_empty(),
+            "no second StopTask for an already-stopping bot"
+        );
     }
 }

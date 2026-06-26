@@ -99,7 +99,7 @@ Two in-memory stores back the conversation, injected into the dispatcher via tel
 The dialogue layer renders the **Status** view, which shows both desired and observed state side by side (`dialogue.rs`):
 
 - **Desired** comes from `Bot.enabled` — `🟢 Enabled` / `🔴 Disabled`.
-- **Actual** comes from the observed `RuntimePhase` — `⏳ Starting` / `▶️ Running` / `⏹️ Stopped`.
+- **Actual** comes from the observed `RuntimePhase` — `⏳ Starting` / `▶️ Running` / `🛑 Stopping` / `⏹️ Stopped` (or `❔ Unknown` when no record exists yet). This observed glyph also leads each bot-list button, so a fresh `▶️ Running` reads differently from a winding-down `🛑 Stopping`.
 
 The **Run bot** / **Stop bot** buttons flip desired state **and** actuate ECS by driving `StartBotUseCase` / `StopBotUseCase`.
 
@@ -108,9 +108,10 @@ The **Run bot** / **Stop bot** buttons flip desired state **and** actuate ECS by
 The model deliberately separates two distinct concepts:
 
 - **Desired state = user intent.** `Bot.enabled` (a `bool`) records whether the user turned the bot on, toggled via `Bot::enable` / `Bot::disable`. There is no `status` attribute on the bot — desired state is `enabled` and nothing else.
-- **Observed state = reality.** The `BotRuntime` aggregate (`src/domain/runtime.rs`) records whether the ECS task is actually running. It carries `phase: RuntimePhase`, plus `task_id`, `version` (a restart counter / task generation), and `observed_at`. `RuntimePhase` has three variants:
+- **Observed state = reality.** The `BotRuntime` aggregate (`src/domain/runtime.rs`) records whether the ECS task is actually running. It carries `phase: RuntimePhase`, plus `task_id`, `version` (a restart counter / task generation), and `observed_at`. `RuntimePhase` has four variants:
   - `Running` / `Stopped` — written by the ECS Task State Change Lambda (`RecordRunningTaskUseCase` on RUNNING, `ReconcileStoppedTaskUseCase` on STOPPED).
-  - `Starting` — the transient exclusive-start-lock state a launcher stamps the instant it claims the right to launch and before the RUNNING event arrives. It lets a concurrent launch be rejected and lets a stop issued during startup locate the task. The Lambda only ever writes `Running` / `Stopped`.
+  - `Starting` — the transient exclusive-start-lock state a launcher stamps the instant it claims the right to launch and before the RUNNING event arrives. It lets a concurrent launch be rejected and lets a stop issued during startup locate the task.
+  - `Stopping` — the mirror transient state `StopBotUseCase` stamps the instant it issues `StopTask`, before the STOPPED event arrives (keeping `task_id`). It makes the wind-down visible and lets a racing Run see `stopping` (returning `AlreadyStopping`) instead of a stale `running`; the launch is still refused by the start-lock CAS, so a task is never double-run. The Lambda only ever writes `Running` / `Stopped`, which settle the row.
 
 Observed runtime is read via `GetBotRuntimeUseCase`. `BotRuntimeRepository::find_consistent` provides a strongly-consistent read for decisions that must not act on a stale replica (e.g. stopping a task needs the freshest `task_id`); it defaults to `find` and is overridden by the DynamoDB implementation.
 
@@ -149,9 +150,9 @@ The lock is stamped with fresh wall-clock `now` (not the possibly-stale EventBri
 
 A bot must **never** run two live-trading tasks at once. Every launcher — the telebot "Run bot" (`StartBotUseCase`) and the Lambda auto-restart (`ReconcileStoppedTaskUseCase`) — claims an exclusive lock before `RunTask`. The lock is the `StartLockRepository` port (`src/domain/runtime.rs`): a `starting` row guarded by a DynamoDB **conditional write**. The authoritative gate is the atomic write, **not** the read — a strongly-consistent read alone cannot stop two concurrent claimers from both launching.
 
-`StartClaim` is the outcome of a claim attempt: `Acquired` (the caller won and must launch exactly one task), `AlreadyRunning` (a task is already running, nothing to launch), or `AlreadyStarting` (another launch is already in flight). The four lock operations:
+`StartClaim` is the outcome of a claim attempt: `Acquired` (the caller won and must launch exactly one task), `AlreadyRunning` (a task is already running, nothing to launch), `AlreadyStarting` (another launch is already in flight), or `AlreadyStopping` (a fresh `stopping` row is held — the task is still winding down, so the caller must wait and retry). The four lock operations:
 
-- **`try_acquire_start(user_id, bot_id, now, stale_after)`** — the cold-start claim. Atomically transitions the row to `starting`, succeeding only when it is safe to launch: the row is absent/stopped, or holds a `starting` lock older than `stale_after` seconds (an abandoned launch). Concurrent callers are serialized per row, so at most one receives `Acquired`. `StartBotUseCase` uses `START_LOCK_STALE_AFTER_SECS = 600` (deliberately longer than any real task-start latency).
+- **`try_acquire_start(user_id, bot_id, now, stale_after)`** — the cold-start claim. Atomically transitions the row to `starting`, succeeding only when it is safe to launch: the row is absent/stopped, or holds a `starting`/`stopping` state older than `stale_after` seconds (an abandoned launch, or a `stopping` whose STOPPED event was dropped). A **fresh** `stopping` returns `AlreadyStopping` (refused, retry later); a **stale** `stopping` is reclaimable only after the same ECS-liveness check as a stale `starting` (below), so a still-live winding-down task is never double-launched. Concurrent callers are serialized per row, so at most one receives `Acquired`. `StartBotUseCase` uses `START_LOCK_STALE_AFTER_SECS = 600` (deliberately longer than any real task-start latency).
 - **`try_acquire_restart(user_id, bot_id, stopped_task_id, now)`** — the Lambda's restart claim. Transitions to `starting` **only** while `stopped_task_id` is still the row's current `task_id`, bumping the restart counter. This is the idempotency gate: duplicate STOPPED events for the same task find the id already cleared and are rejected, so a stopped task is replaced at most once.
 - **`attach_started_task(user_id, bot_id, task_id)`** — records the launched `task_id` on the held `starting` lock so a stop issued before the RUNNING event can still find the task. A no-op if the row already advanced past `starting`.
 - **`release_start(user_id, bot_id, now)`** — releases a held `starting` lock back to `stopped` after a failed launch. A no-op if the row already advanced past `starting`.
@@ -160,9 +161,9 @@ After winning the lock the launcher calls `attach_started_task` on success or `r
 
 ### Stale-lock reclaim and liveness
 
-Before reclaiming a stale `starting` lock that still carries a `task_id`, `StartBotUseCase` confirms via ECS `DescribeTasks` (`TaskController::liveness`, returning `TaskLiveness::Alive` / `TaskLiveness::Gone`) that the task is actually gone. A live task whose RUNNING event was lost is therefore never double-launched: if liveness reports `Alive`, the start returns `AlreadyRunning` without claiming the lock or launching. The residual time-based reclaim applies only when no `task_id` was ever recorded (a crash before it could be attached) — there is no id to verify, so the time window is the accepted edge.
+Before reclaiming a stale `starting` **or** `stopping` lock that still carries a `task_id`, `StartBotUseCase` confirms via ECS `DescribeTasks` (`TaskController::liveness`, returning `TaskLiveness::Alive` / `TaskLiveness::Gone`) that the task is actually gone. A live task whose RUNNING/STOPPED event was lost is therefore never double-launched: if liveness reports `Alive`, the start returns `AlreadyRunning` without claiming the lock or launching. The residual time-based reclaim applies only when no `task_id` was ever recorded (a crash before it could be attached) — there is no id to verify, so the time window is the accepted edge.
 
-`StartBotUseCase::execute` is ordered: flip desired state ON and save first (so intent survives a launch failure and auto-restart keys off it), then run the liveness guard, then `try_acquire_start`, then launch and `attach_started_task` (or `release_start` on failure). It returns `Started { task_id }`, `AlreadyRunning`, `AlreadyStarting`, or `BotNotFound`.
+`StartBotUseCase::execute` is ordered: flip desired state ON and save first (so intent survives a launch failure and auto-restart keys off it), then run the liveness guard, then `try_acquire_start`, then launch and `attach_started_task` (or `release_start` on failure). It returns `Started { task_id }`, `AlreadyRunning`, `AlreadyStarting`, `Stopping` (the previous task is still winding down — retry shortly), or `BotNotFound`.
 
 `StopBotUseCase::execute` flips desired state OFF first — so the STOPPED event from its own `StopTask` (which ECS stamps `UserInitiated`) is reconciled as user-initiated and never auto-restarted — then locates the task by the `task_id` on the runtime row (read strongly-consistently so a just-started task is seen) and issues `StopTask`. It returns `Stopped { task_id }`, `NotRunning`, `StartInProgress` (a launch is mid-flight and its id is not recorded yet; a retry once RUNNING lands will stop it), or `BotNotFound`.
 
@@ -173,7 +174,7 @@ Before reclaiming a stale `starting` lock that still carries a `task_id`, `Start
 Core business entities and repository interfaces, with no external dependencies:
 
 - `Bot` — trading bot aggregate root with metadata. `Bot.enabled` is the **desired state** (user intent), toggled via `enable` / `disable`.
-- `BotRuntime` (`runtime.rs`) — the **observed state** aggregate (`RuntimePhase::{Starting, Running, Stopped}`, `task_id`, `version`, `observed_at`). Kept separate from desired state.
+- `BotRuntime` (`runtime.rs`) — the **observed state** aggregate (`RuntimePhase::{Starting, Running, Stopping, Stopped}`, `task_id`, `version`, `observed_at`). Kept separate from desired state.
 - `BotConfig` — user-specific bot configuration. Owns its business rules: `apply_risk_level` sets the risk and derives leverage (`= max(long, short) + 1`) atomically; `from_template` / `set_live_user` bind the `live.user` field.
 - `ConfigTemplate` — reusable configuration templates.
 - `Exchange` — supported exchanges (currently Bybit).

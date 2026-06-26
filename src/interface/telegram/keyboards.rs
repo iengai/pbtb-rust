@@ -47,16 +47,22 @@ pub(crate) fn strategy_sides_keyboard(
     ])
 }
 
-/// Create inline keyboard for bot list
-/// Each bot is shown as a button with callback data containing bot_id
-pub(crate) fn bot_list_keyboard(bots: &[crate::domain::bot::Bot]) -> InlineKeyboardMarkup {
+/// Create inline keyboard for bot list. Each button leads with the bot's OBSERVED
+/// run-state glyph (not desired) so a fresh ▶️ Running reads differently from a
+/// 🛑 Stopping or ⏹️ Stopped one.
+pub(crate) fn bot_list_keyboard(
+    bots: &[(
+        crate::domain::bot::Bot,
+        Option<crate::domain::runtime::RuntimePhase>,
+    )],
+) -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    for bot in bots {
-        let status = if bot.enabled { "✅" } else { "⏸️" };
+    for (bot, phase) in bots {
+        let glyph = super::views::runtime_phase_glyph(phase.as_ref());
         let button_text = format!(
             "{} {} | {} | {}",
-            status,
+            glyph,
             bot.exchange.as_str().to_uppercase(),
             bot.name,
             bot.id

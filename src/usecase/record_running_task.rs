@@ -43,8 +43,13 @@ impl RecordRunningTaskUseCase {
         // always precedes STOPPED for a task, so a same-second RUNNING is the
         // reordered/stale one. The repository enforces the same rule atomically.
         if let Some(prev) = &existing {
+            // At an equal second a recorded terminal/Stopping phase wins the tie:
+            // RUNNING always precedes STOPPING/STOPPED for a task, so a same-second
+            // RUNNING is the reordered/stale one and must not resurrect a task that
+            // is on its way down.
             let stale = prev.observed_at > observed_at
-                || (prev.observed_at == observed_at && prev.phase == RuntimePhase::Stopped);
+                || (prev.observed_at == observed_at
+                    && matches!(prev.phase, RuntimePhase::Stopped | RuntimePhase::Stopping));
             if stale {
                 return Ok(RecordRunningOutcome::SkippedStale);
             }
@@ -168,6 +173,30 @@ mod tests {
             RuntimePhase::Stopped,
             "stale running must not flip it back to running"
         );
+    }
+
+    #[tokio::test]
+    async fn skips_running_at_same_second_as_recorded_stopping() {
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        // A user Stop stamped Stopping at t=2000.
+        runtimes
+            .record(&BotRuntime::stopping(
+                "u".into(),
+                "b".into(),
+                "task-down".into(),
+                3,
+                2000,
+            ))
+            .await
+            .unwrap();
+        let uc = RecordRunningTaskUseCase::new(runtimes.clone());
+
+        // A reordered RUNNING on the same second must not flip a stopping task back.
+        let outcome = uc.execute("u", "b", "task-tie", 2000).await.unwrap();
+        assert_eq!(outcome, RecordRunningOutcome::SkippedStale);
+
+        let rt = runtimes.find("u", "b").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopping);
     }
 
     #[tokio::test]

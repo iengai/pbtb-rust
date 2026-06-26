@@ -83,12 +83,8 @@ async fn handle_start_state(
                 let desired_text = if bot_enabled { "🟢 Enabled" } else { "🔴 Disabled" };
 
                 // Actual state (observed task) from the runtime record.
-                let actual_text = match runtime.as_ref().map(|r| &r.phase) {
-                    Some(crate::domain::RuntimePhase::Starting) => "⏳ Starting",
-                    Some(crate::domain::RuntimePhase::Running) => "▶️ Running",
-                    Some(crate::domain::RuntimePhase::Stopped) => "⏹️ Stopped",
-                    None => "❔ Unknown",
-                };
+                let actual_text =
+                    super::views::format_runtime_phase(runtime.as_ref().map(|r| &r.phase));
 
                 // Get bot config
                 match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
@@ -349,6 +345,13 @@ async fn handle_start_state(
                             )
                                 .await?;
                         }
+                        Ok(StartOutcome::Stopping) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("🛑 Bot {} is still stopping — wait a few seconds, then tap Run again.", bot_id)
+                            )
+                                .await?;
+                        }
                         Ok(StartOutcome::BotNotFound) => {
                             bot.send_message(msg.chat.id, format!("❌ Bot {} not found.", bot_id))
                                 .await?;
@@ -379,7 +382,7 @@ async fn handle_start_state(
                         Ok(StopOutcome::Stopped { .. }) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!("⏹️ Bot {} is stopping.", bot_id)
+                                format!("🛑 Bot {} is stopping.", bot_id)
                             )
                                 .await?;
                         }
@@ -398,6 +401,13 @@ async fn handle_start_state(
                                     Tap Stop again in a few seconds.",
                                     bot_id
                                 )
+                            )
+                                .await?;
+                        }
+                        Ok(StopOutcome::AlreadyStopping) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("🛑 Bot {} is already stopping.", bot_id)
                             )
                                 .await?;
                         }
@@ -527,8 +537,9 @@ async fn handle_start_state(
                                 "📋 Select a bot:\n\n(No bot selected)".to_string()
                             };
 
+                            let augmented = super::bots_with_phase(&deps, &user_id, bots).await;
                             bot.send_message(msg.chat.id, header)
-                                .reply_markup(super::keyboards::bot_list_keyboard(&bots))
+                                .reply_markup(super::keyboards::bot_list_keyboard(&augmented))
                                 .await?;
                         }
                     }

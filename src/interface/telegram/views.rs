@@ -1,8 +1,32 @@
 // Rust
 use crate::domain::botconfig::StrategyRef;
+use crate::domain::runtime::RuntimePhase;
 
 pub fn welcome_text() -> String {
     "Welcome! Use the menu below to get started.".to_owned()
+}
+
+/// Render the OBSERVED run state (not desired) with an icon + label. `None` means
+/// no runtime record yet. Single source of truth so every view stays consistent.
+pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
+    match phase {
+        Some(RuntimePhase::Starting) => "⏳ Starting",
+        Some(RuntimePhase::Running) => "▶️ Running",
+        Some(RuntimePhase::Stopping) => "🛑 Stopping",
+        Some(RuntimePhase::Stopped) => "⏹️ Stopped",
+        None => "❔ Unknown",
+    }
+}
+
+/// Compact observed-state glyph for list buttons.
+pub fn runtime_phase_glyph(phase: Option<&RuntimePhase>) -> &'static str {
+    match phase {
+        Some(RuntimePhase::Starting) => "⏳",
+        Some(RuntimePhase::Running) => "▶️",
+        Some(RuntimePhase::Stopping) => "🛑",
+        Some(RuntimePhase::Stopped) => "⏹️",
+        None => "❔",
+    }
 }
 
 /// Render the strategies involved in a config for display. Groups sides by
