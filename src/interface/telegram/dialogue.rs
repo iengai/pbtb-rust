@@ -87,7 +87,7 @@ async fn handle_start_state(
                     Some(crate::domain::RuntimePhase::Starting) => "⏳ Starting",
                     Some(crate::domain::RuntimePhase::Running) => "▶️ Running",
                     Some(crate::domain::RuntimePhase::Stopped) => "⏹️ Stopped",
-                    None => "❔ Unknown (no task record)",
+                    None => "❔ Unknown",
                 };
 
                 // Get bot config
@@ -328,20 +328,17 @@ async fn handle_start_state(
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.start_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StartOutcome::Started { task_id }) => {
+                        Ok(StartOutcome::Started { .. }) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!(
-                                    "▶️ Bot {} starting — launched ECS task {} (desired=on).",
-                                    bot_id, task_id
-                                )
+                                format!("▶️ Bot {} is starting up.", bot_id)
                             )
                                 .await?;
                         }
                         Ok(StartOutcome::AlreadyRunning) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!("▶️ Bot {} is already running (desired=on).", bot_id)
+                                format!("▶️ Bot {} is already running.", bot_id)
                             )
                                 .await?;
                         }
@@ -379,20 +376,17 @@ async fn handle_start_state(
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.stop_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StopOutcome::Stopped { task_id }) => {
+                        Ok(StopOutcome::Stopped { .. }) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!(
-                                    "⏹️ Bot {} stopping — stopped ECS task {} (desired=off).",
-                                    bot_id, task_id
-                                )
+                                format!("⏹️ Bot {} is stopping.", bot_id)
                             )
                                 .await?;
                         }
                         Ok(StopOutcome::NotRunning) => {
                             bot.send_message(
                                 msg.chat.id,
-                                format!("⏹️ Bot {} disabled (desired=off). It was not running.", bot_id)
+                                format!("⏹️ Bot {} turned off. It wasn't running.", bot_id)
                             )
                                 .await?;
                         }
@@ -400,8 +394,8 @@ async fn handle_start_state(
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "⏳ Bot {} set to off, but a start is still in progress. \
-                                    Tap Stop again in a few seconds to stop the task.",
+                                    "⏳ Bot {} turned off, but it's still starting up. \
+                                    Tap Stop again in a few seconds.",
                                     bot_id
                                 )
                             )
@@ -454,8 +448,8 @@ async fn handle_start_state(
                                 🤖 Bot: {}\n\
                                 📋 Strategy: {}\n\n\
                                 Tap a side to turn it on/off.\n\
-                                Off uses passivbot graceful_stop (no new entries, \
-                                existing positions closed gracefully).\n\
+                                Off stops opening new positions and closes \
+                                existing ones gradually.\n\
                                 ⚠️ Applies on the next 'Run bot'.",
                                 bot_id, strategy_info
                             ),
