@@ -152,7 +152,8 @@ async fn handle_bot_selection(
                 format!("🤖 Bot ID: {}", bot_id)
             };
 
-            // Confirm to user
+            // Confirm to user, re-attaching the menu keyboard so the command
+            // buttons are available right after picking a bot from the inline list.
             if let Some(Message { chat, .. }) = q.message {
                 bot.send_message(
                     chat.id,
@@ -161,6 +162,7 @@ async fn handle_bot_selection(
                         details
                     ),
                 )
+                .reply_markup(super::keyboards::main_menu_keyboard())
                 .await?;
             }
         }
