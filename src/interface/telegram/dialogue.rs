@@ -170,6 +170,7 @@ async fn handle_start_state(
                         );
 
                         bot.send_message(msg.chat.id, status_message)
+                            .reply_markup(super::keyboards::main_menu_keyboard())
                             .await?;
                     }
                     Err(_) => {
@@ -193,12 +194,14 @@ async fn handle_start_state(
                                 actual_text
                             )
                         )
+                            .reply_markup(super::keyboards::main_menu_keyboard())
                             .await?;
                     }
                 }
             }
             "Balance" => {
                 bot.send_message(msg.chat.id, "💰 Balance: $0.00")
+                    .reply_markup(super::keyboards::main_menu_keyboard())
                     .await?;
             }
             "Add bot" => {
@@ -318,115 +321,56 @@ async fn handle_start_state(
                 let ctx = bot_context.get().await?
                     .unwrap_or_default();
 
-                if let Some(ref bot_id) = ctx.selected_bot_id {
+                let text = if let Some(ref bot_id) = ctx.selected_bot_id {
                     let user_id = msg.from()
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.start_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StartOutcome::Started { .. }) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("▶️ Bot {} is starting up.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StartOutcome::AlreadyRunning) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("▶️ Bot {} is already running.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StartOutcome::AlreadyStarting) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("⏳ Bot {} is already starting — give it a few seconds.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StartOutcome::Stopping) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("🛑 Bot {} is still stopping — wait a few seconds, then tap Run again.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StartOutcome::BotNotFound) => {
-                            bot.send_message(msg.chat.id, format!("❌ Bot {} not found.", bot_id))
-                                .await?;
-                        }
-                        Err(e) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Failed to start bot {}:\n\n{}", bot_id, e)
-                            )
-                                .await?;
-                        }
+                        Ok(StartOutcome::Started { .. }) => format!("▶️ Bot {} is starting up.", bot_id),
+                        Ok(StartOutcome::AlreadyRunning) => format!("▶️ Bot {} is already running.", bot_id),
+                        Ok(StartOutcome::AlreadyStarting) => format!("⏳ Bot {} is already starting — give it a few seconds.", bot_id),
+                        Ok(StartOutcome::Stopping) => format!("🛑 Bot {} is still stopping — wait a few seconds, then tap Run again.", bot_id),
+                        Ok(StartOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
+                        Err(e) => format!("❌ Failed to start bot {}:\n\n{}", bot_id, e),
                     }
                 } else {
-                    bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
-                        .await?;
-                }
+                    "❌ Please select a bot first using 'List'".to_string()
+                };
+
+                // Re-attach the menu keyboard so the command buttons stay available.
+                bot.send_message(msg.chat.id, text)
+                    .reply_markup(super::keyboards::main_menu_keyboard())
+                    .await?;
             }
             "Stop bot" => {
                 let ctx = bot_context.get().await?
                     .unwrap_or_default();
 
-                if let Some(ref bot_id) = ctx.selected_bot_id {
+                let text = if let Some(ref bot_id) = ctx.selected_bot_id {
                     let user_id = msg.from()
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.stop_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StopOutcome::Stopped { .. }) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("🛑 Bot {} is stopping.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StopOutcome::NotRunning) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("⏹️ Bot {} turned off. It wasn't running.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StopOutcome::StartInProgress) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!(
-                                    "⏳ Bot {} turned off, but it's still starting up. \
-                                    Tap Stop again in a few seconds.",
-                                    bot_id
-                                )
-                            )
-                                .await?;
-                        }
-                        Ok(StopOutcome::AlreadyStopping) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("🛑 Bot {} is already stopping.", bot_id)
-                            )
-                                .await?;
-                        }
-                        Ok(StopOutcome::BotNotFound) => {
-                            bot.send_message(msg.chat.id, format!("❌ Bot {} not found.", bot_id))
-                                .await?;
-                        }
-                        Err(e) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Failed to stop bot {}:\n\n{}", bot_id, e)
-                            )
-                                .await?;
-                        }
+                        Ok(StopOutcome::Stopped { .. }) => format!("🛑 Bot {} is stopping.", bot_id),
+                        Ok(StopOutcome::NotRunning) => format!("⏹️ Bot {} turned off. It wasn't running.", bot_id),
+                        Ok(StopOutcome::StartInProgress) => format!(
+                            "⏳ Bot {} turned off, but it's still starting up. \
+                            Tap Stop again in a few seconds.",
+                            bot_id
+                        ),
+                        Ok(StopOutcome::AlreadyStopping) => format!("🛑 Bot {} is already stopping.", bot_id),
+                        Ok(StopOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
+                        Err(e) => format!("❌ Failed to stop bot {}:\n\n{}", bot_id, e),
                     }
                 } else {
-                    bot.send_message(msg.chat.id, "❌ Please select a bot first using 'List'")
-                        .await?;
-                }
+                    "❌ Please select a bot first using 'List'".to_string()
+                };
+
+                bot.send_message(msg.chat.id, text)
+                    .reply_markup(super::keyboards::main_menu_keyboard())
+                    .await?;
             }
             "Sides" => {
                 let ctx = bot_context.get().await?.unwrap_or_default();
@@ -482,6 +426,7 @@ async fn handle_start_state(
             }
             "Unstuck" => {
                 bot.send_message(msg.chat.id, "🔧 Unstuck operation... (Feature coming soon)")
+                    .reply_markup(super::keyboards::main_menu_keyboard())
                     .await?;
             }
             "Delete API key" => {
