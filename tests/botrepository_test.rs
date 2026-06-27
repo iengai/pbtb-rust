@@ -48,7 +48,7 @@ fn local_client(port: u16) -> Client {
 /// Create the single-table schema: pk (HASH, S) + sk (RANGE, S), PAY_PER_REQUEST.
 /// Waits until the table reports ACTIVE.
 async fn create_table(client: &Client) -> Result<(), String> {
-    client
+    if let Err(e) = client
         .create_table()
         .table_name(TABLE_NAME)
         .billing_mode(BillingMode::PayPerRequest)
@@ -82,7 +82,16 @@ async fn create_table(client: &Client) -> Result<(), String> {
         )
         .send()
         .await
-        .map_err(|e| format!("create_table failed: {e}"))?;
+    {
+        // A prior attempt in the retry loop may have already created the table;
+        // treat that as success and fall through to the ACTIVE poll. Any other
+        // error (incl. the dispatch failure while the listener is still coming
+        // up) propagates so the caller can retry.
+        let msg = format!("{e:?}");
+        if !msg.contains("ResourceInUseException") {
+            return Err(format!("create_table failed: {e}"));
+        }
+    }
 
     // Poll until ACTIVE.
     for _ in 0..30 {
@@ -131,12 +140,21 @@ async fn start_dynamodb() -> Option<(ContainerAsync<GenericImage>, Client)> {
 
     let client = local_client(port);
 
-    if let Err(e) = create_table(&client).await {
-        println!("Skipping DynamoDB integration tests: table setup failed ({e}).");
-        return None;
+    // DynamoDB Local prints its startup banner (the wait-for message) before its
+    // TCP listener is actually accepting connections, so the first request can
+    // fail with a dispatch error. Retry table setup briefly before giving up.
+    let mut last_err = String::new();
+    for _ in 0..30 {
+        match create_table(&client).await {
+            Ok(()) => return Some((container, client)),
+            Err(e) => {
+                last_err = e;
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            }
+        }
     }
-
-    Some((container, client))
+    println!("Skipping DynamoDB integration tests: table setup failed ({last_err}).");
+    None
 }
 
 #[tokio::test]
