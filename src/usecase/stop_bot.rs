@@ -1,7 +1,7 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
-use crate::usecase::stop_task::TaskController;
+use crate::usecase::stop_task::{TaskController, TaskLiveness};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -73,28 +73,62 @@ impl StopBotUseCase {
                 let version = rt.version;
                 match rt.task_id {
                     Some(task_id) => {
-                        self.stopper
+                        match self
+                            .stopper
                             .stop(&self.cluster_arn, &task_id, "stopped by user via telebot")
                             .await
-                            .map_err(|e| e.to_string())?;
-                        // Stamp observed Stopping so the UI shows the wind-down and
-                        // a racing Run sees `stopping` rather than a stale `running`.
-                        // Best-effort: a failed stamp must not fail the stop — the
-                        // Lambda's STOPPED event still settles the row.
-                        if let Err(e) = self
-                            .runtimes
-                            .record(&BotRuntime::stopping(
-                                user_id.to_string(),
-                                bot_id.to_string(),
-                                task_id.clone(),
-                                version,
-                                now,
-                            ))
-                            .await
                         {
-                            tracing::warn!("failed to record stopping phase for bot {bot_id}: {e}");
+                            Ok(()) => {
+                                // Stamp observed Stopping so the UI shows the wind-down
+                                // and a racing Run sees `stopping` rather than a stale
+                                // `running`. Best-effort: a failed stamp must not fail
+                                // the stop — the Lambda's STOPPED event still settles it.
+                                if let Err(e) = self
+                                    .runtimes
+                                    .record(&BotRuntime::stopping(
+                                        user_id.to_string(),
+                                        bot_id.to_string(),
+                                        task_id.clone(),
+                                        version,
+                                        now,
+                                    ))
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        "failed to record stopping phase for bot {bot_id}: {e}"
+                                    );
+                                }
+                                Ok(StopOutcome::Stopped { task_id })
+                            }
+                            // StopTask failed. If ECS confirms the task is already
+                            // gone, the runtime row was stale (a missed STOPPED event)
+                            // — reconcile observed to Stopped and report success rather
+                            // than a hard error. Only a stop failure on a task that is
+                            // still Alive (or whose liveness can't be confirmed) is a
+                            // real error worth surfacing.
+                            Err(stop_err) => {
+                                match self.stopper.liveness(&self.cluster_arn, &task_id).await {
+                                    Ok(TaskLiveness::Gone) => {
+                                        if let Err(e) = self
+                                            .runtimes
+                                            .record(&BotRuntime::stopped(
+                                                user_id.to_string(),
+                                                bot_id.to_string(),
+                                                version,
+                                                now,
+                                            ))
+                                            .await
+                                        {
+                                            tracing::warn!(
+                                                "failed to reconcile stopped for gone task, bot {bot_id}: {e}"
+                                            );
+                                        }
+                                        Ok(StopOutcome::NotRunning)
+                                    }
+                                    _ => Err(stop_err.to_string()),
+                                }
+                            }
                         }
-                        Ok(StopOutcome::Stopped { task_id })
                     }
                     None => Ok(StopOutcome::StartInProgress),
                 }
@@ -213,19 +247,22 @@ mod tests {
     #[derive(Default)]
     struct MockStopper {
         stopped: Mutex<Vec<String>>,
+        /// When true, `stop` returns an error (simulating an ECS StopTask failure).
+        fail_stop: bool,
+        /// Liveness answer; defaults to `Gone` to match the common case.
+        liveness: Option<TaskLiveness>,
     }
     #[async_trait]
     impl TaskController for MockStopper {
         async fn stop(&self, _cluster_arn: &str, task_id: &str, _reason: &str) -> Result<()> {
+            if self.fail_stop {
+                return Err(anyhow::anyhow!("ecs stop_task failed"));
+            }
             self.stopped.lock().unwrap().push(task_id.to_string());
             Ok(())
         }
-        async fn liveness(
-            &self,
-            _cluster_arn: &str,
-            _task_id: &str,
-        ) -> Result<crate::usecase::stop_task::TaskLiveness> {
-            Ok(crate::usecase::stop_task::TaskLiveness::Gone)
+        async fn liveness(&self, _cluster_arn: &str, _task_id: &str) -> Result<TaskLiveness> {
+            Ok(self.liveness.unwrap_or(TaskLiveness::Gone))
         }
     }
 
@@ -427,6 +464,73 @@ mod tests {
         assert!(
             stopper.stopped.lock().unwrap().is_empty(),
             "no second StopTask for an already-stopping bot"
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_on_a_gone_task_reconciles_to_stopped_instead_of_erroring() {
+        // Runtime row is stale: it claims Running with a task ECS no longer has
+        // (a missed STOPPED event). StopTask fails, liveness reports Gone.
+        let bots = Arc::new(InMemoryBots::with(bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::with(BotRuntime::running(
+            "user-1".to_string(),
+            "bot-1".to_string(),
+            "ghost-task".to_string(),
+            2,
+            1_699_999_000,
+        )));
+        let stopper = Arc::new(MockStopper {
+            fail_stop: true,
+            liveness: Some(TaskLiveness::Gone),
+            ..Default::default()
+        });
+        let uc = use_case(bots.clone(), runtimes.clone(), stopper);
+
+        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        assert_eq!(
+            out,
+            StopOutcome::NotRunning,
+            "a gone task self-heals to stopped rather than surfacing an error"
+        );
+        assert!(
+            !bots.get("user-1", "bot-1").unwrap().enabled,
+            "desired still off"
+        );
+        let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopped);
+        assert_eq!(rt.task_id, None);
+    }
+
+    #[tokio::test]
+    async fn stop_failure_on_a_still_live_task_surfaces_the_error() {
+        // StopTask fails but ECS says the task is still Alive — this is a real
+        // error (e.g. transient/permissions), not a stale row, so do not pretend
+        // it stopped.
+        let bots = Arc::new(InMemoryBots::with(bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::with(BotRuntime::running(
+            "user-1".to_string(),
+            "bot-1".to_string(),
+            "live-task".to_string(),
+            2,
+            1_699_999_000,
+        )));
+        let stopper = Arc::new(MockStopper {
+            fail_stop: true,
+            liveness: Some(TaskLiveness::Alive),
+            ..Default::default()
+        });
+        let uc = use_case(bots, runtimes.clone(), stopper);
+
+        let err = uc.execute("user-1", "bot-1").await.unwrap_err();
+        assert!(
+            !err.is_empty(),
+            "a live task whose stop failed is a real error"
+        );
+        let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+        assert_eq!(
+            rt.phase,
+            RuntimePhase::Running,
+            "observed state is not falsely reconciled when the task is still alive"
         );
     }
 }
