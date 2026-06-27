@@ -305,15 +305,15 @@ impl BotRuntimeRepository for DynamoBotRepository {
         //   - at an equal second a STOPPED wins the tie (terminal state), so a
         //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
         //     always precedes STOPPED for a task, so it is the reordered/stale one).
+        // `:observed_at` is added per-arm (only the timestamp-ordered arms use it);
+        // DynamoDB rejects a request whose ExpressionAttributeValues are not all
+        // referenced, so the identity-guarded Stopping arm must NOT define it.
+        let observed_at = AttributeValue::N(runtime.observed_at.to_string());
         let put = self
             .client
             .put_item()
             .table_name(&self.table_name)
-            .set_item(Some(metadata.to_item()))
-            .expression_attribute_values(
-                ":observed_at",
-                AttributeValue::N(runtime.observed_at.to_string()),
-            );
+            .set_item(Some(metadata.to_item()));
 
         let put = match runtime.phase {
             // A terminal STOPPED always settles the row, INCLUDING a `stopping`
@@ -325,6 +325,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             RuntimePhase::Stopped => put
                 .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at OR #st = :stopping")
                 .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":observed_at", observed_at)
                 .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
             // A same-second RUNNING must not resurrect a terminal Stopped NOR a
             // just-written Stopping (the task is on its way down), so the tie-break
@@ -332,6 +333,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             RuntimePhase::Running => put
                 .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at OR (task_updated_at = :observed_at AND #st <> :stopped AND #st <> :stopping)")
                 .expression_attribute_names("#st", "status")
+                .expression_attribute_values(":observed_at", observed_at)
                 .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
                 .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
             // Stopping is stamped synchronously by StopBot the instant StopTask is
@@ -341,7 +343,8 @@ impl BotRuntimeRepository for DynamoBotRepository {
             // generation — e.g. a restart lock a concurrent reconcile just claimed
             // (which clears task_id and bumps the version) — or the relaunched
             // task's id would be silently orphaned, breaking the runtime-row mirror
-            // the no-double-run invariant depends on.
+            // the no-double-run invariant depends on. This arm is purely identity-
+            // ordered, so it does NOT reference :observed_at.
             RuntimePhase::Stopping => put
                 .condition_expression("(#st = :running OR #st = :starting) AND task_id = :expected_task")
                 .expression_attribute_names("#st", "status")
@@ -353,7 +356,8 @@ impl BotRuntimeRepository for DynamoBotRepository {
             // and conservative: a transient `starting` may only win if strictly
             // newer, so it never overwrites a same-second running/stopped.
             RuntimePhase::Starting => put
-                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at"),
+                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at < :observed_at")
+                .expression_attribute_values(":observed_at", observed_at),
         };
 
         match put.send().await {
