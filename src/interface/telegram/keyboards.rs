@@ -48,8 +48,8 @@ pub(crate) fn strategy_sides_keyboard(
 }
 
 /// Create inline keyboard for bot list. Each button leads with the bot's OBSERVED
-/// run-state glyph (not desired) so a fresh ▶️ Running reads differently from a
-/// 🛑 Stopping or ⏹️ Stopped one.
+/// run-state glyph (not desired) so a fresh ✅ Running reads differently from a
+/// 🛑 Stopping or ⏸️ Stopped one.
 pub(crate) fn bot_list_keyboard(
     bots: &[(
         crate::domain::bot::Bot,
@@ -76,6 +76,15 @@ pub(crate) fn bot_list_keyboard(
     }
 
     InlineKeyboardMarkup::new(keyboard)
+}
+
+/// Inline keyboard for the apply-config confirmation modal: Confirm applies the
+/// previewed template (`confirm_template:<name>`); Cancel aborts.
+pub(crate) fn template_confirm_keyboard(template_name: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback("✅ Confirm", format!("confirm_template:{}", template_name)),
+        InlineKeyboardButton::callback("❌ Cancel", "cancel_template_selection"),
+    ]])
 }
 
 /// Create inline keyboard for template list

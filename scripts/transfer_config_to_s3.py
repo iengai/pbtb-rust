@@ -3,8 +3,8 @@
 
 A raw passivbot optimizer/strategy config (e.g. the files under
 `E:/projects/passivbot/configs`) is almost ready to use as one of our
-predefined strategies. The ONLY thing our platform adds on top of the stock
-passivbot schema are two top-level marker properties:
+predefined strategies. The ONLY things our platform adds on top of the stock
+passivbot schema are these top-level marker properties:
 
   * `strategy_name` (string) — the strategy's stem, shown in the Telegram State
     view and used to attribute a bot's strategy.
@@ -13,6 +13,8 @@ passivbot schema are two top-level marker properties:
     `long` and `short`. A combined bot ends up with one entry per side, possibly
     from different strategies, but a single predefined file only describes its
     own strategy.
+  * `description` (string, optional) — a free-text strategy explanation, shown
+    in the Telegram State view. Only written when --description is given.
 
 Everything else (`bot`, `live`, `approved_coins`, `forced_mode_*`, leverage,
 `coin_overrides`, ...) is left exactly as passivbot produced it. Per-bot tweaks
@@ -29,6 +31,9 @@ Usage:
   # Single-direction strategy:
   python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
 
+  # With a strategy explanation:
+  python scripts/transfer_config_to_s3.py --config <raw.json> --description "XRP grid, low leverage" --upload --profile dev
+
 The strategy name defaults to the input file's stem; override with --name.
 """
 
@@ -44,8 +49,8 @@ DEFAULT_PREFIX = "predefined/"
 VALID_SIDES = ("long", "short")
 
 
-def transform(raw: dict, name: str, sides: list[str]) -> dict:
-    """Return a copy of `raw` with our two marker properties injected.
+def transform(raw: dict, name: str, sides: list[str], description: str | None = None) -> dict:
+    """Return a copy of `raw` with our marker properties injected.
 
     Pure function — this is the documented transfer contract. It does not mutate
     the input and touches nothing else in the config.
@@ -61,6 +66,8 @@ def transform(raw: dict, name: str, sides: list[str]) -> dict:
     out = dict(raw)
     out["strategy_name"] = name
     out["strategies"] = [{"name": name, "side": side} for side in sides]
+    if description:
+        out["description"] = description
     return out
 
 
@@ -72,6 +79,8 @@ def main() -> int:
                         help="strategy name (default: input file stem)")
     parser.add_argument("--sides", default="long,short",
                         help="comma-separated sides this strategy drives (default: long,short)")
+    parser.add_argument("--description", default=None,
+                        help="free-text strategy explanation, stored as top-level `description`")
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     parser.add_argument("--prefix", default=DEFAULT_PREFIX)
     parser.add_argument("--profile", default=None, help="AWS CLI profile for the upload")
@@ -88,7 +97,7 @@ def main() -> int:
         raw = json.load(fh)
 
     try:
-        result = transform(raw, name, sides)
+        result = transform(raw, name, sides, args.description)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -99,6 +108,7 @@ def main() -> int:
 
     print(f"strategy_name = {result['strategy_name']}")
     print(f"strategies    = {json.dumps(result['strategies'])}")
+    print(f"description   = {result.get('description', '—')}")
     print(f"target        = {target}")
 
     if args.out:

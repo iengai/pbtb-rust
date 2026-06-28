@@ -49,9 +49,15 @@ async fn handle_callback(
         return Ok(());
     }
 
-    // Check if this is a template selection callback
+    // Tapping a template name shows a confirmation modal (preview), not an apply.
     if data.starts_with("select_template:") {
         handle_template_selection(bot, q, dialogue, bot_context, deps).await?;
+        return Ok(());
+    }
+
+    // Confirming the modal is what actually applies the template.
+    if data.starts_with("confirm_template:") {
+        handle_confirm_template(bot, q, bot_context, deps).await?;
         return Ok(());
     }
 
@@ -171,7 +177,9 @@ async fn handle_bot_selection(
     Ok(())
 }
 
-/// Handle template selection callback
+/// Tapping a template name builds a non-saving preview of the resulting config
+/// and shows a confirmation modal (strategy, notes, wallet exposure, preset
+/// coins). The template is applied only once the user confirms.
 async fn handle_template_selection(
     bot: Bot,
     q: CallbackQuery,
@@ -179,69 +187,121 @@ async fn handle_template_selection(
     bot_context: MyBotContext,
     deps: Deps,
 ) -> anyhow::Result<()> {
-    if let Some(data) = &q.data {
-        if data.starts_with("select_template:") {
-            let template_name = data.strip_prefix("select_template:").unwrap_or("");
+    let template_name = match q
+        .data
+        .as_deref()
+        .and_then(|d| d.strip_prefix("select_template:"))
+    {
+        Some(name) => name.to_string(),
+        None => return Ok(()),
+    };
+    let user_id = q.from.id.to_string();
 
-            // Get user_id and bot_id from context
-            let user_id = q.from.id.to_string();
-
-            let ctx = bot_context.get().await?.unwrap_or_default();
-
-            let bot_id = match ctx.selected_bot_id {
-                Some(id) => id,
-                None => {
-                    bot.answer_callback_query(&q.id)
-                        .text("❌ No bot selected")
-                        .show_alert(true)
-                        .await?;
-                    return Ok(());
-                }
-            };
-
-            // Answer callback to remove loading state
+    let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
+        Some(id) => id,
+        None => {
             bot.answer_callback_query(&q.id)
-                .text("⏳ Applying template...")
+                .text("❌ No bot selected")
+                .show_alert(true)
                 .await?;
+            return Ok(());
+        }
+    };
 
-            // Apply template: copy to {user_id}/{bot_id}.json and override live.user
-            match deps
-                .apply_template_usecase
-                .execute(&user_id, &bot_id, template_name)
-                .await
-            {
-                Ok(_) => {
-                    // Success message
-                    if let Some(Message { chat, .. }) = q.message {
-                        bot.send_message(
-                            chat.id,
-                            format!(
-                                "✅ Configuration template applied successfully!\n\n\
-                                📄 Template: {}\n\
-                                🤖 Bot ID: {}\n\
-                                📁 Saved to: {}/{}.json\n\n\
-                                The configuration has been customized for this bot.",
-                                template_name, bot_id, user_id, bot_id
-                            ),
-                        )
-                        .await?;
-                    }
-                }
-                Err(e) => {
-                    // Error message
-                    if let Some(Message { chat, .. }) = q.message {
-                        bot.send_message(
-                            chat.id,
-                            format!(
-                                "❌ Failed to apply template\n\n\
-                                Error: {}\n\n\
-                                Please try again or contact support.",
-                                e
-                            ),
-                        )
-                        .await?;
-                    }
-                }
+    bot.answer_callback_query(&q.id).await?;
+
+    match deps
+        .apply_template_usecase
+        .preview(&user_id, &bot_id, &template_name)
+        .await
+    {
+        Ok(preview) => {
+            if let Some(Message { chat, .. }) = q.message {
+                bot.send_message(
+                    chat.id,
+                    super::views::format_template_confirm(&template_name, &preview),
+                )
+                .reply_markup(super::keyboards::template_confirm_keyboard(&template_name))
+                .await?;
+            }
+        }
+        Err(e) => {
+            if let Some(Message { chat, .. }) = q.message {
+                bot.send_message(chat.id, format!("❌ Failed to load config\n\nError: {}", e))
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Confirm-modal handler (`confirm_template:<name>`): actually applies the
+/// previewed template to {user_id}/{bot_id}/{bot_id}.json.
+async fn handle_confirm_template(
+    bot: Bot,
+    q: CallbackQuery,
+    bot_context: MyBotContext,
+    deps: Deps,
+) -> anyhow::Result<()> {
+    let template_name = match q
+        .data
+        .as_deref()
+        .and_then(|d| d.strip_prefix("confirm_template:"))
+    {
+        Some(name) => name.to_string(),
+        None => return Ok(()),
+    };
+    let user_id = q.from.id.to_string();
+
+    let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
+        Some(id) => id,
+        None => {
+            bot.answer_callback_query(&q.id)
+                .text("❌ No bot selected")
+                .show_alert(true)
+                .await?;
+            return Ok(());
+        }
+    };
+
+    bot.answer_callback_query(&q.id)
+        .text("⏳ Applying config...")
+        .await?;
+
+    match deps
+        .apply_template_usecase
+        .execute(&user_id, &bot_id, &template_name)
+        .await
+    {
+        Ok(_) => {
+            if let Some(Message { chat, .. }) = q.message {
+                bot.send_message(
+                    chat.id,
+                    format!(
+                        "✅ Configuration applied!\n\n\
+                        📄 Template: {}\n\
+                        🤖 Bot ID: {}\n\n\
+                        Use 'State' to review, then 'Run bot' to start.",
+                        template_name, bot_id
+                    ),
+                )
+                .reply_markup(super::keyboards::main_menu_keyboard())
+                .await?;
+            }
+        }
+        Err(e) => {
+            if let Some(Message { chat, .. }) = q.message {
+                bot.send_message(
+                    chat.id,
+                    format!(
+                        "❌ Failed to apply config\n\n\
+                        Error: {}\n\n\
+                        Please try again or contact support.",
+                        e
+                    ),
+                )
+                .await?;
             }
         }
     }

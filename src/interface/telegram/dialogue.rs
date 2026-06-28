@@ -97,6 +97,7 @@ async fn handle_start_state(
 
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
+                        let description_info = config.description().unwrap_or("—");
                         let sides_info = format!(
                             "Long {}, Short {}",
                             if config.side_enabled("long") { "🟢 on" } else { "🔴 off" },
@@ -145,6 +146,7 @@ async fn handle_start_state(
                             📋 Configuration:\n\
                                • Template: {}\n\
                                • Strategy: {}\n\
+                               • Description: {}\n\
                                • Sides: {}\n\
                             {}\n\n\
                             ⚠️ Risk Level:\n\
@@ -159,6 +161,7 @@ async fn handle_start_state(
                             actual_text,
                             template_name,
                             strategy_info,
+                            description_info,
                             sides_info,
                             config.template_version
                                 .as_ref()

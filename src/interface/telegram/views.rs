@@ -1,5 +1,5 @@
 // Rust
-use crate::domain::botconfig::StrategyRef;
+use crate::domain::botconfig::{BotConfig, StrategyRef};
 use crate::domain::runtime::RuntimePhase;
 
 pub fn welcome_text() -> String {
@@ -11,9 +11,9 @@ pub fn welcome_text() -> String {
 pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
     match phase {
         Some(RuntimePhase::Starting) => "⏳ Starting",
-        Some(RuntimePhase::Running) => "▶️ Running",
+        Some(RuntimePhase::Running) => "✅ Running",
         Some(RuntimePhase::Stopping) => "🛑 Stopping",
-        Some(RuntimePhase::Stopped) => "⏹️ Stopped",
+        Some(RuntimePhase::Stopped) => "⏸️ Stopped",
         None => "❔ Unknown",
     }
 }
@@ -22,9 +22,9 @@ pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
 pub fn runtime_phase_glyph(phase: Option<&RuntimePhase>) -> &'static str {
     match phase {
         Some(RuntimePhase::Starting) => "⏳",
-        Some(RuntimePhase::Running) => "▶️",
+        Some(RuntimePhase::Running) => "✅",
         Some(RuntimePhase::Stopping) => "🛑",
-        Some(RuntimePhase::Stopped) => "⏹️",
+        Some(RuntimePhase::Stopped) => "⏸️",
         None => "❔",
     }
 }
@@ -69,4 +69,46 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Render the confirmation modal for applying a config template: strategy +
+/// notes, the wallet-exposure (`total_wallet_exposure_limit`) per side — the
+/// number that actually governs leverage — and the preset coins per side.
+pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> String {
+    let strategies = format_strategies(&preview.strategies());
+    let description = preview.description().unwrap_or("—");
+
+    let exposure = match preview.risk_level() {
+        Ok(r) => format!("   • Long: {:.2}\n   • Short: {:.2}", r.long, r.short),
+        Err(_) => "   • Not configured".to_owned(),
+    };
+
+    let join_coins = |coins: &[String]| {
+        if coins.is_empty() {
+            "None".to_owned()
+        } else {
+            coins.join(", ")
+        }
+    };
+    let coins = match preview.coins() {
+        Ok(c) => format!(
+            "   • Long: {}\n   • Short: {}",
+            join_coins(&c.long),
+            join_coins(&c.short)
+        ),
+        Err(_) => "   • Not configured".to_owned(),
+    };
+
+    format!(
+        "📄 Apply this config?\n\n\
+        • Template: {}\n\
+        🤖 Strategy: {}\n\
+        📝 Description: {}\n\n\
+        ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
+        {}\n\n\
+        💰 Preset coins:\n\
+        {}\n\n\
+        Confirm to apply, or Cancel.",
+        template_name, strategies, description, exposure, coins
+    )
 }

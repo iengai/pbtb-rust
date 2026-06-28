@@ -309,6 +309,16 @@ impl BotConfig {
             .and_then(|v| v.as_str())
     }
 
+    /// Free-text strategy explanation, read from the top-level `description`
+    /// field. `None` when absent or blank.
+    pub fn description(&self) -> Option<&str> {
+        self.config_data
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
     /// All strategies involved in this config, parsed from the top-level
     /// `strategies` array (`[{name, side}]`). A combined bot lists one entry per
     /// side. Falls back to a single `long` entry derived from `strategy_name`
@@ -544,5 +554,17 @@ mod tests {
         };
         let config = BotConfig::from_template("u".into(), "bot-id".into(), &template, 10).unwrap();
         assert_eq!(config.config_data["live"]["user"].as_str(), Some("bot-id"));
+    }
+
+    #[test]
+    fn description_reads_trims_and_filters_blank() {
+        let mut config = sample_config(0);
+        assert_eq!(config.description(), None); // absent
+
+        config.config_data["description"] = json!("  XRP grid, low leverage  ");
+        assert_eq!(config.description(), Some("XRP grid, low leverage")); // trimmed
+
+        config.config_data["description"] = json!("   ");
+        assert_eq!(config.description(), None); // blank → None
     }
 }

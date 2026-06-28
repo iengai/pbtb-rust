@@ -10,7 +10,7 @@ Bucket: `scalable-cluster-dev-bot-configs`
 
 | Stage | S3 key | Who writes it | Custom properties touched |
 |-------|--------|---------------|---------------------------|
-| Predefined strategy | `predefined/<name>.json` | `scripts/transfer_config_to_s3.py` | `strategy_name`, `strategies` |
+| Predefined strategy | `predefined/<name>.json` | `scripts/transfer_config_to_s3.py` | `strategy_name`, `strategies`, `description` |
 | Per-bot config | `<user_id>/<bot_id>/<bot_id>.json` | telebot use cases | `live.user`, `live.forced_mode_<side>`, `bot.<side>.total_wallet_exposure_limit`, `live.leverage` |
 | API keys | `<user_id>/<bot_id>/api-keys.json` | provided per bot | — |
 
@@ -35,6 +35,10 @@ A raw passivbot optimizer/strategy config is already valid; the transfer adds
     { "name": "xrp-241201251009-r46x-lq", "side": "short" }
   ]
   ```
+
+- `description` (string, optional) — a free-text strategy explanation, shown in
+  the Telegram **State** view (`• Description:`). Written only when the transfer
+  is run with `--description`; absent configs show `—`.
 
 Verified by diffing `predefined/xrp-241201251009-r46x-lq.json` against the raw
 `configs/xrp-241201251009-r46x-lq.json`: the **only** difference is these two
