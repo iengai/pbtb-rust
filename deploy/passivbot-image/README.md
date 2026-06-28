@@ -47,7 +47,10 @@ version"): set `passivbot_image_tag` in `terraform.tfvars` → `terraform apply`
   privileged (for `docker build`), source = the S3 zip above. Env: `AWS_REGION`,
   `ECR_REGISTRY`, `ECR_REPO=passivbot-live`, `IMAGE_TAG` (overridden per build).
 - **IAM role** `pbtb-passivbot-image-builder`: ECR push to `passivbot-live`, read
-  the S3 source object, CloudWatch Logs.
+  the S3 source object, CloudWatch Logs, and `ecr-public:GetAuthorizationToken` +
+  `sts:GetServiceBearerToken` (the base image is pulled from ECR Public, not
+  Docker Hub, to dodge Docker Hub's anonymous 429 rate limit on the shared
+  CodeBuild egress IP).
 
 These are CLI-managed build infra (not in Terraform). To recreate, see the role
 trust/permission policy and `aws codebuild create-project` invocation in the

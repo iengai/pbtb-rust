@@ -10,7 +10,7 @@
 # pins the aarch64 bundle, so an amd64 build would ship the wrong CLI.
 
 # Stage 1: compile the Rust extension and build the passivbot live wheel.
-FROM python:3.12-slim-bookworm AS builder
+FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -40,7 +40,7 @@ RUN pip install --no-cache-dir -r requirements-rust.txt setuptools-rust wheel \
     && python -m pip wheel . --no-deps --no-build-isolation -w /tmp/wheels
 
 # Stage 2: slim runtime — no Rust toolchain, no build-essential.
-FROM python:3.12-slim-bookworm
+FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
 # main.py skips the runtime Rust rebuild; the ext is prebuilt into the wheel.
@@ -60,8 +60,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Runtime support files.
+# Runtime support files. requirements-live.txt is read at startup by passivbot's
+# assert_correct_ccxt_version (src/procedures.py: `../requirements-live.txt`) to
+# learn the pinned ccxt version; without it the check sees `None` and aborts even
+# though ccxt is installed correctly. requirements-rust.txt is its `-r` include.
 COPY broker_codes.hjson broker_codes.hjson
+COPY requirements-live.txt requirements-rust.txt ./
 
 # Install the live wheel (pulls requirements-live deps + the prebuilt ext).
 COPY --from=builder /tmp/wheels/*.whl /tmp/wheels/
