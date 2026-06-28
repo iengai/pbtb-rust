@@ -11,9 +11,9 @@ pub fn welcome_text() -> String {
 pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
     match phase {
         Some(RuntimePhase::Starting) => "⏳ Starting",
-        Some(RuntimePhase::Running) => "▶️ Running",
+        Some(RuntimePhase::Running) => "✅ Running",
         Some(RuntimePhase::Stopping) => "🛑 Stopping",
-        Some(RuntimePhase::Stopped) => "⏹️ Stopped",
+        Some(RuntimePhase::Stopped) => "⏸️ Stopped",
         None => "❔ Unknown",
     }
 }
@@ -22,9 +22,9 @@ pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
 pub fn runtime_phase_glyph(phase: Option<&RuntimePhase>) -> &'static str {
     match phase {
         Some(RuntimePhase::Starting) => "⏳",
-        Some(RuntimePhase::Running) => "▶️",
+        Some(RuntimePhase::Running) => "✅",
         Some(RuntimePhase::Stopping) => "🛑",
-        Some(RuntimePhase::Stopped) => "⏹️",
+        Some(RuntimePhase::Stopped) => "⏸️",
         None => "❔",
     }
 }

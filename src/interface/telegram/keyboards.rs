@@ -48,8 +48,8 @@ pub(crate) fn strategy_sides_keyboard(
 }
 
 /// Create inline keyboard for bot list. Each button leads with the bot's OBSERVED
-/// run-state glyph (not desired) so a fresh ▶️ Running reads differently from a
-/// 🛑 Stopping or ⏹️ Stopped one.
+/// run-state glyph (not desired) so a fresh ✅ Running reads differently from a
+/// 🛑 Stopping or ⏸️ Stopped one.
 pub(crate) fn bot_list_keyboard(
     bots: &[(
         crate::domain::bot::Bot,
