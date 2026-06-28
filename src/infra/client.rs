@@ -64,7 +64,7 @@ pub async fn setup_ecs_with_configs(configs: &Configs) -> (EcsClient, String, St
     (
         client,
         configs.ecs.cluster_arn.clone(),
-        configs.ecs.td_passivbot_v741_arn.clone(),
+        configs.ecs.td_passivbot_arn.clone(),
     )
 }
 

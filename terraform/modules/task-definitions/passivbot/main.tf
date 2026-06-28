@@ -1,20 +1,20 @@
 # CloudWatch Log Group for this task type
 resource "aws_cloudwatch_log_group" "main" {
-  name              = "/ecs/${var.project}-${var.env}/passivbot-v741"
+  name              = "/ecs/${var.project}-${var.env}/passivbot"
   retention_in_days = var.log_retention_days
 
   tags = merge(
     var.common_tags,
     {
-      Name     = "${var.project}-${var.env}-passivbot-v741-logs"
-      TaskType = "passivbot-v741"
+      Name     = "${var.project}-${var.env}-passivbot-logs"
+      TaskType = "passivbot"
     }
   )
 }
 
 # ECS Task Definition for Bot Processor
 resource "aws_ecs_task_definition" "main" {
-  family                   = "${var.project}-${var.env}-passivbot-v741"
+  family                   = "${var.project}-${var.env}-passivbot"
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   cpu                      = 128
@@ -24,12 +24,12 @@ resource "aws_ecs_task_definition" "main" {
 
   container_definitions = jsonencode([
     {
-      name      = var.container_name
-      image     = var.container_image
-      cpu       = 128
-      memory    = 300
+      name              = var.container_name
+      image             = var.container_image
+      cpu               = 128
+      memory            = 300
       memoryReservation = 200
-      essential = true
+      essential         = true
 
       portMappings = var.port_mappings
 
@@ -38,7 +38,7 @@ resource "aws_ecs_task_definition" "main" {
         options = {
           awslogs-group         = aws_cloudwatch_log_group.main.name
           awslogs-region        = var.region
-          awslogs-stream-prefix = "passivbot-v741"
+          awslogs-stream-prefix = "passivbot"
         }
       }
 
@@ -81,7 +81,7 @@ resource "aws_ecs_task_definition" "main" {
       TaskType = "passivbot"
     },
     {
-      Version = "v741"
+      Version = "v7.12.0"
     }
   )
 }
