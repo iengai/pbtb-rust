@@ -18,17 +18,20 @@ resource "aws_ecs_task_definition" "main" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   cpu                      = 128
-  memory                   = 300
-  execution_role_arn       = var.execution_role_arn
-  task_role_arn            = var.task_role_arn
+  # 768 MB hard limit: passivbot 7.12.0 dual-sided (long+short) configs grow past
+  # the old 300 MB during normal operation and got OOM-killed (exit 137). Single-
+  # sided bots use far less; this is a ceiling, only consumed if needed.
+  memory             = 768
+  execution_role_arn = var.execution_role_arn
+  task_role_arn      = var.task_role_arn
 
   container_definitions = jsonencode([
     {
       name              = var.container_name
       image             = var.container_image
       cpu               = 128
-      memory            = 300
-      memoryReservation = 200
+      memory            = 768
+      memoryReservation = 256
       essential         = true
 
       portMappings = var.port_mappings
