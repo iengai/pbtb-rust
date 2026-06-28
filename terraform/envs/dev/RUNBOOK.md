@@ -46,7 +46,7 @@ Procedure (maintenance window):
 - **Ship a new telebot build:** push to `main` → `telebot-build` builds+pushes →
   run **telebot-deploy** (`tag=latest`). Re-pulls the image + rewrites env + restart.
 - **Roll telebot back to an older image:** telebot-deploy with `tag=<git-sha>`.
-- **Bump the passivbot version:** edit `var.passivbot_v741_image` → `terraform apply`
+- **Bump the passivbot version:** edit `var.passivbot_image_tag` → `terraform apply`
   (registers a new task-def revision; the lambda picks it up at apply) → **then run
   telebot-deploy** (`passivbot_revision=latest`) so telebot also launches the new
   revision. See the divergence rule below.
@@ -55,7 +55,7 @@ Procedure (maintenance window):
 
 Two consumers resolve the passivbot task-def from **different** sources:
 - **lambda** (auto-restart on OOM): the revisioned ARN baked at `terraform apply`
-  (`envs/dev/main.tf` → lambda `APP__ECS__TD_PASSIVBOT_V741_ARN`).
+  (`envs/dev/main.tf` → lambda `APP__ECS__TD_PASSIVBOT_ARN`).
 - **telebot** (user "Run bot"): the ARN resolved by **telebot-deploy** at deploy time.
 
 If you bump passivbot via apply but do **not** re-run telebot-deploy, the lambda
@@ -77,7 +77,10 @@ diverges from the lambda until the next apply.
 Both image repos are managed by `module.ecr`:
 - `telebot` → `scalable-cluster-dev-telebot` (scan-on-push, `force_delete=true`).
 - `passivbot_v741` → `passivbot-live` (`scan_on_push=false`, `force_delete=false` —
-  matches the live repo so the live trading image is never auto-deleted).
+  matches the live repo so the live trading image is never auto-deleted). The map
+  key keeps the legacy `passivbot_v741` name on purpose: renaming it would plan a
+  destroy/recreate of the imported `passivbot-live` repo. It is decoupled from the
+  task-def family (now version-agnostic `…-passivbot`) and the image tag.
 
 Both **pre-existed** and were adopted into state **without recreation** (done
 2026-06-20):
@@ -90,9 +93,9 @@ in-place tag addition on passivbot-live). If you ever rebuild state from scratch
 re-run those two commands. **Never** let terraform recreate these repos.
 
 The passivbot image is composed as
-`module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_v741_image_tag}`. To
+`module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_image_tag}`. To
 ship a new passivbot build: push the image to `passivbot-live` under a new tag, set
-`passivbot_v741_image_tag` in tfvars, `terraform apply` (registers a new task-def
+`passivbot_image_tag` in tfvars, `terraform apply` (registers a new task-def
 revision), then run **telebot-deploy** (the passivbot sync rule above).
 
 > NOTE: `terraform plan/apply/import` here evaluates the lambda's `archive_file`

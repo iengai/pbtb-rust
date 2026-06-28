@@ -32,13 +32,13 @@ variable "task_role_arn" {
 variable "container_name" {
   description = "Container name"
   type        = string
-  default     = "passivbot-v741-container"
+  default     = "passivbot-container"
 }
 
 variable "container_image" {
   description = "Container image URI"
   type        = string
-  default     = "your-registry/passivbot:v7.4.1"
+  default     = "your-registry/passivbot:v7.12.0-arm64"
 }
 
 variable "log_retention_days" {

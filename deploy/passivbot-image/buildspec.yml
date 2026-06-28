@@ -1,0 +1,21 @@
+# CodeBuild spec for the pbtb-rust passivbot live image.
+# Runs on a native arm64 CodeBuild fleet (ARM_CONTAINER), so `docker build`
+# produces a linux/arm64 image with no QEMU emulation.
+#
+# Required env (set on the project): AWS_REGION, ECR_REGISTRY, ECR_REPO, IMAGE_TAG.
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to ECR $ECR_REGISTRY"
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+  build:
+    commands:
+      - echo "Building $ECR_REPO:$IMAGE_TAG (arch $(uname -m))"
+      - docker build -f Dockerfile.ecs -t "$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG" .
+  post_build:
+    commands:
+      - echo "Pushing $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG"
+      - docker push "$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG"
+      - echo "Done."

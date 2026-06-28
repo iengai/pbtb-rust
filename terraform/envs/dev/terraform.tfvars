@@ -33,10 +33,10 @@ nat_instance_type = "t4g.micro"
 telebot_image_tag = "latest"
 
 # GitHub repo allowed to assume the CI (build/deploy) roles via OIDC.
-github_repo              = "iengai/pbtb-rust"
-min_size                 = 0
-max_size                 = 3
-passivbot_v741_image_tag = "v7.4.1-arm"
+github_repo         = "iengai/pbtb-rust"
+min_size            = 0
+max_size            = 3
+passivbot_image_tag = "v7.12.0-arm64"
 
 log_retention_days = 30
 

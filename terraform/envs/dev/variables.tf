@@ -68,15 +68,15 @@ variable "max_size" {
   type        = number
 }
 
-variable "passivbot_v741_image_tag" {
-  description = "Image tag of the passivbot image in the module.ecr passivbot_v741 repo (e.g. v7.4.1-arm). The full image is composed from the repo URL + this tag."
+variable "passivbot_image_tag" {
+  description = "Image tag of the passivbot image in the passivbot-live ECR repo (dotted semver, e.g. v7.12.0-arm64). The full image is composed from the repo URL + this tag; bump this to roll a new passivbot version."
   type        = string
 }
 
-variable "passivbot_v741_container_name" {
-  description = "Container name for passivbot v741"
+variable "passivbot_container_name" {
+  description = "Container name for the passivbot task (must match the RunTask container override used by telebot + lambda)"
   type        = string
-  default     = "passivbot-v741-container"
+  default     = "passivbot-container"
 }
 
 variable "log_retention_days" {

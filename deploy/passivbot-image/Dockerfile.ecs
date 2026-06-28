@@ -1,0 +1,80 @@
+# Production live-trading image for the pbtb-rust ECS task (linux/arm64 / Graviton).
+#
+# Contract (kept identical to the deployed image):
+#   - ECS injects BUCKET / USER_ID / BOT_ID.
+#   - entrypoint.sh pulls s3://$BUCKET/$USER_ID/$BOT_ID/$BOT_ID.json + api-keys.json,
+#     then runs `python src/main.py configs/$BOT_ID.json`, which launches passivbot
+#     live (the config carries live.user). passivbot 7.12.0 accepts the old config.
+#
+# Build ONLY for arm64 (the cluster is t4g/Graviton). The awscli download below
+# pins the aarch64 bundle, so an amd64 build would ship the wrong CLI.
+
+# Stage 1: compile the Rust extension and build the passivbot live wheel.
+FROM python:3.12-slim-bookworm AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        python3-dev \
+        pkg-config \
+        libssl-dev \
+        curl \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+
+WORKDIR /app
+
+# Only the files needed to build the wheel (no configs, no secrets).
+COPY pyproject.toml setup.py ./
+COPY requirements-dev.txt requirements-full.txt requirements-live.txt requirements-rust.txt ./
+COPY src src
+COPY passivbot-rust/Cargo.toml passivbot-rust/Cargo.toml
+COPY passivbot-rust/src passivbot-rust/src
+
+# Build the wheel (bundles the compiled passivbot_rust ext); deps resolved at install.
+RUN pip install --no-cache-dir -r requirements-rust.txt setuptools-rust wheel \
+    && python -m pip wheel . --no-deps --no-build-isolation -w /tmp/wheels
+
+# Stage 2: slim runtime — no Rust toolchain, no build-essential.
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+# main.py skips the runtime Rust rebuild; the ext is prebuilt into the wheel.
+ENV SKIP_RUST_COMPILE=true
+
+WORKDIR /app
+
+# awscli v2 (aarch64) for the S3 config/api-key fetch in entrypoint.sh, kept as a
+# standalone bundle so it can't drift the trading stack's Python dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl unzip ca-certificates \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/awscliv2.zip /tmp/aws \
+    && apt-get purge -y unzip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime support files.
+COPY broker_codes.hjson broker_codes.hjson
+
+# Install the live wheel (pulls requirements-live deps + the prebuilt ext).
+COPY --from=builder /tmp/wheels/*.whl /tmp/wheels/
+RUN pip install --no-cache-dir /tmp/wheels/passivbot-*.whl \
+    && rm -rf /tmp/* ~/.cache/pip
+
+# Keep the source tree so the `python src/main.py` contract holds verbatim.
+# .dockerignore drops __pycache__ and the stray Windows *.pyd, so the arm64 ext
+# from the wheel is the one that loads.
+COPY src src
+
+# Our S3-aware entrypoint: pulls config + api-keys from S3, then launches live.
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]

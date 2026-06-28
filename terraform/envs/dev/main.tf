@@ -79,6 +79,10 @@ module "ecr" {
       scan_on_push         = true
       force_delete         = true
     }
+    # Internal map key is left as `passivbot_v741` on purpose: it addresses the
+    # imported live repo `passivbot-live` (force_delete=false). Renaming the key
+    # would plan a destroy/recreate of that repo. The repo name is already
+    # version-agnostic, so the key is just a stable internal handle.
     passivbot_v741 = {
       name                 = "passivbot-live" # pre-existing, non-conventional name
       image_tag_mutability = "MUTABLE"
@@ -88,8 +92,8 @@ module "ecr" {
   }
 }
 
-module "passivbot_v741_task" {
-  source = "../../modules/task-definitions/passivbot-v741"
+module "passivbot_task" {
+  source = "../../modules/task-definitions/passivbot"
 
   project            = var.project
   env                = var.env
@@ -97,11 +101,19 @@ module "passivbot_v741_task" {
   common_tags        = var.common_tags
   execution_role_arn = module.task_base.task_execution_role_arn
   task_role_arn      = module.task_base.task_role_arn
-  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${var.passivbot_v741_image_tag}"
+  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${var.passivbot_image_tag}"
   log_retention_days = var.log_retention_days
-  container_name     = var.passivbot_v741_container_name
+  container_name     = var.passivbot_container_name
 
   s3_bucket_name = module.s3_bucket.bucket_name
+}
+
+# Preserve state across the module rename so the apply doesn't read as a
+# destroy+create of the wrapper (the task def still gets a new revision because
+# the family string changed).
+moved {
+  from = module.passivbot_v741_task
+  to   = module.passivbot_task
 }
 
 module "s3_bucket" {
@@ -138,9 +150,12 @@ module "lambda_task_state_change_handler" {
     APP__DYNAMODB__TABLE_NAME = module.dynamodb.bots_table_name
   }
 
-  ecs_region                  = var.region
-  ecs_cluster_arn             = module.ecs.cluster_arn
-  td_passivbot_v741_arn       = module.passivbot_v741_task.task_definition_arn
+  ecs_region       = var.region
+  ecs_cluster_arn  = module.ecs.cluster_arn
+  td_passivbot_arn = module.passivbot_task.task_definition_arn
+  # Pass the container name explicitly so the lambda's RunTask override targets
+  # the same container as the task def + telebot (all from one source of truth).
+  passivbot_container_name    = var.passivbot_container_name
   lambda_code_bucket          = module.lambda_code_bucket.bucket_name
   ecs_task_execution_role_arn = module.task_base.task_execution_role_arn
   ecs_task_role_arn           = module.task_base.task_role_arn

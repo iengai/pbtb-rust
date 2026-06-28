@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     let (s3_client, bucket_name) = setup_s3_with_configs(&configs).await;
     // Setup ECS (for telebot Run/Stop -> RunTask/StopTask actuation)
     let (ecs_client, cluster_arn, td_arn) = setup_ecs_with_configs(&configs).await;
-    let container_name = configs.ecs.td_passivbot_v741_container_name.clone();
+    let container_name = configs.ecs.td_passivbot_container_name.clone();
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
