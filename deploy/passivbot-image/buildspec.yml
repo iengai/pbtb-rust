@@ -8,6 +8,11 @@ version: 0.2
 phases:
   pre_build:
     commands:
+      # Authenticate to ECR Public for the base image (public.ecr.aws/docker/...),
+      # avoiding Docker Hub's anonymous pull rate limit (HTTP 429) on the shared
+      # CodeBuild egress IP. The token is always issued from us-east-1.
+      - echo "Logging in to ECR Public"
+      - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - echo "Logging in to ECR $ECR_REGISTRY"
       - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
   build:
