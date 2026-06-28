@@ -30,15 +30,15 @@ variable "ecs_region" {
   description = "ECS region for AWS SDK client"
 }
 
-variable "td_passivbot_v741_arn" {
+variable "td_passivbot_arn" {
   type        = string
-  description = "Task definition ARN for passivbot-v741"
+  description = "Task definition ARN for the passivbot family"
 }
 
-variable "passivbot_v741_container_name" {
-  description = "Container name for passivbot v741"
+variable "passivbot_container_name" {
+  description = "Container name for the passivbot task (must match the RunTask override)"
   type        = string
-  default     = "passivbot-v741-container"
+  default     = "passivbot-container"
 }
 
 variable "lambda_code_bucket" {

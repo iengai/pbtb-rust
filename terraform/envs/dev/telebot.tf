@@ -59,7 +59,7 @@ locals {
     "APP__S3__ENDPOINT_URL=https://s3.${var.region}.amazonaws.com",
     "APP__ECS__REGION=${var.region}",
     "APP__ECS__CLUSTER_ARN=${local.ecs_cluster_arn}",
-    "APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME=${var.passivbot_v741_container_name}",
+    "APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=${var.passivbot_container_name}",
     "TELEBOT_REGION=${var.region}",
     "TELEBOT_ECR_REGISTRY=${local.ecr_registry}",
     "TELEBOT_IMAGE=${local.telebot_image}",

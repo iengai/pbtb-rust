@@ -14,10 +14,10 @@ module "base" {
   environment_variables = merge(
     var.environment_variables,
     {
-      APP__ECS__REGION                           = var.ecs_region
-      APP__ECS__CLUSTER_ARN                      = var.ecs_cluster_arn
-      APP__ECS__TD_PASSIVBOT_V741_ARN            = var.td_passivbot_v741_arn
-      APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME = var.passivbot_v741_container_name
+      APP__ECS__REGION                      = var.ecs_region
+      APP__ECS__CLUSTER_ARN                 = var.ecs_cluster_arn
+      APP__ECS__TD_PASSIVBOT_ARN            = var.td_passivbot_arn
+      APP__ECS__TD_PASSIVBOT_CONTAINER_NAME = var.passivbot_container_name
     }
   )
 }

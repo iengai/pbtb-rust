@@ -31,7 +31,7 @@ env:
   # (GetParameter on a missing name / DescribeTaskDefinition on a stale family).
   AWS_REGION: ap-northeast-1
   ECR_REPO: scalable-cluster-dev-telebot
-  PASSIVBOT_FAMILY: scalable-cluster-dev-passivbot-v741
+  PASSIVBOT_FAMILY: scalable-cluster-dev-passivbot
   BASE_ENV_PARAM: /scalable-cluster/dev/telebot/base-env
 
 jobs:
@@ -90,7 +90,7 @@ jobs:
           { [ -n "$BASE" ] && [ "$BASE" != "None" ]; } || { echo "base-env param '$BASE_ENV_PARAM' is empty/None"; exit 1; }
           # The token must never live in base-env (it is fetched live from SSM); fail closed if it ever does.
           if grep -qi 'TELOXIDE_TOKEN' <<<"$BASE"; then echo "base-env must not contain the Telegram token"; exit 1; fi
-          ENV_CONTENT=$(printf '%s\nAPP__ECS__TD_PASSIVBOT_V741_ARN=%s\n' "$BASE" "${{ steps.td.outputs.arn }}")
+          ENV_CONTENT=$(printf '%s\nAPP__ECS__TD_PASSIVBOT_ARN=%s\n' "$BASE" "${{ steps.td.outputs.arn }}")
           ENV_B64=$(printf '%s' "$ENV_CONTENT" | base64 -w0)
 
           # Build the remote script. Single-quoted lines stay literal (the health

@@ -26,7 +26,7 @@ APP__S3__BUCKET_NAME=<bucket>
 APP__S3__ENDPOINT_URL=https://s3.<region>.amazonaws.com
 APP__ECS__REGION=<region>
 APP__ECS__CLUSTER_ARN=arn:aws:ecs:<region>:<account>:cluster/scalable-cluster-dev-cluster
-APP__ECS__TD_PASSIVBOT_V741_CONTAINER_NAME=<container-name>
+APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=<container-name>
 TELEBOT_REGION=<region>
 TELEBOT_ECR_REGISTRY=<account>.dkr.ecr.<region>.amazonaws.com
 TELEBOT_IMAGE=<telebot-repo-url>:<tag>
@@ -34,7 +34,7 @@ TELEBOT_TOKEN_PARAM=/scalable-cluster/dev/telebot/teloxide-token
 TELEBOT_MEMORY=<memory-cap>
 ```
 
-The one value `telebot-deploy` appends at deploy time is `APP__ECS__TD_PASSIVBOT_V741_ARN` (the resolved passivbot task-def ARN).
+The one value `telebot-deploy` appends at deploy time is `APP__ECS__TD_PASSIVBOT_ARN` (the resolved passivbot task-def ARN).
 
 ## OIDC roles
 
@@ -75,8 +75,8 @@ File: `.github/workflows/telebot-deploy.yml`. Deploys an image already in ECR on
 **Steps** (single `deploy` job on `ubuntu-latest`):
 
 1. **Point `:latest` at the requested tag** — only when `tag != latest`. The NAT's `run-telebot.sh` always pulls `:latest`, so to deploy a specific tag the workflow re-points `:latest` at it in ECR first (`batch-get-image` → `put-image`). Fails if the tag is not found.
-2. **Resolve passivbot task-def ARN** — describes `scalable-cluster-dev-passivbot-v741` (at `:<revision>` if a number was given, else the active revision) and captures the full revisioned ARN. Resolving the ARN here, rather than in `user_data`, is what decouples the NAT from passivbot bumps while keeping the launch precisely pinned.
-3. **Push `telebot.env` and restart on the NAT via SSM** — reads `base-env` from SSM, fails on the runner before overwriting the host's good env file if it is empty/`None` or contains `TELOXIDE_TOKEN`, then composes the env file as base-env + `APP__ECS__TD_PASSIVBOT_V741_ARN=<resolved ARN>`. The whole remote script (write `/etc/telebot/telebot.env` with mode 600 under `/etc/telebot` mode 700, `systemctl restart telebot`, then a health loop) travels as one base64 blob so no shell metacharacters reach the SSM command JSON. It finds the running NAT by `tag:Name=nat-instance`, sends `AWS-RunShellScript`, and waits for the result.
+2. **Resolve passivbot task-def ARN** — describes `scalable-cluster-dev-passivbot` (at `:<revision>` if a number was given, else the active revision) and captures the full revisioned ARN. Resolving the ARN here, rather than in `user_data`, is what decouples the NAT from passivbot bumps while keeping the launch precisely pinned.
+3. **Push `telebot.env` and restart on the NAT via SSM** — reads `base-env` from SSM, fails on the runner before overwriting the host's good env file if it is empty/`None` or contains `TELOXIDE_TOKEN`, then composes the env file as base-env + `APP__ECS__TD_PASSIVBOT_ARN=<resolved ARN>`. The whole remote script (write `/etc/telebot/telebot.env` with mode 600 under `/etc/telebot` mode 700, `systemctl restart telebot`, then a health loop) travels as one base64 blob so no shell metacharacters reach the SSM command JSON. It finds the running NAT by `tag:Name=nat-instance`, sends `AWS-RunShellScript`, and waits for the result.
 
 **Health check.** The remote script polls up to 12 times at 5s intervals for a running `telebot` container (`docker ps --filter name=telebot --filter status=running`). On failure it prints `telebot-not-running` plus the last service status and container logs and exits 1; on success it prints `telebot-up`. The job also asserts the SSM invocation `Status` is `Success`.
 
@@ -84,7 +84,7 @@ File: `.github/workflows/telebot-deploy.yml`. Deploys an image already in ECR on
 
 Two consumers resolve the passivbot task-def from **different** sources, and they can diverge:
 
-- **Lambda** (auto-restart on OOM) uses the revisioned ARN baked at `terraform apply` (`envs/dev/main.tf` → lambda `APP__ECS__TD_PASSIVBOT_V741_ARN`).
+- **Lambda** (auto-restart on OOM) uses the revisioned ARN baked at `terraform apply` (`envs/dev/main.tf` → lambda `APP__ECS__TD_PASSIVBOT_ARN`).
 - **Telebot** (user "Run bot") uses the ARN resolved by `telebot-deploy` at deploy time.
 
 If you bump passivbot via apply but do not re-run telebot-deploy, the lambda restarts at the new revision while telebot still launches the old one (or vice versa on a telebot-only rollback).
@@ -95,7 +95,7 @@ If you bump passivbot via apply but do not re-run telebot-deploy, the lambda res
 
 - **Ship a new telebot build:** push to `main` → `telebot-build` builds and pushes → run **telebot-deploy** (`tag=latest`). Re-pulls the image, rewrites the env file, restarts.
 - **Roll telebot back to an older image:** run **telebot-deploy** with `tag=<git-sha>`. The deploy re-points `:latest` at that SHA before restarting.
-- **Bump the passivbot version:** edit `var.passivbot_v741_image_tag` → `terraform apply` (registers a new task-def revision; the lambda picks it up at apply) → **then run telebot-deploy** (`passivbot_revision=latest`), per the sync rule above.
+- **Bump the passivbot version:** edit `var.passivbot_image_tag` → `terraform apply` (registers a new task-def revision; the lambda picks it up at apply) → **then run telebot-deploy** (`passivbot_revision=latest`), per the sync rule above.
 
 ## Recovery
 
