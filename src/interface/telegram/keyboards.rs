@@ -78,6 +78,15 @@ pub(crate) fn bot_list_keyboard(
     InlineKeyboardMarkup::new(keyboard)
 }
 
+/// Inline keyboard for the apply-config confirmation modal: Confirm applies the
+/// previewed template (`confirm_template:<name>`); Cancel aborts.
+pub(crate) fn template_confirm_keyboard(template_name: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback("✅ Confirm", format!("confirm_template:{}", template_name)),
+        InlineKeyboardButton::callback("❌ Cancel", "cancel_template_selection"),
+    ]])
+}
+
 /// Create inline keyboard for template list
 /// Each template is shown as a button with callback data containing template_name
 pub(crate) fn template_list_keyboard(templates: &[String]) -> InlineKeyboardMarkup {

@@ -1,5 +1,5 @@
 // Rust
-use crate::domain::botconfig::StrategyRef;
+use crate::domain::botconfig::{BotConfig, StrategyRef};
 use crate::domain::runtime::RuntimePhase;
 
 pub fn welcome_text() -> String {
@@ -69,4 +69,46 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Render the confirmation modal for applying a config template: strategy +
+/// notes, the wallet-exposure (`total_wallet_exposure_limit`) per side — the
+/// number that actually governs leverage — and the preset coins per side.
+pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> String {
+    let strategies = format_strategies(&preview.strategies());
+    let description = preview.description().unwrap_or("—");
+
+    let exposure = match preview.risk_level() {
+        Ok(r) => format!("   • Long: {:.2}\n   • Short: {:.2}", r.long, r.short),
+        Err(_) => "   • Not configured".to_owned(),
+    };
+
+    let join_coins = |coins: &[String]| {
+        if coins.is_empty() {
+            "None".to_owned()
+        } else {
+            coins.join(", ")
+        }
+    };
+    let coins = match preview.coins() {
+        Ok(c) => format!(
+            "   • Long: {}\n   • Short: {}",
+            join_coins(&c.long),
+            join_coins(&c.short)
+        ),
+        Err(_) => "   • Not configured".to_owned(),
+    };
+
+    format!(
+        "📄 Apply this config?\n\n\
+        • Template: {}\n\
+        🤖 Strategy: {}\n\
+        📝 Description: {}\n\n\
+        ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
+        {}\n\n\
+        💰 Preset coins:\n\
+        {}\n\n\
+        Confirm to apply, or Cancel.",
+        template_name, strategies, description, exposure, coins
+    )
 }
