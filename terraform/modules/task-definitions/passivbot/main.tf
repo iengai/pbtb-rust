@@ -18,21 +18,26 @@ resource "aws_ecs_task_definition" "main" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   cpu                      = 128
-  # 768 MB hard limit: passivbot 7.12.0 dual-sided (long+short) configs grow past
-  # the old 300 MB during normal operation and got OOM-killed (exit 137). Single-
-  # sided bots use far less; this is a ceiling, only consumed if needed.
-  memory             = 768
+  # 400 MB hard limit (task-level). Observed peak (incl. startup) is ~357 MB for the
+  # heaviest bot (dual-sided DollarDigger), so this gives ~12% headroom while keeping
+  # placement dense (~9 tasks/host on the 3835 MiB t4g.medium). With task-level
+  # memory set, ECS reserves THIS value for scheduling, so there is no overcommit.
+  memory             = 400
   execution_role_arn = var.execution_role_arn
   task_role_arn      = var.task_role_arn
 
   container_definitions = jsonencode([
     {
-      name              = var.container_name
-      image             = var.container_image
-      cpu               = 128
-      memory            = 768
-      memoryReservation = 256
-      essential         = true
+      name      = var.container_name
+      image     = var.container_image
+      cpu       = 128
+      essential = true
+      # No container-level memory/memoryReservation: the single container is capped
+      # by the task-level `memory` (400). The old memoryReservation (256, soft) was
+      # ignored for placement anyway, since task-level memory drives the reservation.
+      # No healthCheck: passivbot serves no HTTP endpoint, so the old curl
+      # localhost:8000/health check always failed and marked tasks UNHEALTHY for no
+      # reason. `essential = true` already stops the task if the process dies.
 
       portMappings = var.port_mappings
 
@@ -43,14 +48,6 @@ resource "aws_ecs_task_definition" "main" {
           awslogs-region        = var.region
           awslogs-stream-prefix = "passivbot"
         }
-      }
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 60
       }
 
       environment = concat([
