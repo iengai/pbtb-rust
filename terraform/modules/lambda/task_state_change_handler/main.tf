@@ -62,6 +62,11 @@ resource "aws_iam_role_policy" "ecs_run_task" {
 }
 
 # DynamoDB: read Bot desired-state and read/write observed-runtime rows.
+# UpdateItem is required by the OOM-restart path: reconcile_stopped_task claims the
+# restart via the CAS lock (try_acquire_restart / attach_started_task /
+# release_start), all of which are update_item. Without it those ops fail with
+# AccessDenied (surfaced only as a generic "service error"), so a memory-related
+# stop never auto-restarts and the runtime row is left stuck on `running`.
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project}-${var.env}-task-state-change-handler-dynamodb"
   role = module.base.role_name
@@ -72,7 +77,7 @@ resource "aws_iam_role_policy" "dynamodb" {
       {
         Sid      = "BotsTableRW"
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = var.dynamodb_table_arn
       }
     ]
