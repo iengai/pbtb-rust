@@ -6,10 +6,21 @@ use crate::domain::runtime::{
 };
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
-use aws_sdk_dynamodb::error::SdkError;
+use aws_sdk_dynamodb::error::{DisplayErrorContext, SdkError};
 use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
 use aws_sdk_dynamodb::types::AttributeValue;
 use std::collections::HashMap;
+
+/// Render an aws-sdk error with its full source chain, surfacing the modeled
+/// service error (code and message). `SdkError`'s bare `Display` collapses every
+/// service-side failure to a generic "service error", which masks the actual
+/// cause — e.g. a missing IAM permission reads only as "service error".
+fn fmt_sdk_err<E>(e: SdkError<E>) -> String
+where
+    E: std::error::Error + 'static,
+{
+    DisplayErrorContext(e).to_string()
+}
 
 /// Collapse a conditional UpdateItem result: `acquired` on success, `contended`
 /// when the condition failed (we lost the race, or it is a benign no-op),
@@ -29,7 +40,8 @@ fn cas_result<T>(
             Ok(contended)
         }
         Err(e) => Err(DomainError::Repository(format!(
-            "DynamoDB update_item failed: {e}"
+            "DynamoDB update_item failed: {}",
+            fmt_sdk_err(e)
         ))),
     }
 }
@@ -260,7 +272,9 @@ impl BotRuntimeRepository for DynamoBotRepository {
             )
             .send()
             .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -285,7 +299,9 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -378,7 +394,8 @@ impl BotRuntimeRepository for DynamoBotRepository {
                     Ok(())
                 } else {
                     Err(DomainError::Repository(format!(
-                        "DynamoDB put_item failed: {e}"
+                        "DynamoDB put_item failed: {}",
+                        fmt_sdk_err(e)
                     )))
                 }
             }
@@ -412,7 +429,9 @@ impl StartLockRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB get_item failed: {e}")))?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
         if let Some(meta) = existing.item().and_then(BotECSTaskMetadata::from_item) {
             match meta.status.as_str() {
@@ -598,7 +617,9 @@ impl BotRepository for DynamoBotRepository {
             .set_item(Some(item))
             .send()
             .await
-            .map_err(|e| DomainError::Repository(format!("DynamoDB put_item failed: {e}")))?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB put_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
         Ok(())
     }
