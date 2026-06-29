@@ -1,19 +1,16 @@
-mod config;
-mod domain;
-mod infra;
-mod interface;
-mod usecase;
-
 use anyhow::Context;
-use domain::SystemClock;
-use infra::{DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3TemplateRepository};
 use pbtb_rust::config::configs::{Configs, load_config};
+use pbtb_rust::domain::{self, SystemClock};
 use pbtb_rust::infra::client::{
     setup_dynamodb_with_configs, setup_ecs_with_configs, setup_s3_with_configs,
 };
+use pbtb_rust::infra::{
+    DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3TemplateRepository,
+};
+use pbtb_rust::interface;
+use pbtb_rust::usecase::*;
 use std::sync::Arc;
 use teloxide::prelude::*;
-use usecase::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
