@@ -5,16 +5,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Bot type enumeration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum BotType {
+    #[default]
     Passivbot,
-}
-
-impl Default for BotType {
-    fn default() -> Self {
-        BotType::Passivbot
-    }
 }
 
 /// Risk level value object containing long and short exposure limits.
@@ -34,7 +29,8 @@ impl RiskLevel {
     }
 
     fn check(value: f64) -> Result<(), DomainError> {
-        if value < 0.0 || value > 10.0 {
+        // NaN / non-finite values fall outside the inclusive range and are rejected.
+        if !(0.0..=10.0).contains(&value) {
             return Err(DomainError::RiskOutOfRange {
                 value,
                 min: 0.0,
@@ -67,7 +63,8 @@ impl Leverage {
     }
 
     fn check(value: f64) -> Result<(), DomainError> {
-        if value < 1.0 || value > 125.0 {
+        // NaN / non-finite values fall outside the inclusive range and are rejected.
+        if !(1.0..=125.0).contains(&value) {
             return Err(DomainError::LeverageOutOfRange {
                 value,
                 min: 1.0,
@@ -357,7 +354,7 @@ impl BotConfig {
     /// `live.forced_mode_<side>`. Enabled when the mode is empty or `"normal"`;
     /// any other mode (e.g. `"graceful_stop"`) means the side is turned off.
     pub fn side_enabled(&self, side: &str) -> bool {
-        let key = format!("forced_mode_{}", side);
+        let key = format!("forced_mode_{side}");
         let mode = self
             .config_data
             .get("live")
@@ -378,10 +375,7 @@ impl BotConfig {
         now: i64,
     ) -> Result<(), DomainError> {
         if side != "long" && side != "short" {
-            return Err(DomainError::InvalidConfig(format!(
-                "invalid side: {}",
-                side
-            )));
+            return Err(DomainError::InvalidConfig(format!("invalid side: {side}")));
         }
 
         let live = self
@@ -395,7 +389,7 @@ impl BotConfig {
 
         let value = if enabled { "" } else { "graceful_stop" };
         obj.insert(
-            format!("forced_mode_{}", side),
+            format!("forced_mode_{side}"),
             Value::String(value.to_string()),
         );
         self.updated_at = now;
@@ -449,13 +443,22 @@ mod tests {
                 assert_eq!(min, 0.0);
                 assert_eq!(max, 10.0);
             }
-            other => panic!("expected RiskOutOfRange, got {:?}", other),
+            other => panic!("expected RiskOutOfRange, got {other:?}"),
         }
         // short out of range (negative)
         match RiskLevel::new(1.0, -0.5) {
             Err(DomainError::RiskOutOfRange { value, .. }) => assert_eq!(value, -0.5),
-            other => panic!("expected RiskOutOfRange, got {:?}", other),
+            other => panic!("expected RiskOutOfRange, got {other:?}"),
         }
+        // NaN / non-finite must be rejected, not silently accepted.
+        assert!(matches!(
+            RiskLevel::new(f64::NAN, 5.0),
+            Err(DomainError::RiskOutOfRange { .. })
+        ));
+        assert!(matches!(
+            RiskLevel::new(1.0, f64::INFINITY),
+            Err(DomainError::RiskOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -467,12 +470,21 @@ mod tests {
                 assert_eq!(min, 1.0);
                 assert_eq!(max, 125.0);
             }
-            other => panic!("expected LeverageOutOfRange, got {:?}", other),
+            other => panic!("expected LeverageOutOfRange, got {other:?}"),
         }
         match Leverage::new(5.0, 200.0) {
             Err(DomainError::LeverageOutOfRange { value, .. }) => assert_eq!(value, 200.0),
-            other => panic!("expected LeverageOutOfRange, got {:?}", other),
+            other => panic!("expected LeverageOutOfRange, got {other:?}"),
         }
+        // NaN / non-finite must be rejected, not silently accepted.
+        assert!(matches!(
+            Leverage::new(f64::NAN, 5.0),
+            Err(DomainError::LeverageOutOfRange { .. })
+        ));
+        assert!(matches!(
+            Leverage::new(5.0, f64::INFINITY),
+            Err(DomainError::LeverageOutOfRange { .. })
+        ));
         let u = Leverage::uniform(7.0).unwrap();
         assert_eq!(u.long, 7.0);
         assert_eq!(u.short, 7.0);
@@ -526,7 +538,7 @@ mod tests {
         bad.config_data = json!({});
         match bad.set_live_user("x") {
             Err(DomainError::MissingConfigPath("live")) => {}
-            other => panic!("expected MissingConfigPath(live), got {:?}", other),
+            other => panic!("expected MissingConfigPath(live), got {other:?}"),
         }
 
         // live not an object
@@ -534,7 +546,7 @@ mod tests {
         bad2.config_data = json!({ "live": 5 });
         match bad2.set_live_user("x") {
             Err(DomainError::InvalidConfig(_)) => {}
-            other => panic!("expected InvalidConfig, got {:?}", other),
+            other => panic!("expected InvalidConfig, got {other:?}"),
         }
     }
 

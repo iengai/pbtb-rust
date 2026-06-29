@@ -35,7 +35,7 @@ async fn handle_callback(
     dialogue: MyDialogue,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
-    let data = q.data.as_ref().map(|s| s.as_str()).unwrap_or("");
+    let data = q.data.as_deref().unwrap_or("");
 
     // Check if this is a bot selection callback
     if data.starts_with("select_bot:") {
@@ -155,7 +155,7 @@ async fn handle_bot_selection(
                     status
                 )
             } else {
-                format!("🤖 Bot ID: {}", bot_id)
+                format!("🤖 Bot ID: {bot_id}")
             };
 
             // Confirm to user, re-attaching the menu keyboard so the command
@@ -164,8 +164,7 @@ async fn handle_bot_selection(
                 bot.send_message(
                     chat.id,
                     format!(
-                        "✅ Bot selected!\n\n{}\n\nYou can now use 'Run bot', 'Stop bot' and other operations.",
-                        details
+                        "✅ Bot selected!\n\n{details}\n\nYou can now use 'Run bot', 'Stop bot' and other operations."
                     ),
                 )
                 .reply_markup(super::keyboards::main_menu_keyboard())
@@ -227,7 +226,7 @@ async fn handle_template_selection(
         }
         Err(e) => {
             if let Some(Message { chat, .. }) = q.message {
-                bot.send_message(chat.id, format!("❌ Failed to load config\n\nError: {}", e))
+                bot.send_message(chat.id, format!("❌ Failed to load config\n\nError: {e}"))
                     .await?;
             }
         }
@@ -280,10 +279,9 @@ async fn handle_confirm_template(
                     chat.id,
                     format!(
                         "✅ Configuration applied!\n\n\
-                        📄 Template: {}\n\
-                        🤖 Bot ID: {}\n\n\
-                        Use 'State' to review, then 'Run bot' to start.",
-                        template_name, bot_id
+                        📄 Template: {template_name}\n\
+                        🤖 Bot ID: {bot_id}\n\n\
+                        Use 'State' to review, then 'Run bot' to start."
                     ),
                 )
                 .reply_markup(super::keyboards::main_menu_keyboard())
@@ -296,9 +294,8 @@ async fn handle_confirm_template(
                     chat.id,
                     format!(
                         "❌ Failed to apply config\n\n\
-                        Error: {}\n\n\
-                        Please try again or contact support.",
-                        e
+                        Error: {e}\n\n\
+                        Please try again or contact support."
                     ),
                 )
                 .await?;
@@ -374,7 +371,7 @@ async fn handle_toggle_side(
         }
         Err(e) => {
             bot.answer_callback_query(&q.id)
-                .text(format!("❌ {}", e))
+                .text(format!("❌ {e}"))
                 .show_alert(true)
                 .await?;
         }

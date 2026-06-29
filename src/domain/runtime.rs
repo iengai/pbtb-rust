@@ -27,6 +27,8 @@ impl RuntimePhase {
             RuntimePhase::Stopped => "stopped",
         }
     }
+    // Deliberate inherent parser: returns Option, so it is not std::str::FromStr (which returns Result).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "starting" => Some(Self::Starting),

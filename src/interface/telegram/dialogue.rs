@@ -137,7 +137,7 @@ async fn handle_start_state(
                                 } else {
                                     coins.short.join(", ")
                                 };
-                                format!("   • Long: {}\n   • Short: {}", long_str, short_str)
+                                format!("   • Long: {long_str}\n   • Short: {short_str}")
                             }
                             Err(_) => "   • Not configured".to_string(),
                         };
@@ -173,7 +173,7 @@ async fn handle_start_state(
                             sides_info,
                             config.template_version
                                 .as_ref()
-                                .map(|v| format!("   • Version: {}", v))
+                                .map(|v| format!("   • Version: {v}"))
                                 .unwrap_or_else(|| "   • Version: N/A".to_string()),
                             risk_info,
                             leverage_info,
@@ -191,18 +191,13 @@ async fn handle_start_state(
                             format!(
                                 "📊 Bot Status\n\n\
                                 🤖 Bot Information:\n\
-                                   • Exchange: {}\n\
-                                   • Name: {}\n\
-                                   • ID: {}\n\
-                                   • Desired: {}\n\
-                                   • Actual: {}\n\n\
+                                   • Exchange: {bot_exchange}\n\
+                                   • Name: {bot_name}\n\
+                                   • ID: {bot_id}\n\
+                                   • Desired: {desired_text}\n\
+                                   • Actual: {actual_text}\n\n\
                                 ⚠️ No configuration found for this bot.\n\n\
-                                Please apply a configuration template first using 'Choose config...'.",
-                                bot_exchange,
-                                bot_name,
-                                bot_id,
-                                desired_text,
-                                actual_text
+                                Please apply a configuration template first using 'Choose config...'."
                             )
                         )
                             .reply_markup(super::keyboards::main_menu_keyboard())
@@ -257,7 +252,7 @@ async fn handle_start_state(
                     Err(e) => {
                         bot.send_message(
                             msg.chat.id,
-                            format!("❌ Error fetching templates: {}", e)
+                            format!("❌ Error fetching templates: {e}")
                         )
                             .await?;
                     }
@@ -299,19 +294,16 @@ async fn handle_start_state(
                             msg.chat.id,
                             format!(
                                 "⚠️ Risk Level Configuration\n\n\
-                                🤖 Bot: {}\n\
-                                📊 Current Risk Level: {}\n\
-                                📈 Current Leverage: {}\n\n\
+                                🤖 Bot: {bot_id}\n\
+                                📊 Current Risk Level: {current_risk}\n\
+                                📈 Current Leverage: {current_leverage}\n\n\
                                 Please enter the new risk level values in the following format:\n\
                                 `<long_risk>/<short_risk>`\n\n\
                                 Example: `3.0/1.5`\n\n\
                                 Note:\n\
                                 - Values should be decimal numbers (0.0 - 10.0)\n\
                                 - Leverage will be automatically set to (max_risk + 1)\n\
-                                - Send 'cancel' to abort",
-                                bot_id,
-                                current_risk,
-                                current_leverage
+                                - Send 'cancel' to abort"
                             )
                         )
                             .await?;
@@ -338,12 +330,12 @@ async fn handle_start_state(
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.start_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StartOutcome::Started { .. }) => format!("▶️ Bot {} is starting up.", bot_id),
-                        Ok(StartOutcome::AlreadyRunning) => format!("▶️ Bot {} is already running.", bot_id),
-                        Ok(StartOutcome::AlreadyStarting) => format!("⏳ Bot {} is already starting — give it a few seconds.", bot_id),
-                        Ok(StartOutcome::Stopping) => format!("🛑 Bot {} is still stopping — wait a few seconds, then tap Run again.", bot_id),
-                        Ok(StartOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
-                        Err(e) => format!("❌ Failed to start bot {}:\n\n{}", bot_id, e),
+                        Ok(StartOutcome::Started { .. }) => format!("▶️ Bot {bot_id} is starting up."),
+                        Ok(StartOutcome::AlreadyRunning) => format!("▶️ Bot {bot_id} is already running."),
+                        Ok(StartOutcome::AlreadyStarting) => format!("⏳ Bot {bot_id} is already starting — give it a few seconds."),
+                        Ok(StartOutcome::Stopping) => format!("🛑 Bot {bot_id} is still stopping — wait a few seconds, then tap Run again."),
+                        Ok(StartOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
+                        Err(e) => format!("❌ Failed to start bot {bot_id}:\n\n{e}"),
                     }
                 } else {
                     "❌ Please select a bot first using 'List'".to_string()
@@ -364,16 +356,15 @@ async fn handle_start_state(
                         .unwrap_or_else(|| "unknown".to_string());
 
                     match deps.stop_bot_usecase.execute(&user_id, bot_id).await {
-                        Ok(StopOutcome::Stopped { .. }) => format!("🛑 Bot {} is stopping.", bot_id),
-                        Ok(StopOutcome::NotRunning) => format!("⏹️ Bot {} turned off. It wasn't running.", bot_id),
+                        Ok(StopOutcome::Stopped { .. }) => format!("🛑 Bot {bot_id} is stopping."),
+                        Ok(StopOutcome::NotRunning) => format!("⏹️ Bot {bot_id} turned off. It wasn't running."),
                         Ok(StopOutcome::StartInProgress) => format!(
-                            "⏳ Bot {} turned off, but it's still starting up. \
-                            Tap Stop again in a few seconds.",
-                            bot_id
+                            "⏳ Bot {bot_id} turned off, but it's still starting up. \
+                            Tap Stop again in a few seconds."
                         ),
-                        Ok(StopOutcome::AlreadyStopping) => format!("🛑 Bot {} is already stopping.", bot_id),
-                        Ok(StopOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
-                        Err(e) => format!("❌ Failed to stop bot {}:\n\n{}", bot_id, e),
+                        Ok(StopOutcome::AlreadyStopping) => format!("🛑 Bot {bot_id} is already stopping."),
+                        Ok(StopOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
+                        Err(e) => format!("❌ Failed to stop bot {bot_id}:\n\n{e}"),
                     }
                 } else {
                     "❌ Please select a bot first using 'List'".to_string()
@@ -410,13 +401,12 @@ async fn handle_start_state(
                             msg.chat.id,
                             format!(
                                 "🎛️ Strategy Sides\n\n\
-                                🤖 Bot: {}\n\
-                                📋 Strategy: {}\n\n\
+                                🤖 Bot: {bot_id}\n\
+                                📋 Strategy: {strategy_info}\n\n\
                                 Tap a side to turn it on/off.\n\
                                 Off stops opening new positions and closes \
                                 existing ones gradually.\n\
-                                ⚠️ Applies on the next 'Run bot'.",
-                                bot_id, strategy_info
+                                ⚠️ Applies on the next 'Run bot'."
                             ),
                         )
                         .reply_markup(super::keyboards::strategy_sides_keyboard(
@@ -449,10 +439,9 @@ async fn handle_start_state(
                         msg.chat.id,
                         format!(
                             "⚠️ Are you sure you want to delete this bot?\n\n\
-                            🤖 Bot ID: {}\n\n\
+                            🤖 Bot ID: {bot_id}\n\n\
                             ❗ This action cannot be undone!\n\n\
-                            Reply 'yes' to confirm or any other message to cancel.",
-                            bot_id
+                            Reply 'yes' to confirm or any other message to cancel."
                         )
                     )
                         .await?;
@@ -488,7 +477,7 @@ async fn handle_start_state(
                                 .unwrap_or_default();
 
                             let header = if let Some(ref bot_id) = ctx.selected_bot_id {
-                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", bot_id)
+                                format!("📋 Select a bot:\n\n✅ Currently selected: {bot_id}")
                             } else {
                                 "📋 Select a bot:\n\n(No bot selected)".to_string()
                             };
@@ -502,7 +491,7 @@ async fn handle_start_state(
                     Err(e) => {
                         bot.send_message(
                             msg.chat.id,
-                            format!("❌ Error fetching bots: {}", e),
+                            format!("❌ Error fetching bots: {e}"),
                         )
                             .await?;
                     }
@@ -530,7 +519,7 @@ async fn receive_bot_name(
             Some(name) => {
                 bot.send_message(
                     msg.chat.id,
-                    format!("✅ Bot name: {}\n\nNow, please enter the API key:", name),
+                    format!("✅ Bot name: {name}\n\nNow, please enter the API key:"),
                 )
                 .await?;
                 dialogue
@@ -651,7 +640,7 @@ async fn receive_secret_key(
                             .await?;
                     }
                     Err(e) => {
-                        bot.send_message(msg.chat.id, format!("❌ Error saving bot: {}", e))
+                        bot.send_message(msg.chat.id, format!("❌ Error saving bot: {e}"))
                             .await?;
                         dialogue.update(DialogueState::Start).await?;
                     }
@@ -698,12 +687,12 @@ async fn confirm_delete(
 
                             bot.send_message(
                                 msg.chat.id,
-                                format!("✅ Bot deleted successfully!\n\n🤖 Bot ID: {}", bot_id),
+                                format!("✅ Bot deleted successfully!\n\n🤖 Bot ID: {bot_id}"),
                             )
                             .await?;
                         }
                         Err(e) => {
-                            bot.send_message(msg.chat.id, format!("❌ Error deleting bot: {}", e))
+                            bot.send_message(msg.chat.id, format!("❌ Error deleting bot: {e}"))
                                 .await?;
                         }
                     }
@@ -764,11 +753,8 @@ async fn confirm_overwrite_bot(
                             .await?;
                         }
                         Err(e) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Error overwriting bot: {}", e),
-                            )
-                            .await?;
+                            bot.send_message(msg.chat.id, format!("❌ Error overwriting bot: {e}"))
+                                .await?;
                         }
                     }
                 } else {
@@ -795,20 +781,6 @@ async fn confirm_overwrite_bot(
     .await;
 
     result.map_err(|_| DependencyMap::new())
-}
-
-/// Format template list for display
-fn format_template_list(templates: &[String]) -> String {
-    let mut message = String::from("⚙️ Available Configuration Templates:\n\n");
-
-    for (index, template_name) in templates.iter().enumerate() {
-        message.push_str(&format!("{}. 📄 {}\n", index + 1, template_name));
-    }
-
-    message.push_str("\n💡 Tip: These are predefined trading bot configurations.\n");
-    message.push_str("To apply a template, use the bot management interface.");
-
-    message
 }
 
 async fn receive_risk_level(
@@ -871,7 +843,7 @@ async fn receive_risk_level(
                 };
 
                 // Validate range
-                if risk_long < 0.0 || risk_long > 10.0 || risk_short < 0.0 || risk_short > 10.0 {
+                if !(0.0..=10.0).contains(&risk_long) || !(0.0..=10.0).contains(&risk_short) {
                     bot.send_message(
                         msg.chat.id,
                         "❌ Risk values must be between 0.0 and 10.0.\n\n\
@@ -912,13 +884,12 @@ async fn receive_risk_level(
                             msg.chat.id,
                             format!(
                                 "✅ Risk level updated successfully!\n\n\
-                                🤖 Bot: {}\n\
+                                🤖 Bot: {bot_id}\n\
                                 📊 New Risk Level:\n\
-                                   • Long: {:.2}\n\
-                                   • Short: {:.2}\n\
-                                📈 Leverage automatically set to: {:.1}x\n\n\
-                                The configuration has been saved.",
-                                bot_id, risk_long, risk_short, leverage
+                                   • Long: {risk_long:.2}\n\
+                                   • Short: {risk_short:.2}\n\
+                                📈 Leverage automatically set to: {leverage:.1}x\n\n\
+                                The configuration has been saved."
                             ),
                         )
                         .await?;
@@ -926,7 +897,7 @@ async fn receive_risk_level(
                     Err(e) => {
                         bot.send_message(
                             msg.chat.id,
-                            format!("❌ Failed to update risk level:\n\n{}", e),
+                            format!("❌ Failed to update risk level:\n\n{e}"),
                         )
                         .await?;
                     }

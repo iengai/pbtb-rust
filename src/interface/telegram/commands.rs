@@ -81,12 +81,11 @@ async fn dispatch_command(
                             status
                         )
                     } else {
-                        format!("🤖 Selected Bot: {}", bot_id)
+                        format!("🤖 Selected Bot: {bot_id}")
                     };
 
                     format!(
-                        "👋 Welcome! Choose an action from the menu below.\n\n{}",
-                        bot_info
+                        "👋 Welcome! Choose an action from the menu below.\n\n{bot_info}"
                     )
                 } else {
                     "👋 Welcome! Choose an action from the menu below.\n\n\
@@ -127,7 +126,7 @@ async fn dispatch_command(
                                         b.id
                                     ))
                                     .unwrap_or_else(|| bot_id.clone());
-                                format!("📋 Select a bot:\n\n✅ Currently selected: {}", selected)
+                                format!("📋 Select a bot:\n\n✅ Currently selected: {selected}")
                             } else {
                                 "📋 Select a bot:\n\n(No bot selected)".to_string()
                             };
@@ -139,7 +138,7 @@ async fn dispatch_command(
                         }
                     }
                     Err(e) => {
-                        bot.send_message(msg.chat.id, format!("❌ Error fetching bots: {}", e))
+                        bot.send_message(msg.chat.id, format!("❌ Error fetching bots: {e}"))
                             .await?;
                     }
                 }

@@ -18,12 +18,7 @@ impl S3BotConfigRepository {
 
     /// Helper: construct S3 key for bot config
     fn bot_config_key(user_id: &str, bot_id: &str) -> String {
-        format!("{}/{}/{}.json", user_id, bot_id, bot_id)
-    }
-
-    /// Helper: construct S3 prefix for user's configs
-    fn user_prefix(user_id: &str) -> String {
-        format!("{}/", user_id)
+        format!("{user_id}/{bot_id}/{bot_id}.json")
     }
 }
 
@@ -39,17 +34,17 @@ impl BotConfigRepository for S3BotConfigRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to get bot config from S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to get bot config from S3: {e:?}"))?;
 
         let bytes = result
             .body
             .collect()
             .await
-            .map_err(|e| format!("Failed to read bot config body: {:?}", e))?
+            .map_err(|e| format!("Failed to read bot config body: {e:?}"))?
             .into_bytes();
 
         let json_value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Failed to parse bot config JSON: {:?}", e))?;
+            .map_err(|e| format!("Failed to parse bot config JSON: {e:?}"))?;
 
         let template_name = json_value
             .get("name")
@@ -93,7 +88,7 @@ impl BotConfigRepository for S3BotConfigRepository {
         let key = Self::bot_config_key(&config.user_id, &config.bot_id);
 
         let json = serde_json::to_vec_pretty(&config.config_data)
-            .map_err(|e| format!("Failed to serialize bot config: {:?}", e))?;
+            .map_err(|e| format!("Failed to serialize bot config: {e:?}"))?;
 
         self.client
             .put_object()
@@ -103,7 +98,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             .content_type("application/json")
             .send()
             .await
-            .map_err(|e| format!("Failed to save bot config to S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to save bot config to S3: {e:?}"))?;
 
         Ok(())
     }
@@ -117,7 +112,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to delete bot config from S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to delete bot config from S3: {e:?}"))?;
 
         Ok(())
     }
@@ -135,11 +130,11 @@ impl BotConfigRepository for S3BotConfigRepository {
         {
             Ok(_) => Ok(true),
             Err(e) => {
-                let error_msg = format!("{:?}", e);
+                let error_msg = format!("{e:?}");
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
-                    Err(format!("Failed to check bot config existence: {:?}", e))
+                    Err(format!("Failed to check bot config existence: {e:?}"))
                 }
             }
         }

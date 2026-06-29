@@ -39,7 +39,7 @@ fn local_client(port: u16) -> Client {
     let conf = aws_sdk_dynamodb::config::Builder::new()
         .behavior_version(BehaviorVersion::latest())
         .region(Region::new("us-east-1"))
-        .endpoint_url(format!("http://127.0.0.1:{}", port))
+        .endpoint_url(format!("http://127.0.0.1:{port}"))
         .credentials_provider(creds)
         .build();
     Client::from_conf(conf)
