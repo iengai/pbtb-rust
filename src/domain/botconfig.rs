@@ -450,6 +450,15 @@ mod tests {
             Err(DomainError::RiskOutOfRange { value, .. }) => assert_eq!(value, -0.5),
             other => panic!("expected RiskOutOfRange, got {other:?}"),
         }
+        // NaN / non-finite must be rejected, not silently accepted.
+        assert!(matches!(
+            RiskLevel::new(f64::NAN, 5.0),
+            Err(DomainError::RiskOutOfRange { .. })
+        ));
+        assert!(matches!(
+            RiskLevel::new(1.0, f64::INFINITY),
+            Err(DomainError::RiskOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -467,6 +476,15 @@ mod tests {
             Err(DomainError::LeverageOutOfRange { value, .. }) => assert_eq!(value, 200.0),
             other => panic!("expected LeverageOutOfRange, got {other:?}"),
         }
+        // NaN / non-finite must be rejected, not silently accepted.
+        assert!(matches!(
+            Leverage::new(f64::NAN, 5.0),
+            Err(DomainError::LeverageOutOfRange { .. })
+        ));
+        assert!(matches!(
+            Leverage::new(5.0, f64::INFINITY),
+            Err(DomainError::LeverageOutOfRange { .. })
+        ));
         let u = Leverage::uniform(7.0).unwrap();
         assert_eq!(u.long, 7.0);
         assert_eq!(u.short, 7.0);
