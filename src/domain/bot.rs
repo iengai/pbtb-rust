@@ -79,16 +79,23 @@ impl Bot {
 
 #[async_trait]
 pub trait BotRepository: Send + Sync {
-    async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot>;
+    /// `Ok(None)` is a genuine absence; `Err` is a read failure. A fault must
+    /// never be collapsed into `None`, so a caller can tell "no such bot" from
+    /// "the read failed" (see docs/conventions.md § Error Handling).
+    async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<Bot>, DomainError>;
     /// Strongly-consistent read for decisions that must not act on a stale
     /// replica — re-validating desired state (`enabled`) inside the restart lock
     /// before launching. Defaults to `find`; the DynamoDB implementation
     /// overrides it with a consistent read.
-    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
+    async fn find_consistent(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+    ) -> Result<Option<Bot>, DomainError> {
         self.find(user_id, bot_id).await
     }
     async fn save(&self, bot: &Bot) -> Result<(), DomainError>;
-    async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot>;
+    async fn find_by_user_id(&self, user_id: &str) -> Result<Vec<Bot>, DomainError>;
     async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;
 }
 

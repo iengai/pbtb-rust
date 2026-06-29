@@ -572,9 +572,7 @@ impl StartLockRepository for DynamoBotRepository {
 
 #[async_trait]
 impl BotRepository for DynamoBotRepository {
-    async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-        // Note: We need user_id to construct PK, so this method uses scan (not efficient)
-        // In production, consider adding bot_id as GSI or passing user_id as well
+    async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<Bot>, DomainError> {
         let result = self
             .client
             .get_item()
@@ -583,14 +581,24 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .ok()?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
-        let item = result.item()?;
-        let bot_item = BotItem::from_item(item)?;
-        bot_item.to_domain()
+        // Absent (None) or malformed (from_item/to_domain None) -> Ok(None); only a
+        // transport/service failure is Err, so "bot does not exist" stays distinct
+        // from "the read failed".
+        Ok(result
+            .item()
+            .and_then(BotItem::from_item)
+            .and_then(|bot_item| bot_item.to_domain()))
     }
 
-    async fn find_consistent(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
+    async fn find_consistent(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+    ) -> Result<Option<Bot>, DomainError> {
         let result = self
             .client
             .get_item()
@@ -600,11 +608,14 @@ impl BotRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .ok()?;
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
+            })?;
 
-        let item = result.item()?;
-        let bot_item = BotItem::from_item(item)?;
-        bot_item.to_domain()
+        Ok(result
+            .item()
+            .and_then(BotItem::from_item)
+            .and_then(|bot_item| bot_item.to_domain()))
     }
 
     async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
@@ -624,30 +635,27 @@ impl BotRepository for DynamoBotRepository {
         Ok(())
     }
 
-    async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
+    async fn find_by_user_id(&self, user_id: &str) -> Result<Vec<Bot>, DomainError> {
         let pk_value = BotItem::construct_pk(user_id);
 
-        let result = self
+        let output = self
             .client
             .query()
             .table_name(&self.table_name)
             .key_condition_expression("pk = :pk")
             .expression_attribute_values(":pk", AttributeValue::S(pk_value))
             .send()
-            .await;
+            .await
+            .map_err(|e| {
+                DomainError::Repository(format!("DynamoDB query failed: {}", fmt_sdk_err(e)))
+            })?;
 
-        match result {
-            Ok(output) => output
-                .items()
-                .iter()
-                .filter_map(|item| BotItem::from_item(item))
-                .filter_map(|bot_item| bot_item.to_domain())
-                .collect(),
-            Err(e) => {
-                tracing::error!("DynamoDB query error: {:?}", e);
-                Vec::new()
-            }
-        }
+        Ok(output
+            .items()
+            .iter()
+            .filter_map(BotItem::from_item)
+            .filter_map(|bot_item| bot_item.to_domain())
+            .collect())
     }
 
     async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {

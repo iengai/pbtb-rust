@@ -71,7 +71,12 @@ impl StartBotUseCase {
     }
 
     pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StartOutcome, String> {
-        let mut bot = match self.bots.find(user_id, bot_id).await {
+        let mut bot = match self
+            .bots
+            .find(user_id, bot_id)
+            .await
+            .map_err(|e| e.to_string())?
+        {
             Some(b) => b,
             None => return Ok(StartOutcome::BotNotFound),
         };
@@ -199,8 +204,8 @@ mod tests {
     }
     #[async_trait]
     impl BotRepository for InMemoryBots {
-        async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-            self.get(user_id, bot_id)
+        async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(self.get(user_id, bot_id))
         }
         async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
             self.bots
@@ -209,14 +214,15 @@ mod tests {
                 .insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
             Ok(())
         }
-        async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
-            self.bots
+        async fn find_by_user_id(&self, user_id: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(self
+                .bots
                 .lock()
                 .unwrap()
                 .values()
                 .filter(|b| b.user_id == user_id)
                 .cloned()
-                .collect()
+                .collect())
         }
         async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
             self.bots

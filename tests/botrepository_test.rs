@@ -177,6 +177,7 @@ async fn dynamo_bot_repository_roundtrip() {
 
     let found = BotRepository::find(&repo, "user-1", "alpha-bot")
         .await
+        .expect("find should not error")
         .expect("bot should be found");
     assert_eq!(found.id, "alpha-bot");
     assert_eq!(found.user_id, "user-1");
@@ -187,7 +188,9 @@ async fn dynamo_bot_repository_roundtrip() {
     assert_eq!(found.created_at, 1_700_000_000);
 
     // --- find for non-existent id returns None ---
-    let missing = BotRepository::find(&repo, "user-1", "does-not-exist").await;
+    let missing = BotRepository::find(&repo, "user-1", "does-not-exist")
+        .await
+        .expect("find should not error");
     assert!(missing.is_none());
 
     // --- mutate (enable) then save then find reflects the update ---
@@ -199,6 +202,7 @@ async fn dynamo_bot_repository_roundtrip() {
 
     let refound = BotRepository::find(&repo, "user-1", "alpha-bot")
         .await
+        .expect("find should not error")
         .expect("updated bot should be found");
     assert!(refound.enabled, "enable() should persist");
     assert_eq!(refound.updated_at, 1_700_000_100);
@@ -227,7 +231,10 @@ async fn dynamo_bot_repository_roundtrip() {
     .await
     .expect("record runtime should succeed");
 
-    let all = repo.find_by_user_id("user-1").await;
+    let all = repo
+        .find_by_user_id("user-1")
+        .await
+        .expect("find_by_user_id should not error");
     assert_eq!(
         all.len(),
         2,
@@ -270,7 +277,9 @@ async fn dynamo_bot_repository_roundtrip() {
     repo.delete("user-1", "alpha-bot")
         .await
         .expect("delete should succeed");
-    let after_delete = BotRepository::find(&repo, "user-1", "alpha-bot").await;
+    let after_delete = BotRepository::find(&repo, "user-1", "alpha-bot")
+        .await
+        .expect("find should not error");
     assert!(after_delete.is_none(), "bot should be gone after delete");
 }
 

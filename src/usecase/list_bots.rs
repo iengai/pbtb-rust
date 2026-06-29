@@ -12,7 +12,9 @@ impl ListBotsUseCase {
     }
 
     pub async fn execute(&self, user_id: &str) -> Result<Vec<Bot>, String> {
-        let bots = self.bot_repository.find_by_user_id(user_id).await;
-        Ok(bots)
+        self.bot_repository
+            .find_by_user_id(user_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 }

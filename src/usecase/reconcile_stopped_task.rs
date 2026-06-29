@@ -78,11 +78,18 @@ impl ReconcileStoppedTaskUseCase {
             .map(|r| r.version)
             .unwrap_or(0);
 
-        let bot = match self.bots.find(user_id, bot_id).await {
+        let bot = match self
+            .bots
+            .find(user_id, bot_id)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+        {
             Some(b) => b,
             None => {
-                // A bot that no longer exists must not be left showing Running.
-                let _ = self
+                // A genuinely absent bot must not be left showing Running. A read
+                // *failure* (vs absence) was already propagated as Err above, so the
+                // Lambda retries rather than recording stopped on a transient blip.
+                if let Err(e) = self
                     .runtimes
                     .record(&BotRuntime::stopped(
                         user_id.to_string(),
@@ -90,7 +97,12 @@ impl ReconcileStoppedTaskUseCase {
                         prev_version,
                         observed_at,
                     ))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        "failed to record stopped runtime for missing bot {bot_id}: {e}"
+                    );
+                }
                 return Ok(ReconcileOutcome::BotNotFound);
             }
         };
@@ -141,16 +153,23 @@ impl ReconcileStoppedTaskUseCase {
         }
 
         // Re-validate desired state inside the held lock: the user may have
-        // disabled the bot between the read above and the claim. Roll the lock
-        // back rather than resurrect a bot that was just turned off.
-        let still_enabled = self
-            .bots
-            .find_consistent(user_id, bot_id)
-            .await
-            .map(|b| b.enabled)
-            .unwrap_or(false);
+        // disabled (or deleted) the bot between the read above and the claim. A
+        // read *failure* rolls the lock back and propagates Err so the restart is
+        // retried, never silently downgraded to "disabled".
+        let still_enabled = match self.bots.find_consistent(user_id, bot_id).await {
+            Ok(Some(b)) => b.enabled,
+            Ok(None) => false,
+            Err(e) => {
+                if let Err(re) = self.locks.release_start(user_id, bot_id, now).await {
+                    tracing::warn!("failed to release start lock for bot {bot_id}: {re}");
+                }
+                return Err(anyhow::anyhow!(e.to_string()));
+            }
+        };
         if !still_enabled {
-            let _ = self.locks.release_start(user_id, bot_id, now).await;
+            if let Err(e) = self.locks.release_start(user_id, bot_id, now).await {
+                tracing::warn!("failed to release start lock for bot {bot_id}: {e}");
+            }
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
 
@@ -178,21 +197,41 @@ impl ReconcileStoppedTaskUseCase {
         // id is attached, stop the task ourselves so it never trades against an OFF
         // intent. The StopTask makes ECS stamp the next STOPPED as UserInitiated, so
         // it is not auto-restarted.
-        let still_enabled = self
-            .bots
-            .find_consistent(user_id, bot_id)
-            .await
-            .map(|b| b.enabled)
-            .unwrap_or(false);
+        let still_enabled = match self.bots.find_consistent(user_id, bot_id).await {
+            Ok(Some(b)) => b.enabled,
+            Ok(None) => false,
+            Err(e) => {
+                // A read failure here leaves a task running against an unknown
+                // intent. Stop it (fail safe toward not-trading) and propagate Err
+                // so the STOPPED event redelivers and re-reconciles.
+                if let Err(se) = self
+                    .stopper
+                    .stop(
+                        cluster_arn,
+                        &task_id,
+                        "stopped: desired-state re-check failed",
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        "failed to stop replacement task {task_id} for bot {bot_id}: {se}"
+                    );
+                }
+                return Err(anyhow::anyhow!(e.to_string()));
+            }
+        };
         if !still_enabled {
-            let _ = self
+            if let Err(e) = self
                 .stopper
                 .stop(
                     cluster_arn,
                     &task_id,
                     "stopped: bot disabled during restart",
                 )
-                .await;
+                .await
+            {
+                tracing::warn!("failed to stop replacement task {task_id} for bot {bot_id}: {e}");
+            }
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
         Ok(ReconcileOutcome::Restarted { task_id })
@@ -260,12 +299,13 @@ mod tests {
     }
     #[async_trait]
     impl BotRepository for InMemoryBots {
-        async fn find(&self, user_id: &str, bot_id: &str) -> Option<Bot> {
-            self.bots
+        async fn find(&self, user_id: &str, bot_id: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(self
+                .bots
                 .lock()
                 .unwrap()
                 .get(&(user_id.to_string(), bot_id.to_string()))
-                .cloned()
+                .cloned())
         }
         async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
             self.bots
@@ -274,14 +314,15 @@ mod tests {
                 .insert((bot.user_id.clone(), bot.id.clone()), bot.clone());
             Ok(())
         }
-        async fn find_by_user_id(&self, user_id: &str) -> Vec<Bot> {
-            self.bots
+        async fn find_by_user_id(&self, user_id: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(self
+                .bots
                 .lock()
                 .unwrap()
                 .values()
                 .filter(|b| b.user_id == user_id)
                 .cloned()
-                .collect()
+                .collect())
         }
         async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
             self.bots
@@ -685,17 +726,17 @@ mod tests {
     struct DisableDuringClaimBots;
     #[async_trait]
     impl BotRepository for DisableDuringClaimBots {
-        async fn find(&self, _u: &str, _b: &str) -> Option<Bot> {
-            Some(enabled_bot(true))
+        async fn find(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(Some(enabled_bot(true)))
         }
-        async fn find_consistent(&self, _u: &str, _b: &str) -> Option<Bot> {
-            Some(enabled_bot(false))
+        async fn find_consistent(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(Some(enabled_bot(false)))
         }
         async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
             Ok(())
         }
-        async fn find_by_user_id(&self, _u: &str) -> Vec<Bot> {
-            vec![]
+        async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(vec![])
         }
         async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
             Ok(())
@@ -760,19 +801,19 @@ mod tests {
     }
     #[async_trait]
     impl BotRepository for DisableAfterLaunchBots {
-        async fn find(&self, _u: &str, _b: &str) -> Option<Bot> {
-            Some(enabled_bot(true))
+        async fn find(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(Some(enabled_bot(true)))
         }
-        async fn find_consistent(&self, _u: &str, _b: &str) -> Option<Bot> {
+        async fn find_consistent(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
             let mut n = self.consistent_reads.lock().unwrap();
             *n += 1;
-            Some(enabled_bot(*n < 2))
+            Ok(Some(enabled_bot(*n < 2)))
         }
         async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
             Ok(())
         }
-        async fn find_by_user_id(&self, _u: &str) -> Vec<Bot> {
-            vec![]
+        async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(vec![])
         }
         async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
             Ok(())
@@ -822,6 +863,142 @@ mod tests {
             *stopper.stops.lock().unwrap(),
             vec!["task-xyz".to_string()],
             "and is stopped once the disable is seen"
+        );
+    }
+
+    /// `find` fails with a repository error (a transient DynamoDB read failure),
+    /// proving a read fault propagates as Err instead of masquerading as
+    /// BotNotFound and silently abandoning the OOM restart.
+    struct FindErrorBots;
+    #[async_trait]
+    impl BotRepository for FindErrorBots {
+        async fn find(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Err(DomainError::Repository(
+                "dynamodb get_item failed".to_string(),
+            ))
+        }
+        async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(vec![])
+        }
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn read_error_on_find_returns_err_not_bot_not_found() {
+        let bots = Arc::new(FindErrorBots);
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let runner = Arc::new(MockTaskRunner::new("task-xyz"));
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let uc = ReconcileStoppedTaskUseCase::new(
+            bots,
+            runtimes,
+            locks,
+            runner.clone(),
+            Arc::new(MockStopper::default()),
+        );
+
+        let result = uc
+            .execute(
+                "user-1",
+                "bot-1",
+                "old-task",
+                "cluster",
+                "td",
+                "container",
+                StopInfo {
+                    exit_code: 137,
+                    stop_code: "TaskFailedToStart".to_string(),
+                },
+                EVENT_AT,
+                EVENT_AT,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "a read failure must surface as Err, not Ok(BotNotFound)"
+        );
+        assert_eq!(
+            runner.call_count(),
+            0,
+            "must not launch when the bot read failed"
+        );
+    }
+
+    /// `find` returns an enabled bot, but the strongly-consistent re-read inside
+    /// the restart lock fails — proving the pre-launch gate rolls the lock back
+    /// and propagates Err rather than treating the read failure as "disabled".
+    struct PrelaunchReadErrorBots;
+    #[async_trait]
+    impl BotRepository for PrelaunchReadErrorBots {
+        async fn find(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Ok(Some(enabled_bot(true)))
+        }
+        async fn find_consistent(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
+            Err(DomainError::Repository(
+                "dynamodb get_item failed".to_string(),
+            ))
+        }
+        async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
+            Ok(vec![])
+        }
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn read_error_in_prelaunch_gate_releases_lock_and_returns_err() {
+        let bots = Arc::new(PrelaunchReadErrorBots);
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let runner = Arc::new(MockTaskRunner::new("task-xyz"));
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let uc = ReconcileStoppedTaskUseCase::new(
+            bots,
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            Arc::new(MockStopper::default()),
+        );
+
+        let result = uc
+            .execute(
+                "user-1",
+                "bot-1",
+                "old-task",
+                "cluster",
+                "td",
+                "container",
+                StopInfo {
+                    exit_code: 137,
+                    stop_code: "TaskFailedToStart".to_string(),
+                },
+                EVENT_AT,
+                EVENT_AT,
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "a consistent-read failure in the gate must surface as Err"
+        );
+        assert_eq!(
+            runner.call_count(),
+            0,
+            "must not launch when the re-validation read failed"
+        );
+        assert_eq!(
+            *locks.released.lock().unwrap(),
+            1,
+            "the lock is rolled back on the read failure"
         );
     }
 }
