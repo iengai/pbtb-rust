@@ -26,7 +26,7 @@ impl S3ApiKeyRepository {
         }
     }
     fn api_key_path(user_id: &str, bot_id: &str) -> String {
-        format!("{}/{}/api-keys.json", user_id, bot_id)
+        format!("{user_id}/{bot_id}/api-keys.json")
     }
 
     pub async fn save(&self, bot: &Bot) -> Result<(), DomainError> {

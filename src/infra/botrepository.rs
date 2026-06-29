@@ -92,7 +92,7 @@ impl BotItem {
 
     /// Construct PK from user_id
     fn construct_pk(user_id: &str) -> String {
-        format!("user_id#{}", user_id)
+        format!("user_id#{user_id}")
     }
 
     fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
