@@ -18,7 +18,7 @@ impl S3ApiKeyRepository {
         }
     }
     fn api_key_path(user_id: &str, bot_id: &str) -> String {
-        format!("{}/{}/api-keys.json", user_id, bot_id)
+        format!("{user_id}/{bot_id}/api-keys.json")
     }
 
     pub async fn save(&self, bot: &Bot) -> Result<(), String> {
@@ -32,7 +32,7 @@ impl S3ApiKeyRepository {
         });
 
         let json_bytes = serde_json::to_vec_pretty(&api_key)
-            .map_err(|e| format!("Failed to serialize api-keys: {:?}", e))?;
+            .map_err(|e| format!("Failed to serialize api-keys: {e:?}"))?;
 
         self.client
             .put_object()
@@ -42,7 +42,7 @@ impl S3ApiKeyRepository {
             .content_type("application/json")
             .send()
             .await
-            .map_err(|e| format!("Failed to save api-keys.json to S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to save api-keys.json to S3: {e:?}"))?;
 
         Ok(())
     }
@@ -57,7 +57,7 @@ impl S3ApiKeyRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to delete bot config from S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to delete bot config from S3: {e:?}"))?;
 
         Ok(())
     }

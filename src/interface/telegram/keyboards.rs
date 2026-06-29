@@ -82,7 +82,7 @@ pub(crate) fn bot_list_keyboard(
 /// previewed template (`confirm_template:<name>`); Cancel aborts.
 pub(crate) fn template_confirm_keyboard(template_name: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback("✅ Confirm", format!("confirm_template:{}", template_name)),
+        InlineKeyboardButton::callback("✅ Confirm", format!("confirm_template:{template_name}")),
         InlineKeyboardButton::callback("❌ Cancel", "cancel_template_selection"),
     ]])
 }
@@ -93,10 +93,10 @@ pub(crate) fn template_list_keyboard(templates: &[String]) -> InlineKeyboardMark
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
     for template_name in templates {
-        let button_text = format!("📄 {}", template_name);
+        let button_text = format!("📄 {template_name}");
 
         // Callback data format: "select_template:<template_name>"
-        let callback_data = format!("select_template:{}", template_name);
+        let callback_data = format!("select_template:{template_name}");
 
         let button = InlineKeyboardButton::callback(button_text, callback_data);
         keyboard.push(vec![button]);

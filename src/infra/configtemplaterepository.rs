@@ -17,7 +17,7 @@ impl S3TemplateRepository {
 
     /// Helper: construct S3 key for template
     fn template_key(template_name: &str) -> String {
-        format!("predefined/{}.json", template_name)
+        format!("predefined/{template_name}.json")
     }
 }
 
@@ -33,17 +33,17 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to get template from S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to get template from S3: {e:?}"))?;
 
         let bytes = result
             .body
             .collect()
             .await
-            .map_err(|e| format!("Failed to read template body: {:?}", e))?
+            .map_err(|e| format!("Failed to read template body: {e:?}"))?
             .into_bytes();
 
         let json_value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Failed to parse bot config JSON: {:?}", e))?;
+            .map_err(|e| format!("Failed to parse bot config JSON: {e:?}"))?;
 
         Ok(ConfigTemplate {
             name: template_name.to_string(),
@@ -61,7 +61,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .prefix("predefined/")
             .send()
             .await
-            .map_err(|e| format!("Failed to list templates from S3: {:?}", e))?;
+            .map_err(|e| format!("Failed to list templates from S3: {e:?}"))?;
 
         let templates = result
             .contents()
@@ -91,11 +91,11 @@ impl ConfigTemplateRepository for S3TemplateRepository {
         {
             Ok(_) => Ok(true),
             Err(e) => {
-                let error_msg = format!("{:?}", e);
+                let error_msg = format!("{e:?}");
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
-                    Err(format!("Failed to check template existence: {:?}", e))
+                    Err(format!("Failed to check template existence: {e:?}"))
                 }
             }
         }

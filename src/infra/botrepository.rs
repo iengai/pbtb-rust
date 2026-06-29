@@ -67,7 +67,7 @@ impl BotItem {
 
     /// Construct PK from user_id
     fn construct_pk(user_id: &str) -> String {
-        format!("user_id#{}", user_id)
+        format!("user_id#{user_id}")
     }
 
     fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
@@ -159,7 +159,7 @@ struct BotECSTaskMetadata {
 
 impl BotECSTaskMetadata {
     fn construct_sk(bot_id: &str) -> String {
-        format!("ecs_task_metadata#{}", bot_id)
+        format!("ecs_task_metadata#{bot_id}")
     }
 
     fn get_bot_id(&self) -> String {
@@ -668,7 +668,7 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .map_err(|e| format!("Failed to delete bot: {:?}", e))?;
+            .map_err(|e| format!("Failed to delete bot: {e:?}"))?;
 
         Ok(())
     }

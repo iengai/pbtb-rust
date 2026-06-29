@@ -64,7 +64,7 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
             if label.is_empty() {
                 (*name).to_owned()
             } else {
-                format!("{} ({})", name, label)
+                format!("{name} ({label})")
             }
         })
         .collect::<Vec<_>>()
@@ -101,14 +101,13 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
 
     format!(
         "📄 Apply this config?\n\n\
-        • Template: {}\n\
-        🤖 Strategy: {}\n\
-        📝 Description: {}\n\n\
+        • Template: {template_name}\n\
+        🤖 Strategy: {strategies}\n\
+        📝 Description: {description}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
-        {}\n\n\
+        {exposure}\n\n\
         💰 Preset coins:\n\
-        {}\n\n\
-        Confirm to apply, or Cancel.",
-        template_name, strategies, description, exposure, coins
+        {coins}\n\n\
+        Confirm to apply, or Cancel."
     )
 }
