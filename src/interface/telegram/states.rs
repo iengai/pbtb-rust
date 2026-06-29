@@ -13,6 +13,14 @@ pub enum DialogueState {
     ConfirmDelete {
         bot_id: String,
     },
+    /// Awaiting yes/no after an add hit an existing bot of the same name. Holds
+    /// the entered credentials so a confirmed overwrite can save without
+    /// re-prompting.
+    ConfirmOverwriteBot {
+        name: String,
+        api_key: String,
+        secret_key: String,
+    },
     ReceiveRiskLevel,
 }
 

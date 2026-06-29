@@ -5,7 +5,7 @@ use super::{
     Deps,
     states::{BotContext, DialogueState},
 };
-use crate::usecase::{StartOutcome, StopOutcome};
+use crate::usecase::{AddOutcome, StartOutcome, StopOutcome};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -23,6 +23,14 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                     .endpoint(receive_secret_key),
             )
             .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
+            .branch(
+                dptree::case![DialogueState::ConfirmOverwriteBot {
+                    name,
+                    api_key,
+                    secret_key
+                }]
+                .endpoint(confirm_overwrite_bot),
+            )
             .branch(dptree::case![DialogueState::ReceiveRiskLevel].endpoint(receive_risk_level)),
     )
 }
@@ -588,6 +596,7 @@ async fn receive_secret_key(
     let result = async {
         match msg.text() {
             Some(secret_key) => {
+                let secret_key = secret_key.to_string();
                 let user_id = msg
                     .from()
                     .map(|user| user.id.to_string())
@@ -596,10 +605,10 @@ async fn receive_secret_key(
                 // Save bot using use case
                 match deps
                     .add_bot_usecase
-                    .execute(&user_id, name.clone(), api_key, secret_key.to_string())
+                    .execute(&user_id, name.clone(), api_key.clone(), secret_key.clone())
                     .await
                 {
-                    Ok(new_bot) => {
+                    Ok(AddOutcome::Added(new_bot)) => {
                         bot.send_message(
                             msg.chat.id,
                             format!(
@@ -612,15 +621,41 @@ async fn receive_secret_key(
                             ),
                         )
                         .await?;
+                        dialogue.update(DialogueState::Start).await?;
+                    }
+                    Ok(AddOutcome::AlreadyExists(existing)) => {
+                        let status = if existing.enabled {
+                            "🟢 Enabled"
+                        } else {
+                            "🔴 Disabled"
+                        };
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "⚠️ A bot named \"{}\" already exists.\n\n\
+                                🆔 ID: {}\n\
+                                📊 Status: {}\n\n\
+                                Adding it again will overwrite its API keys \
+                                (its config and run state are kept).\n\n\
+                                Reply 'yes' to overwrite, or any other message to cancel.",
+                                existing.name, existing.id, status
+                            ),
+                        )
+                        .await?;
+                        dialogue
+                            .update(DialogueState::ConfirmOverwriteBot {
+                                name,
+                                api_key,
+                                secret_key,
+                            })
+                            .await?;
                     }
                     Err(e) => {
                         bot.send_message(msg.chat.id, format!("❌ Error saving bot: {}", e))
                             .await?;
+                        dialogue.update(DialogueState::Start).await?;
                     }
                 }
-
-                // Reset dialogue to start
-                dialogue.update(DialogueState::Start).await?;
             }
             None => {
                 bot.send_message(msg.chat.id, "❌ Please send text for secret key.")
@@ -684,6 +719,75 @@ async fn confirm_delete(
             None => {
                 bot.send_message(msg.chat.id, "❌ Please send text to confirm.")
                     .await?;
+            }
+        }
+        anyhow::Ok(())
+    }
+    .await;
+
+    result.map_err(|_| DependencyMap::new())
+}
+
+async fn confirm_overwrite_bot(
+    bot: Bot,
+    dialogue: MyDialogue,
+    _bot_context: MyBotContext,
+    (name, api_key, secret_key): (String, String, String),
+    msg: Message,
+    deps: Deps,
+) -> Result<(), DependencyMap> {
+    let result = async {
+        match msg.text() {
+            Some(text) => {
+                if text.trim().eq_ignore_ascii_case("yes") {
+                    let user_id = msg
+                        .from()
+                        .map(|user| user.id.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    match deps
+                        .add_bot_usecase
+                        .overwrite(&user_id, name, api_key, secret_key)
+                        .await
+                    {
+                        Ok(saved) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "✅ Bot overwritten successfully!\n\n\
+                                    📝 Name: {}\n\
+                                    🆔 ID: {}\n\n\
+                                    Its API keys were updated.",
+                                    saved.name, saved.id
+                                ),
+                            )
+                            .await?;
+                        }
+                        Err(e) => {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("❌ Error overwriting bot: {}", e),
+                            )
+                            .await?;
+                        }
+                    }
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        "🚫 Overwrite cancelled. The existing bot was left unchanged.",
+                    )
+                    .await?;
+                }
+
+                // Reset dialogue to start
+                dialogue.update(DialogueState::Start).await?;
+            }
+            None => {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Please send 'yes' to confirm or any other message to cancel.",
+                )
+                .await?;
             }
         }
         anyhow::Ok(())

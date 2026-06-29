@@ -15,7 +15,7 @@ mod stop_task;
 mod update_bot_config;
 mod update_risklevel;
 
-pub use add_bot::AddBotUseCase;
+pub use add_bot::{AddBotUseCase, AddOutcome};
 pub use apply_template::ApplyTemplateUseCase;
 pub use delete_bot::DeleteBotUseCase;
 pub use get_bot_config::GetBotConfigUseCase;
