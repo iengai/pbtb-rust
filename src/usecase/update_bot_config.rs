@@ -1,5 +1,6 @@
 use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct UpdateBotConfigUseCase {
@@ -20,7 +21,7 @@ impl UpdateBotConfigUseCase {
         user_id: &str,
         bot_id: &str,
         new_config_data: serde_json::Value,
-    ) -> Result<(), String> {
+    ) -> Result<(), DomainError> {
         // Get existing config
         let mut bot_config = self.bot_config_repository.get(user_id, bot_id).await?;
 

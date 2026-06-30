@@ -423,16 +423,16 @@ impl BotConfig {
 #[async_trait]
 pub trait BotConfigRepository: Send + Sync {
     /// Get bot-specific configuration
-    async fn get(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, String>;
+    async fn get(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, DomainError>;
 
     /// Save bot-specific configuration
-    async fn save(&self, config: &BotConfig) -> Result<(), String>;
+    async fn save(&self, config: &BotConfig) -> Result<(), DomainError>;
 
     /// Delete bot-specific configuration
-    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError>;
 
     /// Check if bot has a configuration
-    async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, String>;
+    async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, DomainError>;
 }
 
 #[cfg(test)]

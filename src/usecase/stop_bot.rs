@@ -1,5 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
 use std::sync::Arc;
@@ -51,13 +52,8 @@ impl StopBotUseCase {
         }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StopOutcome, String> {
-        let mut bot = match self
-            .bots
-            .find(user_id, bot_id)
-            .await
-            .map_err(|e| e.to_string())?
-        {
+    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StopOutcome, DomainError> {
+        let mut bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,
             None => return Ok(StopOutcome::BotNotFound),
         };
@@ -66,13 +62,9 @@ impl StopBotUseCase {
         // restarting the task when its STOPPED event arrives.
         let now = self.clock.now();
         bot.disable(now);
-        self.bots.save(&bot).await.map_err(|e| e.to_string())?;
+        self.bots.save(&bot).await?;
 
-        let runtime = self
-            .runtimes
-            .find_consistent(user_id, bot_id)
-            .await
-            .map_err(|e| e.to_string())?;
+        let runtime = self.runtimes.find_consistent(user_id, bot_id).await?;
         match runtime {
             Some(rt) if matches!(rt.phase, RuntimePhase::Running | RuntimePhase::Starting) => {
                 let version = rt.version;
@@ -130,7 +122,15 @@ impl StopBotUseCase {
                                         }
                                         Ok(StopOutcome::NotRunning)
                                     }
-                                    _ => Err(stop_err.to_string()),
+                                    _ => {
+                                        let context = format!(
+                                            "failed to stop task for bot {bot_id}: {stop_err:#}"
+                                        );
+                                        Err(DomainError::Repository {
+                                            context,
+                                            source: stop_err.into(),
+                                        })
+                                    }
                                 }
                             }
                         }
@@ -205,7 +205,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
             self.bots
                 .lock()
                 .unwrap()
@@ -529,7 +529,7 @@ mod tests {
 
         let err = uc.execute("user-1", "bot-1").await.unwrap_err();
         assert!(
-            !err.is_empty(),
+            matches!(err, DomainError::Repository { .. }),
             "a live task whose stop failed is a real error"
         );
         let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();

@@ -1,4 +1,5 @@
 pub mod apikeyrepository;
+pub(crate) mod aws_error;
 pub mod botconfigrepository;
 pub mod botrepository;
 pub mod client;

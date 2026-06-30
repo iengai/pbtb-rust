@@ -73,17 +73,11 @@ impl ReconcileStoppedTaskUseCase {
         let prev_version = self
             .runtimes
             .find(user_id, bot_id)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .await?
             .map(|r| r.version)
             .unwrap_or(0);
 
-        let bot = match self
-            .bots
-            .find(user_id, bot_id)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
-        {
+        let bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,
             None => {
                 // A genuinely absent bot must not be left showing Running. A read
@@ -116,8 +110,7 @@ impl ReconcileStoppedTaskUseCase {
                     prev_version,
                     observed_at,
                 ))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                .await?;
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
         if !stop.is_memory_related() {
@@ -128,8 +121,7 @@ impl ReconcileStoppedTaskUseCase {
                     prev_version,
                     observed_at,
                 ))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                .await?;
             return Ok(ReconcileOutcome::SkippedNotMemoryRelated);
         }
 
@@ -143,8 +135,7 @@ impl ReconcileStoppedTaskUseCase {
         match self
             .locks
             .try_acquire_restart(user_id, bot_id, stopped_task_id, now)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            .await?
         {
             StartClaim::Acquired => {}
             // The stopped task was already replaced or claimed by another launcher;
@@ -163,7 +154,7 @@ impl ReconcileStoppedTaskUseCase {
                 if let Err(re) = self.locks.release_start(user_id, bot_id, now).await {
                     tracing::warn!("failed to release start lock for bot {bot_id}: {re}");
                 }
-                return Err(anyhow::anyhow!(e.to_string()));
+                return Err(e.into());
             }
         };
         if !still_enabled {
@@ -182,14 +173,22 @@ impl ReconcileStoppedTaskUseCase {
         {
             Ok(id) => id,
             Err(e) => {
-                let _ = self.locks.release_start(user_id, bot_id, now).await;
+                // Best-effort rollback after a failed launch: a failed release is
+                // recorded, not propagated over the launch error that caused it.
+                if let Err(re) = self.locks.release_start(user_id, bot_id, now).await {
+                    tracing::warn!(
+                        user_id,
+                        bot_id,
+                        error = %re,
+                        "failed to release start lock after a failed restart launch"
+                    );
+                }
                 return Err(e);
             }
         };
         self.locks
             .attach_started_task(user_id, bot_id, &task_id)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .await?;
 
         // Post-launch re-check: a disable that landed during the launch window —
         // after the gate above but before the task id was attached — is invisible
@@ -217,7 +216,7 @@ impl ReconcileStoppedTaskUseCase {
                         "failed to stop replacement task {task_id} for bot {bot_id}: {se}"
                     );
                 }
-                return Err(anyhow::anyhow!(e.to_string()));
+                return Err(e.into());
             }
         };
         if !still_enabled {
@@ -324,7 +323,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
             self.bots
                 .lock()
                 .unwrap()
@@ -738,7 +737,7 @@ mod tests {
         async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
             Ok(vec![])
         }
-        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), DomainError> {
             Ok(())
         }
     }
@@ -815,7 +814,7 @@ mod tests {
         async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
             Ok(vec![])
         }
-        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), DomainError> {
             Ok(())
         }
     }
@@ -873,8 +872,9 @@ mod tests {
     #[async_trait]
     impl BotRepository for FindErrorBots {
         async fn find(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
-            Err(DomainError::Repository(
-                "dynamodb get_item failed".to_string(),
+            Err(DomainError::repository(
+                "dynamodb get_item failed",
+                std::io::Error::other("simulated dynamodb read failure"),
             ))
         }
         async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
@@ -883,7 +883,7 @@ mod tests {
         async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
             Ok(vec![])
         }
-        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), DomainError> {
             Ok(())
         }
     }
@@ -940,8 +940,9 @@ mod tests {
             Ok(Some(enabled_bot(true)))
         }
         async fn find_consistent(&self, _u: &str, _b: &str) -> Result<Option<Bot>, DomainError> {
-            Err(DomainError::Repository(
-                "dynamodb get_item failed".to_string(),
+            Err(DomainError::repository(
+                "dynamodb get_item failed",
+                std::io::Error::other("simulated dynamodb read failure"),
             ))
         }
         async fn save(&self, _bot: &Bot) -> Result<(), DomainError> {
@@ -950,7 +951,7 @@ mod tests {
         async fn find_by_user_id(&self, _u: &str) -> Result<Vec<Bot>, DomainError> {
             Ok(vec![])
         }
-        async fn delete(&self, _u: &str, _b: &str) -> Result<(), String> {
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), DomainError> {
             Ok(())
         }
     }

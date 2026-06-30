@@ -1,6 +1,7 @@
 use crate::domain::botconfig::{BotConfig, BotConfigRepository};
 use crate::domain::clock::Clock;
 use crate::domain::configtemplate::ConfigTemplateRepository;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct ApplyTemplateUseCase {
@@ -27,7 +28,7 @@ impl ApplyTemplateUseCase {
         user_id: &str,
         bot_id: &str,
         template_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), DomainError> {
         // 1. Build the bot config from the template (sets live.user internally).
         let bot_config = self.preview(user_id, bot_id, template_name).await?;
 
@@ -43,10 +44,9 @@ impl ApplyTemplateUseCase {
         user_id: &str,
         bot_id: &str,
         template_name: &str,
-    ) -> Result<BotConfig, String> {
+    ) -> Result<BotConfig, DomainError> {
         let template = self.template_repository.get(template_name).await?;
         let now = self.clock.now();
         BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)
-            .map_err(|e| e.to_string())
     }
 }

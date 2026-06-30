@@ -1,5 +1,6 @@
 use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 /// Turn a bot's strategy side (`long`/`short`) on or off by editing
@@ -25,11 +26,9 @@ impl SetStrategySideUseCase {
         bot_id: &str,
         side: &str,
         enabled: bool,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, DomainError> {
         let mut config = self.bot_config_repository.get(user_id, bot_id).await?;
-        config
-            .set_side_enabled(side, enabled, self.clock.now())
-            .map_err(|e| e.to_string())?;
+        config.set_side_enabled(side, enabled, self.clock.now())?;
         self.bot_config_repository.save(&config).await?;
         Ok(config.side_enabled(side))
     }
@@ -55,17 +54,17 @@ mod tests {
     }
     #[async_trait]
     impl BotConfigRepository for InMemoryConfig {
-        async fn get(&self, _user_id: &str, _bot_id: &str) -> Result<BotConfig, String> {
+        async fn get(&self, _user_id: &str, _bot_id: &str) -> Result<BotConfig, DomainError> {
             Ok(self.config.lock().unwrap().clone())
         }
-        async fn save(&self, config: &BotConfig) -> Result<(), String> {
+        async fn save(&self, config: &BotConfig) -> Result<(), DomainError> {
             *self.config.lock().unwrap() = config.clone();
             Ok(())
         }
-        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), DomainError> {
             Ok(())
         }
-        async fn exists(&self, _user_id: &str, _bot_id: &str) -> Result<bool, String> {
+        async fn exists(&self, _user_id: &str, _bot_id: &str) -> Result<bool, DomainError> {
             Ok(true)
         }
     }

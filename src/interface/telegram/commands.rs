@@ -5,6 +5,7 @@ use teloxide::utils::command::BotCommands;
 
 use super::{
     Deps, keyboards,
+    redaction::redact,
     states::{BotContext, DialogueState},
 };
 
@@ -139,7 +140,7 @@ async fn dispatch_command(
                         }
                     }
                     Err(e) => {
-                        bot.send_message(msg.chat.id, format!("❌ Error fetching bots: {}", e))
+                        bot.send_message(msg.chat.id, redact("fetching bots", &e))
                             .await?;
                     }
                 }

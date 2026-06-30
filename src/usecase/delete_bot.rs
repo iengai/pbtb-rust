@@ -1,4 +1,5 @@
 use crate::domain::bot::{ApiKeyRepository, BotRepository};
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct DeleteBotUseCase {
@@ -17,15 +18,12 @@ impl DeleteBotUseCase {
         }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
         // Delete from DynamoDB
         self.bot_repository.delete(user_id, bot_id).await?;
 
         // Delete API keys from S3
-        self.api_keys_repository
-            .delete(user_id, bot_id)
-            .await
-            .map_err(|e| format!("Failed to remove API keys from S3: {}", e))?;
+        self.api_keys_repository.delete(user_id, bot_id).await?;
 
         Ok(())
     }

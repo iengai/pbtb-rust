@@ -1,5 +1,6 @@
 use super::{
     Deps,
+    redaction::redact,
     states::{BotContext, DialogueState},
     types,
 };
@@ -227,7 +228,7 @@ async fn handle_template_selection(
         }
         Err(e) => {
             if let Some(Message { chat, .. }) = q.message {
-                bot.send_message(chat.id, format!("❌ Failed to load config\n\nError: {}", e))
+                bot.send_message(chat.id, redact("loading the config", &e))
                     .await?;
             }
         }
@@ -292,16 +293,8 @@ async fn handle_confirm_template(
         }
         Err(e) => {
             if let Some(Message { chat, .. }) = q.message {
-                bot.send_message(
-                    chat.id,
-                    format!(
-                        "❌ Failed to apply config\n\n\
-                        Error: {}\n\n\
-                        Please try again or contact support.",
-                        e
-                    ),
-                )
-                .await?;
+                bot.send_message(chat.id, redact("applying the config", &e))
+                    .await?;
             }
         }
     }
@@ -374,7 +367,7 @@ async fn handle_toggle_side(
         }
         Err(e) => {
             bot.answer_callback_query(&q.id)
-                .text(format!("❌ {}", e))
+                .text(redact("changing the strategy side", &e))
                 .show_alert(true)
                 .await?;
         }

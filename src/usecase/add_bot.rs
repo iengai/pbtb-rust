@@ -1,5 +1,6 @@
 use crate::domain::bot::{ApiKeyRepository, Bot, BotRepository};
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 /// Outcome of an add-bot attempt. A name collision is an expected business
@@ -39,7 +40,7 @@ impl AddBotUseCase {
         name: String,
         api_key: String,
         secret_key: String,
-    ) -> Result<AddOutcome, String> {
+    ) -> Result<AddOutcome, DomainError> {
         // Detect by name, not by id: a same-name bot whose id was not derived
         // from the name (an older row keyed on a numeric account id) would slip
         // past an id lookup and a second row would be created — the duplicate
@@ -72,7 +73,7 @@ impl AddBotUseCase {
         name: String,
         api_key: String,
         secret_key: String,
-    ) -> Result<Bot, String> {
+    ) -> Result<Bot, DomainError> {
         let now = self.clock.now();
         let bot = match self.find_by_name(user_id, &name).await? {
             Some(existing) => Bot::new(
@@ -92,26 +93,16 @@ impl AddBotUseCase {
         Ok(bot)
     }
 
-    async fn find_by_name(&self, user_id: &str, name: &str) -> Result<Option<Bot>, String> {
-        let bots = self
-            .bot_repository
-            .find_by_user_id(user_id)
-            .await
-            .map_err(|e| format!("Failed to look up existing bots: {e}"))?;
+    async fn find_by_name(&self, user_id: &str, name: &str) -> Result<Option<Bot>, DomainError> {
+        let bots = self.bot_repository.find_by_user_id(user_id).await?;
         Ok(bots.into_iter().find(|b| b.name == name))
     }
 
-    async fn persist(&self, bot: &Bot) -> Result<(), String> {
+    async fn persist(&self, bot: &Bot) -> Result<(), DomainError> {
         // DynamoDB first, then S3: the bot row is the source of truth the rest
         // of the system reads; the api-keys object is downstream of it.
-        self.bot_repository
-            .save(bot)
-            .await
-            .map_err(|e| format!("Failed to save bot: {e}"))?;
-        self.api_keys_repository
-            .save(bot)
-            .await
-            .map_err(|e| format!("Failed to save API keys to S3: {e}"))?;
+        self.bot_repository.save(bot).await?;
+        self.api_keys_repository.save(bot).await?;
         Ok(())
     }
 }
@@ -167,7 +158,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
             self.bots
                 .lock()
                 .unwrap()
@@ -184,11 +175,11 @@ mod tests {
     }
     #[async_trait]
     impl ApiKeyRepository for MockApiKeyRepository {
-        async fn save(&self, bot: &Bot) -> Result<(), String> {
+        async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
             *self.saved.lock().unwrap() = Some(bot.clone());
             Ok(())
         }
-        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), DomainError> {
             Ok(())
         }
     }

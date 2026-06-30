@@ -1,5 +1,7 @@
 use crate::domain::Bot;
 use crate::domain::bot::ApiKeyRepository;
+use crate::domain::error::DomainError;
+use crate::infra::aws_error::repo_err;
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
@@ -21,7 +23,7 @@ impl S3ApiKeyRepository {
         format!("{}/{}/api-keys.json", user_id, bot_id)
     }
 
-    pub async fn save(&self, bot: &Bot) -> Result<(), String> {
+    pub async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
         let key = Self::api_key_path(&bot.user_id, &bot.id);
         let api_key = json!({
             &bot.id: {
@@ -32,7 +34,7 @@ impl S3ApiKeyRepository {
         });
 
         let json_bytes = serde_json::to_vec_pretty(&api_key)
-            .map_err(|e| format!("Failed to serialize api-keys: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to serialize api-keys", e))?;
 
         self.client
             .put_object()
@@ -42,13 +44,13 @@ impl S3ApiKeyRepository {
             .content_type("application/json")
             .send()
             .await
-            .map_err(|e| format!("Failed to save api-keys.json to S3: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to save api-keys.json to S3", e))?;
 
         Ok(())
     }
 
     /// Remove bot API key
-    pub async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+    pub async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
         let key = Self::api_key_path(user_id, bot_id);
 
         self.client
@@ -57,7 +59,7 @@ impl S3ApiKeyRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to delete bot config from S3: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to delete api-keys.json from S3", e))?;
 
         Ok(())
     }
@@ -65,11 +67,11 @@ impl S3ApiKeyRepository {
 
 #[async_trait]
 impl ApiKeyRepository for S3ApiKeyRepository {
-    async fn save(&self, bot: &Bot) -> Result<(), String> {
+    async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
         S3ApiKeyRepository::save(self, bot).await
     }
 
-    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
         S3ApiKeyRepository::delete(self, user_id, bot_id).await
     }
 }

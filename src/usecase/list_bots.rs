@@ -1,4 +1,5 @@
 use crate::domain::bot::{Bot, BotRepository};
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct ListBotsUseCase {
@@ -11,10 +12,7 @@ impl ListBotsUseCase {
         Self { bot_repository }
     }
 
-    pub async fn execute(&self, user_id: &str) -> Result<Vec<Bot>, String> {
-        self.bot_repository
-            .find_by_user_id(user_id)
-            .await
-            .map_err(|e| e.to_string())
+    pub async fn execute(&self, user_id: &str) -> Result<Vec<Bot>, DomainError> {
+        self.bot_repository.find_by_user_id(user_id).await
     }
 }
