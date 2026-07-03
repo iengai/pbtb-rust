@@ -1,6 +1,7 @@
 use crate::domain::RiskLevel;
 use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct UpdateRiskLevelUseCase {
@@ -22,18 +23,16 @@ impl UpdateRiskLevelUseCase {
         bot_id: &str,
         risk_long: f64,
         risk_short: f64,
-    ) -> Result<(), String> {
+    ) -> Result<(), DomainError> {
         // 1. Get existing bot config
         let mut bot_config = self.bot_config_repository.get(user_id, bot_id).await?;
 
         // 2. Create RiskLevel value object (validated on construction)
-        let risk = RiskLevel::new(risk_long, risk_short).map_err(|e| e.to_string())?;
+        let risk = RiskLevel::new(risk_long, risk_short)?;
 
         // 3. Apply risk level: sets risk, derives leverage, bumps updated_at.
         // The leverage policy lives in the domain now.
-        bot_config
-            .apply_risk_level(&risk, self.clock.now())
-            .map_err(|e| e.to_string())?;
+        bot_config.apply_risk_level(&risk, self.clock.now())?;
 
         // 4. Save updated config
         self.bot_config_repository.save(&bot_config).await?;
@@ -64,17 +63,17 @@ mod tests {
     }
     #[async_trait]
     impl BotConfigRepository for InMemoryConfig {
-        async fn get(&self, _user_id: &str, _bot_id: &str) -> Result<BotConfig, String> {
+        async fn get(&self, _user_id: &str, _bot_id: &str) -> Result<BotConfig, DomainError> {
             Ok(self.config.lock().unwrap().clone())
         }
-        async fn save(&self, config: &BotConfig) -> Result<(), String> {
+        async fn save(&self, config: &BotConfig) -> Result<(), DomainError> {
             *self.config.lock().unwrap() = config.clone();
             Ok(())
         }
-        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, _user_id: &str, _bot_id: &str) -> Result<(), DomainError> {
             Ok(())
         }
-        async fn exists(&self, _user_id: &str, _bot_id: &str) -> Result<bool, String> {
+        async fn exists(&self, _user_id: &str, _bot_id: &str) -> Result<bool, DomainError> {
             Ok(true)
         }
     }
@@ -126,6 +125,6 @@ mod tests {
         let uc = UpdateRiskLevelUseCase::new(repo, Arc::new(FixedClock));
         // 11.0 is above the [0,10] range.
         let err = uc.execute("user-1", "bot-1", 11.0, 5.0).await.unwrap_err();
-        assert!(!err.is_empty());
+        assert!(matches!(err, DomainError::RiskOutOfRange { .. }));
     }
 }

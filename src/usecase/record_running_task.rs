@@ -32,11 +32,7 @@ impl RecordRunningTaskUseCase {
         task_id: &str,
         observed_at: i64,
     ) -> Result<RecordRunningOutcome> {
-        let existing = self
-            .runtimes
-            .find(user_id, bot_id)
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let existing = self.runtimes.find(user_id, bot_id).await?;
 
         // Stale-event guard: ignore an event older than what we have already
         // observed. At an equal second a recorded STOPPED wins the tie — RUNNING
@@ -66,8 +62,7 @@ impl RecordRunningTaskUseCase {
                 version,
                 observed_at,
             ))
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .await?;
 
         Ok(RecordRunningOutcome::Recorded { version })
     }

@@ -1,4 +1,5 @@
 use crate::domain::botconfig::{BotConfig, BotConfigRepository};
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct GetBotConfigUseCase {
@@ -12,7 +13,7 @@ impl GetBotConfigUseCase {
         }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, String> {
+    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, DomainError> {
         self.bot_config_repository.get(user_id, bot_id).await
     }
 }

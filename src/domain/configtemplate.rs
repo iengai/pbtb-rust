@@ -1,3 +1,4 @@
+use crate::domain::error::DomainError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -14,11 +15,11 @@ pub struct ConfigTemplate {
 #[async_trait]
 pub trait ConfigTemplateRepository: Send + Sync {
     /// Get a predefined template by name
-    async fn get(&self, template_name: &str) -> Result<ConfigTemplate, String>;
+    async fn get(&self, template_name: &str) -> Result<ConfigTemplate, DomainError>;
 
     /// List all available template names
-    async fn list(&self) -> Result<Vec<String>, String>;
+    async fn list(&self) -> Result<Vec<String>, DomainError>;
 
     /// Check if template exists
-    async fn exists(&self, template_name: &str) -> Result<bool, String>;
+    async fn exists(&self, template_name: &str) -> Result<bool, DomainError>;
 }

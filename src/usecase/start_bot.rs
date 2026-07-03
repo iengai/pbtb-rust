@@ -1,5 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
+use crate::domain::error::DomainError;
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
@@ -70,13 +71,8 @@ impl StartBotUseCase {
         }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StartOutcome, String> {
-        let mut bot = match self
-            .bots
-            .find(user_id, bot_id)
-            .await
-            .map_err(|e| e.to_string())?
-        {
+    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StartOutcome, DomainError> {
+        let mut bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,
             None => return Ok(StartOutcome::BotNotFound),
         };
@@ -85,17 +81,13 @@ impl StartBotUseCase {
         // and auto-restart keys off it.
         let now = self.clock.now();
         bot.enable(now);
-        self.bots.save(&bot).await.map_err(|e| e.to_string())?;
+        self.bots.save(&bot).await?;
 
         // Guard the lock's time-based stale reclaim: a `starting` lock older than
         // the stale window whose task is actually alive (its RUNNING event was
         // lost) must NOT be reclaimed — relaunching would double-run. Confirm with
         // ECS that the carried task is gone before allowing the reclaim below.
-        let runtime = self
-            .runtimes
-            .find_consistent(user_id, bot_id)
-            .await
-            .map_err(|e| e.to_string())?;
+        let runtime = self.runtimes.find_consistent(user_id, bot_id).await?;
         if let Some(rt) = &runtime {
             let stale = matches!(rt.phase, RuntimePhase::Starting | RuntimePhase::Stopping)
                 && rt.observed_at <= now - START_LOCK_STALE_AFTER_SECS;
@@ -105,9 +97,12 @@ impl StartBotUseCase {
                         Ok(TaskLiveness::Alive) => return Ok(StartOutcome::AlreadyRunning),
                         Ok(TaskLiveness::Gone) => {}
                         Err(e) => {
-                            return Err(format!(
-                                "could not verify the in-flight task is stopped: {e}"
-                            ));
+                            let context =
+                                format!("could not verify the in-flight task is stopped: {e:#}");
+                            return Err(DomainError::Repository {
+                                context,
+                                source: e.into(),
+                            });
                         }
                     }
                 }
@@ -121,8 +116,7 @@ impl StartBotUseCase {
         match self
             .locks
             .try_acquire_start(user_id, bot_id, now, START_LOCK_STALE_AFTER_SECS)
-            .await
-            .map_err(|e| e.to_string())?
+            .await?
         {
             StartClaim::AlreadyRunning => return Ok(StartOutcome::AlreadyRunning),
             StartClaim::AlreadyStarting => return Ok(StartOutcome::AlreadyStarting),
@@ -146,16 +140,30 @@ impl StartBotUseCase {
             Ok(task_id) => {
                 self.locks
                     .attach_started_task(user_id, bot_id, &task_id)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                    .await?;
                 Ok(StartOutcome::Started { task_id })
             }
             Err(e) => {
-                let _ = self
+                // Best-effort rollback: the launch already failed, so a failed
+                // release is recorded, not propagated over it — desired stays ON
+                // and the next reconcile settles observed back to stopped.
+                if let Err(release_err) = self
                     .locks
                     .release_start(user_id, bot_id, self.clock.now())
-                    .await;
-                Err(e.to_string())
+                    .await
+                {
+                    tracing::warn!(
+                        user_id,
+                        bot_id,
+                        error = %release_err,
+                        "failed to release start lock after a failed launch"
+                    );
+                }
+                let context = format!("failed to launch task for bot {bot_id}: {e:#}");
+                Err(DomainError::Repository {
+                    context,
+                    source: e.into(),
+                })
             }
         }
     }
@@ -224,7 +232,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+        async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
             self.bots
                 .lock()
                 .unwrap()
@@ -524,7 +532,7 @@ mod tests {
         );
 
         let err = uc.execute("user-1", "bot-1").await.unwrap_err();
-        assert!(err.contains("run_task"));
+        assert!(err.to_string().contains("run_task"));
         assert_eq!(runner.call_count(), 1);
         assert_eq!(
             *locks.released.lock().unwrap(),

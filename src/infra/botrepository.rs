@@ -4,23 +4,13 @@ use crate::domain::exchange::Exchange;
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
+use crate::infra::aws_error::repo_err;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
-use aws_sdk_dynamodb::error::{DisplayErrorContext, SdkError};
+use aws_sdk_dynamodb::error::SdkError;
 use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
 use aws_sdk_dynamodb::types::AttributeValue;
 use std::collections::HashMap;
-
-/// Render an aws-sdk error with its full source chain, surfacing the modeled
-/// service error (code and message). `SdkError`'s bare `Display` collapses every
-/// service-side failure to a generic "service error", which masks the actual
-/// cause — e.g. a missing IAM permission reads only as "service error".
-fn fmt_sdk_err<E>(e: SdkError<E>) -> String
-where
-    E: std::error::Error + 'static,
-{
-    DisplayErrorContext(e).to_string()
-}
 
 /// Collapse a conditional UpdateItem result: `acquired` on success, `contended`
 /// when the condition failed (we lost the race, or it is a benign no-op),
@@ -39,11 +29,35 @@ fn cas_result<T>(
         {
             Ok(contended)
         }
-        Err(e) => Err(DomainError::Repository(format!(
-            "DynamoDB update_item failed: {}",
-            fmt_sdk_err(e)
-        ))),
+        Err(e) => Err(repo_err("DynamoDB update_item failed", e)),
     }
+}
+
+/// Parse a present DynamoDB item into a domain `Bot`. A row that fails to map
+/// (unknown exchange, unparseable timestamp, …) is a `CorruptRecord` fault, not
+/// an absence: collapsing it into `None` would let a corrupt live bot read back
+/// as "not found" (see docs/conventions.md § Error Handling). The message names
+/// only the keys — never the api_key/secret_key the row carries.
+fn parse_bot_row(
+    item: &HashMap<String, AttributeValue>,
+    user_id: &str,
+) -> Result<Bot, DomainError> {
+    BotItem::from_item(item)
+        .and_then(|bot_item| bot_item.to_domain())
+        .ok_or_else(|| {
+            DomainError::CorruptRecord(format!("bot row pk=user_id#{user_id} did not parse"))
+        })
+}
+
+/// A bot's partition (`pk = user_id#<user_id>`) also holds its observed-runtime /
+/// start-lock row (`sk = ecs_task_metadata#<bot_id>`). That row is not a bot, so a
+/// `find_by_user_id` query must skip it rather than try to parse it as one (which
+/// would mis-read an expected non-bot row as a `CorruptRecord` and fail the whole
+/// list). A genuinely corrupt *bot* row still fails loud — it is not skipped here.
+fn is_runtime_row(item: &HashMap<String, AttributeValue>) -> bool {
+    item.get("sk")
+        .and_then(|v| v.as_s().ok())
+        .is_some_and(|sk| sk.starts_with(ECS_TASK_METADATA_SK_PREFIX))
 }
 
 /// Storage model for the infra layer
@@ -157,14 +171,18 @@ struct BotECSTaskMetadata {
     task_current_version: i64,
 }
 
+/// Sort-key prefix that marks a row as a bot's observed ECS runtime / start-lock
+/// row rather than the bot row itself. Both live under the same `pk`.
+const ECS_TASK_METADATA_SK_PREFIX: &str = "ecs_task_metadata#";
+
 impl BotECSTaskMetadata {
     fn construct_sk(bot_id: &str) -> String {
-        format!("ecs_task_metadata#{}", bot_id)
+        format!("{ECS_TASK_METADATA_SK_PREFIX}{bot_id}")
     }
 
     fn get_bot_id(&self) -> String {
         self.sk
-            .strip_prefix("ecs_task_metadata#")
+            .strip_prefix(ECS_TASK_METADATA_SK_PREFIX)
             .unwrap_or(&self.sk)
             .to_string()
     }
@@ -272,9 +290,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             )
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -299,9 +315,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -393,10 +407,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
                     );
                     Ok(())
                 } else {
-                    Err(DomainError::Repository(format!(
-                        "DynamoDB put_item failed: {}",
-                        fmt_sdk_err(e)
-                    )))
+                    Err(repo_err("DynamoDB put_item failed", e))
                 }
             }
         }
@@ -429,9 +440,7 @@ impl StartLockRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
 
         if let Some(meta) = existing.item().and_then(BotECSTaskMetadata::from_item) {
             match meta.status.as_str() {
@@ -581,17 +590,15 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
 
-        // Absent (None) or malformed (from_item/to_domain None) -> Ok(None); only a
-        // transport/service failure is Err, so "bot does not exist" stays distinct
-        // from "the read failed".
-        Ok(result
-            .item()
-            .and_then(BotItem::from_item)
-            .and_then(|bot_item| bot_item.to_domain()))
+        // Absent row -> Ok(None); a present-but-unparseable row is a CorruptRecord
+        // fault, never collapsed into None, so "bot does not exist" stays distinct
+        // from "the row is corrupt" and from "the read failed".
+        match result.item() {
+            None => Ok(None),
+            Some(item) => parse_bot_row(item, user_id).map(Some),
+        }
     }
 
     async fn find_consistent(
@@ -608,14 +615,12 @@ impl BotRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB get_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
 
-        Ok(result
-            .item()
-            .and_then(BotItem::from_item)
-            .and_then(|bot_item| bot_item.to_domain()))
+        match result.item() {
+            None => Ok(None),
+            Some(item) => parse_bot_row(item, user_id).map(Some),
+        }
     }
 
     async fn save(&self, bot: &Bot) -> Result<(), DomainError> {
@@ -628,9 +633,7 @@ impl BotRepository for DynamoBotRepository {
             .set_item(Some(item))
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB put_item failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB put_item failed", e))?;
 
         Ok(())
     }
@@ -646,19 +649,23 @@ impl BotRepository for DynamoBotRepository {
             .expression_attribute_values(":pk", AttributeValue::S(pk_value))
             .send()
             .await
-            .map_err(|e| {
-                DomainError::Repository(format!("DynamoDB query failed: {}", fmt_sdk_err(e)))
-            })?;
+            .map_err(|e| repo_err("DynamoDB query failed", e))?;
 
-        Ok(output
+        // The query returns the whole partition, which mixes bot rows with each
+        // bot's `ecs_task_metadata#` runtime row; the latter are skipped (they are
+        // not bots). Among the rows that SHOULD be bots, a single unparseable one
+        // fails the whole list rather than silently dropping out of it — a partial
+        // list that looks complete is the same swallowed-fault trap as a collapsed
+        // `None` (docs/conventions.md § Error Handling).
+        output
             .items()
             .iter()
-            .filter_map(BotItem::from_item)
-            .filter_map(|bot_item| bot_item.to_domain())
-            .collect())
+            .filter(|item| !is_runtime_row(item))
+            .map(|item| parse_bot_row(item, user_id))
+            .collect()
     }
 
-    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String> {
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
         let pk_value = BotItem::construct_pk(user_id);
 
         self.client
@@ -668,7 +675,7 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .map_err(|e| format!("Failed to delete bot: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to delete bot", e))?;
 
         Ok(())
     }

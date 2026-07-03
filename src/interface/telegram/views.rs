@@ -77,6 +77,13 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
 pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> String {
     let strategies = format_strategies(&preview.strategies());
     let description = preview.description().unwrap_or("—");
+    // Exchange whose data the strategy was tuned on (pbtb.exchange) — may
+    // differ from the exchange this bot trades on, which is worth seeing
+    // before confirming. Legacy templates don't carry it; omit the line.
+    let data_source = preview
+        .data_exchange()
+        .map(|e| format!("🏦 Tuned on: {} data\n", e))
+        .unwrap_or_default();
 
     let exposure = match preview.risk_level() {
         Ok(r) => format!("   • Long: {:.2}\n   • Short: {:.2}", r.long, r.short),
@@ -102,13 +109,13 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     format!(
         "📄 Apply this config?\n\n\
         • Template: {}\n\
-        🤖 Strategy: {}\n\
+        {}🤖 Strategy: {}\n\
         📝 Description: {}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
         {}\n\n\
         💰 Preset coins:\n\
         {}\n\n\
         Confirm to apply, or Cancel.",
-        template_name, strategies, description, exposure, coins
+        template_name, data_source, strategies, description, exposure, coins
     )
 }

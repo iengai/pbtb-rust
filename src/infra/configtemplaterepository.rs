@@ -1,4 +1,6 @@
 use crate::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
+use crate::domain::error::DomainError;
+use crate::infra::aws_error::repo_err;
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 
@@ -23,7 +25,7 @@ impl S3TemplateRepository {
 
 #[async_trait]
 impl ConfigTemplateRepository for S3TemplateRepository {
-    async fn get(&self, template_name: &str) -> Result<ConfigTemplate, String> {
+    async fn get(&self, template_name: &str) -> Result<ConfigTemplate, DomainError> {
         let key = Self::template_key(template_name);
 
         let result = self
@@ -33,17 +35,17 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| format!("Failed to get template from S3: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to get template from S3", e))?;
 
         let bytes = result
             .body
             .collect()
             .await
-            .map_err(|e| format!("Failed to read template body: {:?}", e))?
+            .map_err(|e| repo_err("Failed to read template body", e))?
             .into_bytes();
 
         let json_value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Failed to parse bot config JSON: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to parse template JSON", e))?;
 
         Ok(ConfigTemplate {
             name: template_name.to_string(),
@@ -53,7 +55,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
         })
     }
 
-    async fn list(&self) -> Result<Vec<String>, String> {
+    async fn list(&self) -> Result<Vec<String>, DomainError> {
         let result = self
             .client
             .list_objects_v2()
@@ -61,7 +63,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .prefix("predefined/")
             .send()
             .await
-            .map_err(|e| format!("Failed to list templates from S3: {:?}", e))?;
+            .map_err(|e| repo_err("Failed to list templates from S3", e))?;
 
         let templates = result
             .contents()
@@ -78,7 +80,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
         Ok(templates)
     }
 
-    async fn exists(&self, template_name: &str) -> Result<bool, String> {
+    async fn exists(&self, template_name: &str) -> Result<bool, DomainError> {
         let key = Self::template_key(template_name);
 
         match self
@@ -90,12 +92,14 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .await
         {
             Ok(_) => Ok(true),
+            // A 404/NotFound is a genuine absence; anything else is a real read
+            // failure that must surface rather than read back as "no template".
             Err(e) => {
                 let error_msg = format!("{:?}", e);
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
-                    Err(format!("Failed to check template existence: {:?}", e))
+                    Err(repo_err("Failed to check template existence", e))
                 }
             }
         }

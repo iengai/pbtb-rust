@@ -3,6 +3,7 @@ use teloxide::prelude::*;
 
 use super::{
     Deps,
+    redaction::redact,
     states::{BotContext, DialogueState},
 };
 use crate::usecase::{AddOutcome, StartOutcome, StopOutcome};
@@ -98,14 +99,19 @@ async fn handle_start_state(
                 match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
                     Ok(config) => {
                         // 1. Get template name from config_data
-                        let template_name = config.config_data
-                            .get("name")
-                            .and_then(|v| v.as_str())
+                        let template_name = config
+                            .strategy_name()
                             .unwrap_or(&config.template_name);
 
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
                         let description_info = config.description().unwrap_or("—");
+                        // Exchange the strategy was tuned on (pbtb.exchange); may
+                        // differ from the exchange the bot trades on.
+                        let tuned_on = config
+                            .data_exchange()
+                            .map(|e| format!("\n   • Tuned on: {} data", e))
+                            .unwrap_or_default();
                         let sides_info = format!(
                             "Long {}, Short {}",
                             if config.side_enabled("long") { "🟢 on" } else { "🔴 off" },
@@ -152,7 +158,7 @@ async fn handle_start_state(
                                • Desired: {}\n\
                                • Actual: {}\n\n\
                             📋 Configuration:\n\
-                               • Template: {}\n\
+                               • Template: {}{}\n\
                                • Strategy: {}\n\
                                • Description: {}\n\
                                • Sides: {}\n\
@@ -168,6 +174,7 @@ async fn handle_start_state(
                             desired_text,
                             actual_text,
                             template_name,
+                            tuned_on,
                             strategy_info,
                             description_info,
                             sides_info,
@@ -255,10 +262,7 @@ async fn handle_start_state(
                         }
                     }
                     Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("❌ Error fetching templates: {}", e)
-                        )
+                        bot.send_message(msg.chat.id, redact("fetching templates", &e))
                             .await?;
                     }
                 }
@@ -343,7 +347,7 @@ async fn handle_start_state(
                         Ok(StartOutcome::AlreadyStarting) => format!("⏳ Bot {} is already starting — give it a few seconds.", bot_id),
                         Ok(StartOutcome::Stopping) => format!("🛑 Bot {} is still stopping — wait a few seconds, then tap Run again.", bot_id),
                         Ok(StartOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
-                        Err(e) => format!("❌ Failed to start bot {}:\n\n{}", bot_id, e),
+                        Err(e) => redact("starting the bot", &e),
                     }
                 } else {
                     "❌ Please select a bot first using 'List'".to_string()
@@ -373,7 +377,7 @@ async fn handle_start_state(
                         ),
                         Ok(StopOutcome::AlreadyStopping) => format!("🛑 Bot {} is already stopping.", bot_id),
                         Ok(StopOutcome::BotNotFound) => format!("❌ Bot {} not found.", bot_id),
-                        Err(e) => format!("❌ Failed to stop bot {}:\n\n{}", bot_id, e),
+                        Err(e) => redact("stopping the bot", &e),
                     }
                 } else {
                     "❌ Please select a bot first using 'List'".to_string()
@@ -500,10 +504,7 @@ async fn handle_start_state(
                         }
                     }
                     Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("❌ Error fetching bots: {}", e),
-                        )
+                        bot.send_message(msg.chat.id, redact("fetching bots", &e))
                             .await?;
                     }
                 }
@@ -651,7 +652,7 @@ async fn receive_secret_key(
                             .await?;
                     }
                     Err(e) => {
-                        bot.send_message(msg.chat.id, format!("❌ Error saving bot: {}", e))
+                        bot.send_message(msg.chat.id, redact("saving the bot", &e))
                             .await?;
                         dialogue.update(DialogueState::Start).await?;
                     }
@@ -703,7 +704,7 @@ async fn confirm_delete(
                             .await?;
                         }
                         Err(e) => {
-                            bot.send_message(msg.chat.id, format!("❌ Error deleting bot: {}", e))
+                            bot.send_message(msg.chat.id, redact("deleting the bot", &e))
                                 .await?;
                         }
                     }
@@ -764,11 +765,8 @@ async fn confirm_overwrite_bot(
                             .await?;
                         }
                         Err(e) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Error overwriting bot: {}", e),
-                            )
-                            .await?;
+                            bot.send_message(msg.chat.id, redact("overwriting the bot", &e))
+                                .await?;
                         }
                     }
                 } else {
@@ -924,11 +922,8 @@ async fn receive_risk_level(
                         .await?;
                     }
                     Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("❌ Failed to update risk level:\n\n{}", e),
-                        )
-                        .await?;
+                        bot.send_message(msg.chat.id, redact("updating the risk level", &e))
+                            .await?;
                     }
                 }
 

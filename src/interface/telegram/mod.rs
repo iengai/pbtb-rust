@@ -4,6 +4,7 @@ pub mod commands;
 pub mod dialogue;
 pub mod keyboards;
 pub mod middlewares;
+pub mod redaction;
 pub mod router;
 pub mod states;
 pub mod types;
@@ -24,13 +25,21 @@ pub(crate) async fn bots_with_phase(
 ) -> Vec<(Bot, Option<RuntimePhase>)> {
     let mut out = Vec::with_capacity(bots.len());
     for b in bots {
-        let phase = deps
-            .get_bot_runtime_usecase
-            .execute(user_id, &b.id)
-            .await
-            .ok()
-            .flatten()
-            .map(|r| r.phase);
+        // Best-effort status decoration: a runtime-read failure degrades to "no
+        // phase" rather than failing the whole list, but is recorded — never
+        // silently swallowed (docs/conventions.md § Error Handling).
+        let phase = match deps.get_bot_runtime_usecase.execute(user_id, &b.id).await {
+            Ok(runtime) => runtime.map(|r| r.phase),
+            Err(e) => {
+                tracing::warn!(
+                    user_id,
+                    bot_id = %b.id,
+                    error = %e,
+                    "failed to read runtime phase for list display"
+                );
+                None
+            }
+        };
         out.push((b, phase));
     }
     out

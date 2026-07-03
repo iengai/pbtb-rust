@@ -301,34 +301,61 @@ impl BotConfig {
         Ok(())
     }
 
-    /// Strategy name the config derives from (the `predefined/` template stem),
-    /// read from the top-level `strategy_name` field. `None` when absent.
-    pub fn strategy_name(&self) -> Option<&str> {
-        self.config_data
-            .get("strategy_name")
+    /// Look up a bot-manager metadata field. These fields are ours, not
+    /// passivbot's (passivbot's config loader drops unknown keys): current
+    /// templates group them under the top-level `pbtb` object; legacy templates
+    /// carry the same fields directly at the top level. The `pbtb` block wins
+    /// when both are present.
+    fn meta<'a>(config_data: &'a Value, field: &str) -> Option<&'a Value> {
+        config_data
+            .get("pbtb")
+            .and_then(|m| m.get(field))
+            .or_else(|| config_data.get(field))
+    }
+
+    /// Template name embedded in a config JSON: `pbtb.name`, or the legacy
+    /// top-level `strategy_name` / `name`. `None` when absent. Exposed on the
+    /// raw value so repositories can recover the template name from a stored
+    /// config before constructing a `BotConfig`.
+    pub fn embedded_template_name(config_data: &Value) -> Option<&str> {
+        Self::meta(config_data, "name")
+            .or_else(|| Self::meta(config_data, "strategy_name"))
             .and_then(|v| v.as_str())
     }
 
-    /// Free-text strategy explanation, read from the top-level `description`
-    /// field. `None` when absent or blank.
-    pub fn description(&self) -> Option<&str> {
+    /// Strategy name the config derives from (the `predefined/` template stem).
+    pub fn strategy_name(&self) -> Option<&str> {
+        Self::embedded_template_name(&self.config_data)
+    }
+
+    /// Exchange whose market data the strategy was tuned/backtested on (e.g.
+    /// `"bybit"`), read from `pbtb.exchange`. Distinct from the exchange the
+    /// bot trades on: a config tuned on bybit data may be deployed elsewhere,
+    /// and the mismatch is worth surfacing. `None` on legacy templates.
+    pub fn data_exchange(&self) -> Option<&str> {
         self.config_data
-            .get("description")
+            .get("pbtb")
+            .and_then(|m| m.get("exchange"))
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
     }
 
-    /// All strategies involved in this config, parsed from the top-level
-    /// `strategies` array (`[{name, side}]`). A combined bot lists one entry per
-    /// side. Falls back to a single `long` entry derived from `strategy_name`
-    /// when the array is absent.
+    /// Free-text strategy explanation (`pbtb.description`, or the legacy
+    /// top-level `description`). `None` when absent or blank.
+    pub fn description(&self) -> Option<&str> {
+        Self::meta(&self.config_data, "description")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
+    /// All strategies involved in this config, parsed from the `strategies`
+    /// array (`[{name, side}]`, in `pbtb` or legacy top-level). A combined bot
+    /// lists one entry per side. Falls back to a single `long` entry derived
+    /// from `strategy_name` when the array is absent.
     pub fn strategies(&self) -> Vec<StrategyRef> {
-        if let Some(arr) = self
-            .config_data
-            .get("strategies")
-            .and_then(|v| v.as_array())
-        {
+        if let Some(arr) = Self::meta(&self.config_data, "strategies").and_then(|v| v.as_array()) {
             let refs: Vec<StrategyRef> = arr
                 .iter()
                 .filter_map(|item| {
@@ -423,16 +450,16 @@ impl BotConfig {
 #[async_trait]
 pub trait BotConfigRepository: Send + Sync {
     /// Get bot-specific configuration
-    async fn get(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, String>;
+    async fn get(&self, user_id: &str, bot_id: &str) -> Result<BotConfig, DomainError>;
 
     /// Save bot-specific configuration
-    async fn save(&self, config: &BotConfig) -> Result<(), String>;
+    async fn save(&self, config: &BotConfig) -> Result<(), DomainError>;
 
     /// Delete bot-specific configuration
-    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), String>;
+    async fn delete(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError>;
 
     /// Check if bot has a configuration
-    async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, String>;
+    async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, DomainError>;
 }
 
 #[cfg(test)]
@@ -566,5 +593,79 @@ mod tests {
 
         config.config_data["description"] = json!("   ");
         assert_eq!(config.description(), None); // blank → None
+    }
+
+    #[test]
+    fn meta_reads_from_pbtb_block() {
+        let mut config = sample_config(0);
+        config.config_data["pbtb"] = json!({
+            "name": "bybit-cap700-iter2-winner-v712",
+            "strategies": [{"name": "bybit-cap700-iter2-winner-v712", "side": "long"}],
+            "description": "  cap700 champion  ",
+            "exchange": "bybit"
+        });
+
+        assert_eq!(
+            config.strategy_name(),
+            Some("bybit-cap700-iter2-winner-v712")
+        );
+        assert_eq!(config.description(), Some("cap700 champion"));
+        assert_eq!(config.data_exchange(), Some("bybit"));
+        let strategies = config.strategies();
+        assert_eq!(strategies.len(), 1);
+        assert_eq!(strategies[0].name, "bybit-cap700-iter2-winner-v712");
+        assert_eq!(strategies[0].side, "long");
+    }
+
+    #[test]
+    fn meta_falls_back_to_legacy_top_level() {
+        let mut config = sample_config(0);
+        config.config_data["strategy_name"] = json!("xrp-r130x");
+        config.config_data["strategies"] = json!([{"name": "xrp-r130x", "side": "long"}]);
+        config.config_data["description"] = json!("legacy template");
+
+        assert_eq!(config.strategy_name(), Some("xrp-r130x"));
+        assert_eq!(config.description(), Some("legacy template"));
+        assert_eq!(config.strategies()[0].name, "xrp-r130x");
+        assert_eq!(config.data_exchange(), None); // pbtb-only field
+    }
+
+    #[test]
+    fn pbtb_block_wins_over_legacy_fields() {
+        let mut config = sample_config(0);
+        config.config_data["description"] = json!("legacy");
+        config.config_data["strategy_name"] = json!("legacy-name");
+        config.config_data["pbtb"] = json!({
+            "name": "new-name",
+            "description": "new"
+        });
+
+        assert_eq!(config.description(), Some("new"));
+        // pbtb has no strategy_name field, so the legacy one is only reached
+        // after pbtb.name — which is present and wins.
+        assert_eq!(config.strategy_name(), Some("new-name"));
+    }
+
+    #[test]
+    fn embedded_template_name_reads_pbtb_then_legacy() {
+        let with_pbtb = json!({"pbtb": {"name": "bybit-x"}});
+        assert_eq!(
+            BotConfig::embedded_template_name(&with_pbtb),
+            Some("bybit-x")
+        );
+
+        let legacy_name = json!({"name": "old-x"});
+        assert_eq!(
+            BotConfig::embedded_template_name(&legacy_name),
+            Some("old-x")
+        );
+
+        let legacy_strategy = json!({"strategy_name": "old-y"});
+        assert_eq!(
+            BotConfig::embedded_template_name(&legacy_strategy),
+            Some("old-y")
+        );
+
+        assert_eq!(BotConfig::embedded_template_name(&json!({})), None);
     }
 }

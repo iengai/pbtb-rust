@@ -1,4 +1,5 @@
 use crate::domain::configtemplate::ConfigTemplateRepository;
+use crate::domain::error::DomainError;
 use std::sync::Arc;
 
 pub struct ListTemplatesUseCase {
@@ -12,7 +13,7 @@ impl ListTemplatesUseCase {
         }
     }
 
-    pub async fn execute(&self) -> Result<Vec<String>, String> {
+    pub async fn execute(&self) -> Result<Vec<String>, DomainError> {
         self.template_repository.list().await
     }
 }
