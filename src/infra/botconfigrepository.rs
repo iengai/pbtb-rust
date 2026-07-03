@@ -53,9 +53,7 @@ impl BotConfigRepository for S3BotConfigRepository {
         let json_value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|e| repo_err("Failed to parse bot config JSON", e))?;
 
-        let template_name = json_value
-            .get("name")
-            .and_then(|v| v.as_str())
+        let template_name = BotConfig::embedded_template_name(&json_value)
             .unwrap_or("")
             .to_string();
 

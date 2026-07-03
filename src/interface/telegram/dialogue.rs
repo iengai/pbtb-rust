@@ -99,14 +99,19 @@ async fn handle_start_state(
                 match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
                     Ok(config) => {
                         // 1. Get template name from config_data
-                        let template_name = config.config_data
-                            .get("name")
-                            .and_then(|v| v.as_str())
+                        let template_name = config
+                            .strategy_name()
                             .unwrap_or(&config.template_name);
 
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
                         let description_info = config.description().unwrap_or("—");
+                        // Exchange the strategy was tuned on (pbtb.exchange); may
+                        // differ from the exchange the bot trades on.
+                        let tuned_on = config
+                            .data_exchange()
+                            .map(|e| format!("\n   • Tuned on: {} data", e))
+                            .unwrap_or_default();
                         let sides_info = format!(
                             "Long {}, Short {}",
                             if config.side_enabled("long") { "🟢 on" } else { "🔴 off" },
@@ -153,7 +158,7 @@ async fn handle_start_state(
                                • Desired: {}\n\
                                • Actual: {}\n\n\
                             📋 Configuration:\n\
-                               • Template: {}\n\
+                               • Template: {}{}\n\
                                • Strategy: {}\n\
                                • Description: {}\n\
                                • Sides: {}\n\
@@ -169,6 +174,7 @@ async fn handle_start_state(
                             desired_text,
                             actual_text,
                             template_name,
+                            tuned_on,
                             strategy_info,
                             description_info,
                             sides_info,
