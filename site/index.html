@@ -49,6 +49,17 @@
         background: var(--panel); color: var(--text); border: 1px solid var(--border);
         border-radius: 8px; padding: 8px 12px; font-size: 14px; min-width: 200px;
       }
+      .ranges {
+        display: inline-flex; gap: 4px; margin-left: auto;
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: 8px; padding: 3px;
+      }
+      .range {
+        border: 0; background: transparent; color: var(--muted);
+        font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+      }
+      .range:hover { color: var(--text); }
+      .range.on { background: var(--accent); color: #fff; }
       .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
       .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
       .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
@@ -85,6 +96,7 @@
       <div class="controls">
         <label for="bot" class="sub">Bot</label>
         <select id="bot"></select>
+        <div id="ranges" class="ranges"></div>
       </div>
 
       <div id="stats" class="stats" hidden></div>
