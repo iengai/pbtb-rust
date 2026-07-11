@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bot Return Curves</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --panel: #f6f7f9;
+        --border: #e4e7ec;
+        --text: #1a1d23;
+        --muted: #6b7280;
+        --accent: #2563eb;
+        --pnl: #16a34a;
+        --pnl-neg: #dc2626;
+        --balance: #9ca3af;
+        --switch: #d97706;
+        --grid: #eceef1;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --panel: #171a21;
+          --border: #262b36;
+          --text: #e6e8eb;
+          --muted: #9aa2ad;
+          --accent: #60a5fa;
+          --pnl: #4ade80;
+          --pnl-neg: #f87171;
+          --balance: #6b7280;
+          --switch: #fbbf24;
+          --grid: #1e222b;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .wrap { max-width: 960px; margin: 0 auto; padding: 24px 20px 64px; }
+      header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+      h1 { font-size: 20px; margin: 0; font-weight: 650; }
+      .sub { color: var(--muted); font-size: 13px; }
+      .controls { margin: 20px 0 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+      select {
+        background: var(--panel); color: var(--text); border: 1px solid var(--border);
+        border-radius: 8px; padding: 8px 12px; font-size: 14px; min-width: 200px;
+      }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+      .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+      .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .stat .v { font-size: 20px; font-weight: 640; margin-top: 4px; font-variant-numeric: tabular-nums; }
+      .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+      svg { width: 100%; height: auto; display: block; }
+      .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
+      .legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+      .swatch.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--switch); }
+      .msg { color: var(--muted); padding: 40px 0; text-align: center; }
+      footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
+      a { color: var(--accent); }
+      /* Tooltip */
+      #tip {
+        position: fixed; pointer-events: none; opacity: 0; transition: opacity .08s;
+        background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+        padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.18);
+        font-variant-numeric: tabular-nums; z-index: 10; white-space: nowrap;
+      }
+      #tip .d { color: var(--muted); margin-bottom: 4px; }
+      #tip .row { display: flex; justify-content: space-between; gap: 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>Bot Return Curves</h1>
+          <div class="sub">Time-weighted return, collected daily from Bybit. Normalized — no account size shown.</div>
+        </div>
+      </header>
+
+      <div class="controls">
+        <label for="bot" class="sub">Bot</label>
+        <select id="bot"></select>
+      </div>
+
+      <div id="stats" class="stats" hidden></div>
+
+      <div class="chart-card">
+        <div id="chart"><div class="msg">Loading…</div></div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--pnl)"></i> Cumulative return</span>
+          <span><i class="swatch dot"></i> Config switch</span>
+        </div>
+      </div>
+
+      <footer id="footer"></footer>
+    </div>
+
+    <div id="tip"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
