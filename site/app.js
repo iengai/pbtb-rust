@@ -112,6 +112,23 @@ function linePath(pts, sc) {
     .join(" ");
 }
 
+// Return % at an arbitrary ts, linearly interpolated between daily points, so a
+// config-switch marker sits exactly on the curve.
+function returnAt(ts, pts) {
+  const n = pts.length;
+  if (ts <= pts[0].ts) return pts[0].return_pct;
+  if (ts >= pts[n - 1].ts) return pts[n - 1].return_pct;
+  for (let i = 1; i < n; i++) {
+    if (pts[i].ts >= ts) {
+      const a = pts[i - 1],
+        b = pts[i];
+      const f = (ts - a.ts) / (b.ts - a.ts || 1);
+      return a.return_pct + f * (b.return_pct - a.return_pct);
+    }
+  }
+  return pts[n - 1].return_pct;
+}
+
 function chartSVG(pts, switches) {
   const sc = scales(pts);
   const up = pts[pts.length - 1].return_pct >= 0;
@@ -138,13 +155,14 @@ function chartSVG(pts, switches) {
     xlab += `<text x="${sc.x(t).toFixed(1)}" y="${H - 10}" text-anchor="middle" fill="var(--muted)" font-size="11">${fmtDate(t)}</text>`;
   }
 
-  // Config-switch vertical markers.
+  // Config-switch markers: a dot sitting ON the return curve at each switch,
+  // with a native hover tooltip naming the config it switched to.
   let sw = "";
   for (const c of switches) {
     if (c.ts < sc.t0 || c.ts > sc.t1) continue;
     const x = sc.x(c.ts).toFixed(1);
-    sw += `<line x1="${x}" y1="${M.t}" x2="${x}" y2="${M.t + PH}" stroke="var(--switch)" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.8"/>`;
-    sw += `<text x="${x}" y="${M.t - 5}" text-anchor="middle" fill="var(--switch)" font-size="10">${escapeXml(c.template_name)}</text>`;
+    const y = sc.y(returnAt(c.ts, pts)).toFixed(1);
+    sw += `<circle cx="${x}" cy="${y}" r="5" fill="var(--switch)" stroke="var(--panel)" stroke-width="2"><title>→ ${escapeXml(c.template_name)} · ${fmtDate(c.ts)}</title></circle>`;
   }
 
   const color = up ? "var(--pnl)" : "var(--pnl-neg)";
