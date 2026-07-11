@@ -62,6 +62,12 @@ variable "bybit_base_url" {
   default = "https://api.bybit.com"
 }
 
+variable "backfill_days" {
+  type        = number
+  default     = 90
+  description = "Days a bot's FIRST run back-fills; routine runs are incremental (only new days)"
+}
+
 variable "subnet_ids" {
   type        = list(string)
   description = "Private subnets for NAT egress (fixed whitelisted EIP)"

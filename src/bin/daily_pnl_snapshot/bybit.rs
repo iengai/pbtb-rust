@@ -126,23 +126,24 @@ struct TxnRow {
     currency: String,
 }
 
-/// Walk the transaction log back `cfg.backfill_days`, in 7-day windows with
-/// cursor pagination, collecting the settlement-coin entries. Bybit retains ~730
-/// days; older data is unrecoverable, so a long-running deployment relies on its
-/// own accumulated history rather than re-fetching everything each run.
+/// Collect settlement-coin transaction-log entries in `[from_ms, to_ms]`, in
+/// 7-day windows (Bybit's per-request cap) with cursor pagination. The caller
+/// chooses the window — a small incremental slice on routine runs, a wider one
+/// only on a bot's first run — so a long-running deployment relies on its own
+/// accumulated state rather than re-fetching everything each day.
 pub async fn fetch_transaction_log(
     http: &reqwest::Client,
     cfg: &BybitConfig,
     api_key: &str,
     secret: &str,
-    now_ms: i64,
+    from_ms: i64,
+    to_ms: i64,
 ) -> Result<Vec<LedgerEntry>> {
-    let start_floor = now_ms - cfg.backfill_days * DAY_MS;
     let mut entries = Vec::new();
-    let mut win_end = now_ms;
+    let mut win_end = to_ms;
 
-    while win_end > start_floor {
-        let win_start = (win_end - WINDOW_MS).max(start_floor);
+    while win_end > from_ms {
+        let win_start = (win_end - WINDOW_MS).max(from_ms);
         let mut cursor = String::new();
         loop {
             let mut query = format!(
