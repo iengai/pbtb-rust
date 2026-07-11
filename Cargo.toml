@@ -21,6 +21,13 @@ aws_lambda_events = "1.0.1"
 aws-sdk-ecs = "1.108.0"
 tracing = "0.1.41"
 thiserror = "1"
+# Bybit V5 REST client for the return-curve collector bin. rustls (not OpenSSL)
+# keeps the lambda-export build free of system TLS deps; reqwest is already in
+# the tree via teloxide's rustls stack, so this only pins/exposes it directly.
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -36,3 +43,7 @@ strip = "symbols"
 [[bin]]
 name = "task_state_change_handler"
 path = "src/bin/task_state_change_handler/main.rs"
+
+[[bin]]
+name = "daily_pnl_snapshot"
+path = "src/bin/daily_pnl_snapshot/main.rs"
