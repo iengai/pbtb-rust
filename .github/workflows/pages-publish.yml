@@ -46,9 +46,14 @@ jobs:
           set -euo pipefail
           mkdir -p site/data
           aws s3 sync "s3://$CHART_BUCKET/$CHART_PREFIX/" site/data/ --delete
-          # Build data/index.json (array of bot ids) from the synced per-bot files.
+          # Build data/index.json = [{id,name}]: id is the stable filename stem
+          # (the fetch key); name is the current display name read from the file.
           find site/data -maxdepth 1 -name '*.json' ! -name 'index.json' -printf '%f\n' \
-            | sed 's/\.json$//' | jq -R . | jq -s . > site/data/index.json
+            | sed 's/\.json$//' \
+            | while IFS= read -r id; do
+                jq -c --arg id "$id" '{id: $id, name: (.name // $id)}' "site/data/$id.json"
+              done \
+            | jq -s '.' > site/data/index.json
           echo "bots: $(cat site/data/index.json)"
 
       - uses: actions/configure-pages@v5

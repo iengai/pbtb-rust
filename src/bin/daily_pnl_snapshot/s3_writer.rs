@@ -1,6 +1,6 @@
-//! S3 IO for the collector: the PUBLIC per-bot series (keyed by anonymized
-//! label, under the published prefix) and the PRIVATE per-bot state (keyed by
-//! the real bot id, under `_state/`, which the Pages publish never syncs).
+//! S3 IO for the collector: the PUBLIC per-bot series (keyed by a stable opaque
+//! id, under the published prefix) and the PRIVATE per-bot state (keyed by the
+//! real bot id, under `_state/`, which the Pages publish never syncs).
 
 use anyhow::{Context, Result};
 use aws_sdk_s3::Client;
@@ -70,15 +70,15 @@ pub async fn write_state(
     Ok(())
 }
 
-/// Write the public return series to `<prefix>/<label>.json`. A short cache
+/// Write the public return series to `<prefix>/<id>.json`. A short cache
 /// lifetime keeps the daily-updated curve fresh behind a CDN.
 pub async fn put_series(
     client: &Client,
     cfg: &ChartConfig,
-    label: &str,
+    id: &str,
     series: &BotReturnSeries,
 ) -> Result<()> {
-    let key = format!("{}/{}.json", cfg.key_prefix.trim_matches('/'), label);
+    let key = format!("{}/{}.json", cfg.key_prefix.trim_matches('/'), id);
     let body = serde_json::to_vec(series).context("serialize return series")?;
     client
         .put_object()
