@@ -88,42 +88,6 @@ async fn signed_get<T: for<'de> Deserialize<'de>>(
 }
 
 #[derive(Deserialize)]
-struct WalletResult {
-    list: Vec<WalletAccount>,
-}
-
-#[derive(Deserialize)]
-struct WalletAccount {
-    #[serde(rename = "totalEquity")]
-    total_equity: String,
-}
-
-/// Current total account equity (incl. unrealized PnL), in the account's USD
-/// valuation. A point-in-time snapshot — Bybit has no historical equity API.
-pub async fn wallet_equity(
-    http: &reqwest::Client,
-    cfg: &BybitConfig,
-    api_key: &str,
-    secret: &str,
-) -> Result<f64> {
-    let res: WalletResult = signed_get(
-        http,
-        cfg,
-        api_key,
-        secret,
-        "/v5/account/wallet-balance",
-        "accountType=UNIFIED",
-    )
-    .await?;
-    let equity = res
-        .list
-        .first()
-        .and_then(|a| a.total_equity.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    Ok(equity)
-}
-
-#[derive(Deserialize)]
 struct TxnResult {
     list: Vec<TxnRow>,
     #[serde(rename = "nextPageCursor", default)]

@@ -99,10 +99,6 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
     };
 
     let bybit_cfg = &state.configs.bybit;
-    let current_equity = bybit::wallet_equity(&state.http, bybit_cfg, &creds.key, &creds.secret)
-        .await
-        .context("fetch wallet balance")?;
-
     let ledger =
         bybit::fetch_transaction_log(&state.http, bybit_cfg, &creds.key, &creds.secret, now_ms)
             .await
@@ -113,7 +109,7 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         .await
         .context("read config switches")?;
 
-    let series = model::BotReturnSeries::new(bot, current_equity, points, &switches, now_ms / 1000);
+    let series = model::BotReturnSeries::new(bot, points, &switches, now_ms / 1000);
     s3_writer::put(&state.s3, &state.configs.chart, &bot.id, &series)
         .await
         .context("write chart json")?;
