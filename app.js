@@ -11,6 +11,17 @@ const $ = (id) => document.getElementById(id);
 const fmtPct = (v) => `${(v ?? 0).toFixed(2)}%`;
 const fmtDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
 
+// Preset look-back windows, stock-chart style. `days: null` means all history.
+const RANGES = [
+  { k: "30D", days: 30 },
+  { k: "90D", days: 90 },
+  { k: "180D", days: 180 },
+  { k: "1Y", days: 365 },
+  { k: "All", days: null },
+];
+let RANGE_I = RANGES.length - 1; // default: All
+let CURRENT = null; // the loaded BotReturnSeries
+
 async function getJSON(url) {
   const r = await fetch(url, { cache: "no-cache" });
   if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
@@ -34,7 +45,24 @@ async function boot() {
   const sel = $("bot");
   sel.innerHTML = ids.map((id) => `<option value="${id}">${id}</option>`).join("");
   sel.onchange = () => load(sel.value);
+  buildRanges();
   load(ids[0]);
+}
+
+// The look-back selector. Picking a window re-draws the same loaded series; it
+// never refetches.
+function buildRanges() {
+  const el = $("ranges");
+  el.innerHTML = RANGES.map(
+    (r, i) => `<button type="button" data-i="${i}" class="range${i === RANGE_I ? " on" : ""}">${r.k}</button>`,
+  ).join("");
+  el.onclick = (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (!b) return;
+    RANGE_I = +b.dataset.i;
+    for (const x of el.querySelectorAll("button")) x.classList.toggle("on", x === b);
+    if (CURRENT) draw();
+  };
 }
 
 async function load(botId) {
@@ -50,31 +78,60 @@ async function load(botId) {
 }
 
 function render(s) {
-  const pts = (s.points || []).slice().sort((a, b) => a.ts - b.ts);
-  const last = pts[pts.length - 1] || {};
-  const peak = pts.reduce((m, p) => Math.max(m, p.return_pct), -Infinity);
+  CURRENT = s;
+  draw();
+}
 
-  const stats = [
-    ["Total return", fmtPct(s.current_return_pct ?? last.return_pct)],
-    ["Peak return", fmtPct(pts.length ? peak : 0)],
-    ["Days tracked", String(pts.length)],
-  ];
+// Draw CURRENT for the selected look-back window. The window is re-based to its
+// first point (0% at the window start), so every preset reads as "return over
+// this period" — the way a stock chart shows 1M / 3M / 1Y.
+function draw() {
+  const s = CURRENT;
+  const all = (s.points || []).slice().sort((a, b) => a.ts - b.ts);
   const statsEl = $("stats");
+
+  if (all.length < 2) {
+    statsEl.hidden = true;
+    $("footer").innerHTML = "";
+    $("chart").innerHTML = `<div class="msg">Not enough data to plot yet.</div>`;
+    return;
+  }
+
+  const range = RANGES[RANGE_I];
+  const lastTs = all[all.length - 1].ts;
+  let win = all;
+  if (range.days != null) {
+    const cutoff = lastTs - range.days * 86400;
+    win = all.filter((p) => p.ts >= cutoff);
+    if (win.length < 2) win = all.slice(-2); // window shorter than history: show what we have
+  }
+
+  // Re-base the cumulative index to the window start.
+  const base = win[0].index || 100;
+  const view = win.map((p) => ({ ts: p.ts, return_pct: (p.index / base - 1) * 100 }));
+
+  const last = view[view.length - 1];
+  const peak = view.reduce((m, p) => Math.max(m, p.return_pct), -Infinity);
+  const label = range.days == null ? "Total" : range.k;
+  const stats = [
+    [`${label} return`, fmtPct(last.return_pct)],
+    ["Peak", fmtPct(peak)],
+    ["Days", String(view.length)],
+  ];
   statsEl.hidden = false;
   statsEl.innerHTML = stats
     .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`)
     .join("");
 
   $("footer").innerHTML = s.generated_at
-    ? `${s.exchange || "bybit"} · ${pts.length} days · time-weighted, deposit-adjusted · updated ${fmtDate(s.generated_at)} UTC`
+    ? `${s.exchange || "bybit"} · ${view.length} days shown · time-weighted, deposit-adjusted · updated ${fmtDate(s.generated_at)} UTC`
     : "";
 
-  if (pts.length < 2) {
-    $("chart").innerHTML = `<div class="msg">Not enough data to plot yet.</div>`;
-    return;
-  }
-  $("chart").innerHTML = chartSVG(pts, s.config_switches || []);
-  wireHover(pts);
+  const switches = (s.config_switches || []).filter(
+    (c) => c.ts >= view[0].ts && c.ts <= last.ts,
+  );
+  $("chart").innerHTML = chartSVG(view, switches);
+  wireHover(view);
 }
 
 // --- SVG line chart (cumulative return %, config-switch markers) ---
