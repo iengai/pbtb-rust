@@ -133,9 +133,9 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         .await
         .context("read config switches")?;
 
-    // Public artifact is keyed by the anonymized label; the real id only ever
-    // appears in the private state object.
-    let label = model::anon_label(&bot.id);
+    // Public artifact is keyed by the bot's readable name; the numeric id only
+    // ever appears in the private state object.
+    let label = model::label_for(&bot.name);
     let series = model::BotReturnSeries::new(
         &label,
         bot.exchange.as_str(),

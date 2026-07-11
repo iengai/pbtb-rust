@@ -58,7 +58,7 @@
       .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
       .legend span { display: inline-flex; align-items: center; gap: 6px; }
       .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
-      .swatch.dash { height: 0; border-top: 2px dashed var(--switch); }
+      .swatch.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--switch); }
       .msg { color: var(--muted); padding: 40px 0; text-align: center; }
       footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
       a { color: var(--accent); }
@@ -93,7 +93,7 @@
         <div id="chart"><div class="msg">Loading…</div></div>
         <div class="legend">
           <span><i class="swatch" style="background:var(--pnl)"></i> Cumulative return</span>
-          <span><i class="swatch dash"></i> Config switch</span>
+          <span><i class="swatch dot"></i> Config switch</span>
         </div>
       </div>
 

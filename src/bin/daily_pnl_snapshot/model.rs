@@ -9,7 +9,6 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
 
@@ -18,14 +17,26 @@ use crate::bybit::LedgerEntry;
 const DAY_S: i64 = 86_400;
 const DAY_MS: i64 = 86_400_000;
 
-/// A stable, non-identifying public label for a bot: the first 6 hex of
-/// SHA-256(bot_id). Deterministic, so it never renumbers, and reveals nothing
-/// about the real id.
-pub fn anon_label(bot_id: &str) -> String {
-    format!(
-        "bot-{}",
-        hex::encode(&Sha256::digest(bot_id.as_bytes())[..3])
-    )
+/// A URL/file-safe public label from the bot's readable NAME (never the numeric
+/// id — that stays private in the state object). Keeps alphanumerics plus
+/// `-`, `_`, `.`; replaces anything else with `-`.
+pub fn label_for(name: &str) -> String {
+    let mapped: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = mapped.trim_matches('-');
+    if trimmed.is_empty() {
+        "bot".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// One day's realized aggregate — the minimal state to (re)compute the return
@@ -262,12 +273,11 @@ mod tests {
     }
 
     #[test]
-    fn anon_label_is_stable_and_hides_id() {
-        let a = anon_label("516903813");
-        assert_eq!(a, anon_label("516903813"));
-        assert!(a.starts_with("bot-"));
-        assert_eq!(a.len(), 10); // "bot-" + 6 hex
-        assert!(!a.contains("516903813"));
+    fn label_for_sanitizes_and_keeps_clean_names() {
+        assert_eq!(label_for("DollarDigger"), "DollarDigger");
+        assert_eq!(label_for("paper2"), "paper2");
+        assert_eq!(label_for("my bot!"), "my-bot");
+        assert_eq!(label_for(""), "bot");
     }
 
     #[test]
