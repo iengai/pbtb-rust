@@ -19,7 +19,8 @@ const RANGES = [
   { k: "1Y", days: 365 },
   { k: "All", days: null },
 ];
-let RANGE_I = RANGES.length - 1; // default: All
+let RANGE_I = 1; // default: 90D — a readable recent view; an early blow-up can
+// squash the full-history axis into a flat line, so "All" is opt-in.
 let CURRENT = null; // the loaded BotReturnSeries
 
 async function getJSON(url) {
