@@ -11,6 +11,8 @@ use pbtb_rust::domain::exchange::Exchange;
 use crate::AppState;
 use crate::{bybit, model, s3_writer};
 
+const DAY_MS: i64 = 86_400_000;
+
 fn wall_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -99,20 +101,55 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
     };
 
     let bybit_cfg = &state.configs.bybit;
-    let ledger =
-        bybit::fetch_transaction_log(&state.http, bybit_cfg, &creds.key, &creds.secret, now_ms)
-            .await
-            .context("fetch transaction log")?;
-    let points = model::daily_points(&ledger);
+    let chart_cfg = &state.configs.chart;
 
+    // Resume from stored state: on a routine run re-fetch only from the last
+    // stored day (re-doing that day catches late settlements, then extends);
+    // on a bot's first run fetch the initial backfill window.
+    let mut bot_state = s3_writer::read_state(&state.s3, chart_cfg, &bot.id)
+        .await
+        .context("read state")?
+        .unwrap_or_default();
+    let from_ms = match bot_state.days.last() {
+        Some(last) => last.day * DAY_MS,
+        None => now_ms - bybit_cfg.backfill_days * DAY_MS,
+    };
+
+    let ledger = bybit::fetch_transaction_log(
+        &state.http,
+        bybit_cfg,
+        &creds.key,
+        &creds.secret,
+        from_ms,
+        now_ms,
+    )
+    .await
+    .context("fetch transaction log")?;
+    let (new_days, new_pre) = model::aggregate(&ledger);
+    bot_state.merge(new_days, new_pre);
+
+    let points = model::compute_points(&bot_state.days, bot_state.first_pre_balance);
     let switches = ConfigSwitchRepository::list_for_bot(&*state.bots, &bot.user_id, &bot.id)
         .await
         .context("read config switches")?;
 
-    let series = model::BotReturnSeries::new(bot, points, &switches, now_ms / 1000);
-    s3_writer::put(&state.s3, &state.configs.chart, &bot.id, &series)
+    // Public artifact is keyed by the anonymized label; the real id only ever
+    // appears in the private state object.
+    let label = model::anon_label(&bot.id);
+    let series = model::BotReturnSeries::new(
+        &label,
+        bot.exchange.as_str(),
+        points,
+        &switches,
+        now_ms / 1000,
+    );
+
+    s3_writer::write_state(&state.s3, chart_cfg, &bot.id, &bot_state)
         .await
-        .context("write chart json")?;
+        .context("write state")?;
+    s3_writer::put_series(&state.s3, chart_cfg, &label, &series)
+        .await
+        .context("write series")?;
 
     Ok(true)
 }
