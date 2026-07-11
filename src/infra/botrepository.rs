@@ -380,6 +380,46 @@ impl DynamoBotRepository {
     pub fn new(client: Client, table_name: String) -> Self {
         Self { client, table_name }
     }
+
+    /// Enumerate every bot across all users via a paginated Scan. The return-curve
+    /// collector has no per-user context, so it cannot use the single-partition
+    /// `find_by_user_id` Query. Non-bot rows sharing a partition (runtime and
+    /// config-switch rows) are skipped; a genuinely unparseable bot row still
+    /// fails loud, exactly as in `find_by_user_id`.
+    pub async fn find_all(&self) -> Result<Vec<Bot>, DomainError> {
+        let mut bots = Vec::new();
+        let mut start_key: Option<HashMap<String, AttributeValue>> = None;
+
+        loop {
+            let mut req = self.client.scan().table_name(&self.table_name);
+            if let Some(key) = start_key.take() {
+                req = req.set_exclusive_start_key(Some(key));
+            }
+            let output = req
+                .send()
+                .await
+                .map_err(|e| repo_err("DynamoDB scan failed", e))?;
+
+            for item in output.items() {
+                if is_runtime_row(item) || is_config_switch_row(item) {
+                    continue;
+                }
+                let user_id = item
+                    .get("pk")
+                    .and_then(|v| v.as_s().ok())
+                    .and_then(|pk| BotItem::extract_user_id_from_pk(pk))
+                    .unwrap_or_default();
+                bots.push(parse_bot_row(item, &user_id)?);
+            }
+
+            match output.last_evaluated_key() {
+                Some(key) if !key.is_empty() => start_key = Some(key.clone()),
+                _ => break,
+            }
+        }
+
+        Ok(bots)
+    }
 }
 
 #[async_trait]
