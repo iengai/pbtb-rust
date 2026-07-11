@@ -30,24 +30,37 @@ async function getJSON(url) {
 }
 
 async function boot() {
-  let ids;
+  let bots;
   try {
     const idx = await getJSON(`${DATA}/index.json`);
-    ids = Array.isArray(idx) ? idx : idx.bots || [];
+    bots = normalizeIndex(idx);
   } catch (e) {
     $("chart").innerHTML = `<div class="msg">No data yet. (${e.message})</div>`;
     return;
   }
-  if (!ids.length) {
+  if (!bots.length) {
     $("chart").innerHTML = `<div class="msg">No bots have data yet.</div>`;
     return;
   }
 
+  // The option value is the stable id (the fetch key); the visible text is the
+  // current display name. A rename only changes the text, never the id.
   const sel = $("bot");
-  sel.innerHTML = ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+  sel.innerHTML = bots
+    .map((b) => `<option value="${b.id}">${escapeXml(b.name)}</option>`)
+    .join("");
   sel.onchange = () => load(sel.value);
   buildRanges();
-  load(ids[0]);
+  load(bots[0].id);
+}
+
+// index.json is a list of { id, name }. Tolerate a legacy bare-string array (id
+// used as its own name) so an old published index still renders.
+function normalizeIndex(idx) {
+  const arr = Array.isArray(idx) ? idx : idx.bots || [];
+  return arr
+    .map((e) => (typeof e === "string" ? { id: e, name: e } : e))
+    .filter((e) => e && e.id);
 }
 
 // The look-back selector. Picking a window re-draws the same loaded series; it

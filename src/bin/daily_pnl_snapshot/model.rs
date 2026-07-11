@@ -3,12 +3,15 @@
 //! state without re-fetching history.
 //!
 //! The published artifact carries only NORMALIZED performance (a time-weighted
-//! return index and cumulative return %) keyed by an ANONYMIZED label — never an
-//! absolute balance/equity, never the real bot id. Nothing here is Bybit-specific.
+//! return index and cumulative return %), keyed by a STABLE opaque id derived
+//! from the bot's IMMUTABLE id so a rename never orphans it — never an absolute
+//! balance/equity, never the raw id. The readable name rides inside as mutable
+//! data. Nothing here is Bybit-specific.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
 
@@ -17,26 +20,13 @@ use crate::bybit::LedgerEntry;
 const DAY_S: i64 = 86_400;
 const DAY_MS: i64 = 86_400_000;
 
-/// A URL/file-safe public label from the bot's readable NAME (never the numeric
-/// id — that stays private in the state object). Keeps alphanumerics plus
-/// `-`, `_`, `.`; replaces anything else with `-`.
-pub fn label_for(name: &str) -> String {
-    let mapped: String = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let trimmed = mapped.trim_matches('-');
-    if trimmed.is_empty() {
-        "bot".to_string()
-    } else {
-        trimmed.to_string()
-    }
+/// A stable, opaque public key for a bot, derived from its IMMUTABLE id — never
+/// the display name (that changes) and never the raw id (it stays private in the
+/// state object). The artifact is keyed by this, so a rename never orphans a
+/// file; the readable name rides along inside the JSON as mutable data.
+pub fn key_for(bot_id: &str) -> String {
+    let digest = Sha256::digest(bot_id.as_bytes());
+    hex::encode(&digest[..6])
 }
 
 /// One day's realized aggregate — the minimal state to (re)compute the return
@@ -95,11 +85,13 @@ pub struct SwitchMarker {
     pub template_name: String,
 }
 
-/// The per-bot artifact the static site fetches and draws. `bot` is the
-/// anonymized label, not the real id.
+/// The per-bot artifact the static site fetches and draws. `id` is the stable
+/// opaque key (also the S3 filename stem); `name` is the current readable
+/// display name — mutable, refreshed every run, never used as a key.
 #[derive(Debug, Clone, Serialize)]
 pub struct BotReturnSeries {
-    pub bot: String,
+    pub id: String,
+    pub name: String,
     pub exchange: String,
     pub generated_at: i64,
     pub current_return_pct: f64,
@@ -109,7 +101,8 @@ pub struct BotReturnSeries {
 
 impl BotReturnSeries {
     pub fn new(
-        label: &str,
+        id: &str,
+        name: &str,
         exchange: &str,
         points: Vec<DailyPoint>,
         switches: &[ConfigSwitchEvent],
@@ -124,7 +117,8 @@ impl BotReturnSeries {
             })
             .collect();
         Self {
-            bot: label.to_string(),
+            id: id.to_string(),
+            name: name.to_string(),
             exchange: exchange.to_string(),
             generated_at,
             current_return_pct,
@@ -273,11 +267,12 @@ mod tests {
     }
 
     #[test]
-    fn label_for_sanitizes_and_keeps_clean_names() {
-        assert_eq!(label_for("DollarDigger"), "DollarDigger");
-        assert_eq!(label_for("paper2"), "paper2");
-        assert_eq!(label_for("my bot!"), "my-bot");
-        assert_eq!(label_for(""), "bot");
+    fn key_for_is_stable_and_name_independent() {
+        // Deterministic in the immutable id, so a display-name change never moves
+        // the file; distinct ids never collide at this length.
+        assert_eq!(key_for("516889601"), key_for("516889601"));
+        assert_ne!(key_for("516889601"), key_for("436713564"));
+        assert_eq!(key_for("516889601").len(), 12);
     }
 
     #[test]
