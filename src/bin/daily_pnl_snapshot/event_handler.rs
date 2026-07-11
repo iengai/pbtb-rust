@@ -133,11 +133,13 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         .await
         .context("read config switches")?;
 
-    // Public artifact is keyed by the bot's readable name; the numeric id only
-    // ever appears in the private state object.
-    let label = model::label_for(&bot.name);
+    // Public artifact is keyed by a STABLE opaque id derived from the bot's
+    // immutable id, so a rename never orphans the file; the readable name rides
+    // inside as mutable data. The raw id stays in the private state object only.
+    let key = model::key_for(&bot.id);
     let series = model::BotReturnSeries::new(
-        &label,
+        &key,
+        &bot.name,
         bot.exchange.as_str(),
         points,
         &switches,
@@ -147,7 +149,7 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
     s3_writer::write_state(&state.s3, chart_cfg, &bot.id, &bot_state)
         .await
         .context("write state")?;
-    s3_writer::put_series(&state.s3, chart_cfg, &label, &series)
+    s3_writer::put_series(&state.s3, chart_cfg, &key, &series)
         .await
         .context("write series")?;
 
