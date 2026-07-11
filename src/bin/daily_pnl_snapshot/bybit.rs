@@ -27,11 +27,20 @@ pub struct LedgerEntry {
     pub cash_balance: f64,
 }
 
+/// Bybit occasionally sends `null` for an otherwise-string field (e.g. an empty
+/// `nextPageCursor`); map both `null` and an absent field to an empty string.
+fn de_null_string<'de, D>(d: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(Deserialize)]
 struct Envelope<T> {
     #[serde(rename = "retCode")]
     ret_code: i64,
-    #[serde(rename = "retMsg")]
+    #[serde(rename = "retMsg", default, deserialize_with = "de_null_string")]
     ret_msg: String,
     result: Option<T>,
 }
@@ -89,22 +98,31 @@ async fn signed_get<T: for<'de> Deserialize<'de>>(
 
 #[derive(Deserialize)]
 struct TxnResult {
+    #[serde(default)]
     list: Vec<TxnRow>,
-    #[serde(rename = "nextPageCursor", default)]
+    #[serde(
+        rename = "nextPageCursor",
+        default,
+        deserialize_with = "de_null_string"
+    )]
     next_page_cursor: String,
 }
 
 #[derive(Deserialize)]
 struct TxnRow {
-    #[serde(rename = "transactionTime", default)]
+    #[serde(
+        rename = "transactionTime",
+        default,
+        deserialize_with = "de_null_string"
+    )]
     transaction_time: String,
-    #[serde(rename = "type", default)]
+    #[serde(rename = "type", default, deserialize_with = "de_null_string")]
     r#type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_string")]
     change: String,
-    #[serde(rename = "cashBalance", default)]
+    #[serde(rename = "cashBalance", default, deserialize_with = "de_null_string")]
     cash_balance: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_null_string")]
     currency: String,
 }
 
