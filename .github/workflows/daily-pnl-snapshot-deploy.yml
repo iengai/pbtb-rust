@@ -1,0 +1,137 @@
+name: daily-pnl-snapshot-deploy
+
+# Build the daily_pnl_snapshot collector bootstrap and ship it straight to the
+# function via `aws lambda update-function-code`. Same pattern as lambda-deploy:
+# no Terraform, no state lock, no NAT touch. Built through the SAME builder stage
+# (.devcontainer/Dockerfile, rust:1.89-bullseye -> glibc 2.31) to stay below
+# AL2023's glibc 2.34 — never a bare `cargo build` on the runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish an immutable Lambda version for rollback'
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write # OIDC -> assume the deploy role
+  contents: read
+
+env:
+  # Mirrors terraform's "${project}-${env}-${function_name}" (project=scalable-cluster,
+  # env=dev). Keep in sync with terraform if the project/env or function name changes.
+  AWS_REGION: ap-northeast-1
+  FUNCTION_NAME: scalable-cluster-dev-daily-pnl-snapshot
+  BIN_NAME: daily_pnl_snapshot
+
+jobs:
+  deploy:
+    # x86_64 host matches the function arch; the builder image builds linux/amd64
+    # natively, no QEMU.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Restore cargo build cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cargo-registry-cache
+            cargo-target-cache
+          key: lambda-buildkit-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            lambda-buildkit-
+
+      - name: Inject cargo cache into BuildKit
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          cache-map: |
+            {
+              "cargo-registry-cache": "/usr/local/cargo/registry",
+              "cargo-target-cache": "/app/target"
+            }
+          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
+
+      - name: Build bootstrap (devcontainer builder stage)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .devcontainer/Dockerfile
+          target: lambda-export
+          platforms: linux/amd64
+          build-args: |
+            BIN_NAME=${{ env.BIN_NAME }}
+          outputs: type=local,dest=artifact
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Package zip (bootstrap at root)
+        run: |
+          set -euo pipefail
+          test -f artifact/bootstrap || { echo "bootstrap not produced by the build"; exit 1; }
+          chmod +x artifact/bootstrap
+          (cd artifact && zip -X -q ../out.zip bootstrap)
+          echo "LOCAL_SHA=$(openssl dgst -sha256 -binary out.zip | base64)" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DAILY_PNL_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update function code
+        id: update
+        run: |
+          set -euo pipefail
+          PUBLISH=''
+          [ "${{ github.event.inputs.publish }}" = "true" ] && PUBLISH='--publish'
+          OUT=$(aws lambda update-function-code \
+            --function-name "$FUNCTION_NAME" \
+            --zip-file fileb://out.zip \
+            $PUBLISH \
+            --output json)
+          echo "$OUT" | jq '{FunctionArn, Version, CodeSha256, LastUpdateStatus}'
+          echo "remote_sha=$(echo "$OUT" | jq -r '.CodeSha256')" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the update to settle
+        run: aws lambda wait function-updated --function-name "$FUNCTION_NAME"
+
+      - name: Verify CodeSha256
+        run: |
+          set -euo pipefail
+          echo "local : $LOCAL_SHA"
+          echo "remote: ${{ steps.update.outputs.remote_sha }}"
+          [ "$LOCAL_SHA" = "${{ steps.update.outputs.remote_sha }}" ] \
+            || { echo "CodeSha256 mismatch (upload corrupted?)"; exit 1; }
+
+      # A non-"Scheduled Event" hits the early guard in event_handler.rs -> Ok(())
+      # before any Bybit/S3 call, so it never touches an exchange or writes data.
+      - name: Smoke invoke (ignored event -> 200, no FunctionError)
+        run: |
+          set -euo pipefail
+          PAYLOAD='{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
+          RESP=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --cli-binary-format raw-in-base64-out \
+            --payload "$PAYLOAD" \
+            --output json \
+            response.json) || true
+          echo "$RESP"
+          echo "body: $(cat response.json 2>/dev/null || true)"
+          STATUS=$(echo "$RESP" | jq -r '.StatusCode')
+          FERR=$(echo "$RESP" | jq -r '.FunctionError // "None"')
+          [ "$STATUS" = "200" ] || { echo "unexpected StatusCode=$STATUS"; exit 1; }
+          [ "$FERR" = "None" ] || { echo "FunctionError: $FERR"; cat response.json; exit 1; }
+          echo "smoke ok"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Collector Lambda deployed"
+            echo "- function: \`$FUNCTION_NAME\`"
+            echo "- CodeSha256: \`${{ steps.update.outputs.remote_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
