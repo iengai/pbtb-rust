@@ -1,0 +1,207 @@
+//! Minimal signed Bybit V5 REST client for the return-curve collector.
+//!
+//! Only the two read endpoints the collector needs are implemented. Requests are
+//! signed with `HMAC-SHA256(secret, timestamp + api_key + recv_window + query)`
+//! per Bybit V5. The key/secret are never logged: errors carry only the HTTP
+//! status or Bybit's own `retMsg`, never request headers (which hold the key).
+
+use anyhow::{Context, Result, anyhow, bail};
+use hmac::{Hmac, Mac};
+use serde::Deserialize;
+use sha2::Sha256;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use pbtb_rust::config::bybit::BybitConfig;
+
+type HmacSha256 = Hmac<Sha256>;
+
+const DAY_MS: i64 = 86_400_000;
+const WINDOW_MS: i64 = 7 * DAY_MS; // Bybit caps each history query at 7 days.
+
+/// One normalized transaction-log entry. `change = cashFlow + funding - fee`
+/// (the net cash effect); `cash_balance` is the wallet balance after it.
+pub struct LedgerEntry {
+    pub ts_ms: i64,
+    pub kind: String,
+    pub change: f64,
+    pub cash_balance: f64,
+}
+
+#[derive(Deserialize)]
+struct Envelope<T> {
+    #[serde(rename = "retCode")]
+    ret_code: i64,
+    #[serde(rename = "retMsg")]
+    ret_msg: String,
+    result: Option<T>,
+}
+
+fn sign(secret: &str, payload: &str) -> Result<String> {
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).map_err(|e| anyhow!("hmac init: {e}"))?;
+    mac.update(payload.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+fn now_ms() -> Result<i64> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64)
+}
+
+/// Issue a signed GET and unwrap the Bybit envelope. `query` is the exact query
+/// string (without leading `?`) that is both signed and sent, so any pagination
+/// cursor must already be in the form Bybit returned it.
+async fn signed_get<T: for<'de> Deserialize<'de>>(
+    http: &reqwest::Client,
+    cfg: &BybitConfig,
+    api_key: &str,
+    secret: &str,
+    path: &str,
+    query: &str,
+) -> Result<T> {
+    let ts = now_ms()?.to_string();
+    let recv = cfg.recv_window_ms.unwrap_or(5000).to_string();
+    let signature = sign(secret, &format!("{ts}{api_key}{recv}{query}"))?;
+    let url = format!("{}{}?{}", cfg.base_url.trim_end_matches('/'), path, query);
+
+    let resp = http
+        .get(&url)
+        .header("X-BAPI-API-KEY", api_key)
+        .header("X-BAPI-TIMESTAMP", &ts)
+        .header("X-BAPI-RECV-WINDOW", &recv)
+        .header("X-BAPI-SIGN", signature)
+        .send()
+        .await
+        .context("bybit request failed")?;
+
+    let status = resp.status();
+    let body = resp.text().await.context("read bybit body")?;
+    if !status.is_success() {
+        // Status only — the body may echo account data; the key is in a header.
+        bail!("bybit HTTP {status}");
+    }
+    let env: Envelope<T> = serde_json::from_str(&body).context("parse bybit envelope")?;
+    if env.ret_code != 0 {
+        bail!("bybit retCode {}: {}", env.ret_code, env.ret_msg);
+    }
+    env.result
+        .ok_or_else(|| anyhow!("bybit response missing result"))
+}
+
+#[derive(Deserialize)]
+struct WalletResult {
+    list: Vec<WalletAccount>,
+}
+
+#[derive(Deserialize)]
+struct WalletAccount {
+    #[serde(rename = "totalEquity")]
+    total_equity: String,
+}
+
+/// Current total account equity (incl. unrealized PnL), in the account's USD
+/// valuation. A point-in-time snapshot — Bybit has no historical equity API.
+pub async fn wallet_equity(
+    http: &reqwest::Client,
+    cfg: &BybitConfig,
+    api_key: &str,
+    secret: &str,
+) -> Result<f64> {
+    let res: WalletResult = signed_get(
+        http,
+        cfg,
+        api_key,
+        secret,
+        "/v5/account/wallet-balance",
+        "accountType=UNIFIED",
+    )
+    .await?;
+    let equity = res
+        .list
+        .first()
+        .and_then(|a| a.total_equity.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    Ok(equity)
+}
+
+#[derive(Deserialize)]
+struct TxnResult {
+    list: Vec<TxnRow>,
+    #[serde(rename = "nextPageCursor", default)]
+    next_page_cursor: String,
+}
+
+#[derive(Deserialize)]
+struct TxnRow {
+    #[serde(rename = "transactionTime", default)]
+    transaction_time: String,
+    #[serde(rename = "type", default)]
+    r#type: String,
+    #[serde(default)]
+    change: String,
+    #[serde(rename = "cashBalance", default)]
+    cash_balance: String,
+    #[serde(default)]
+    currency: String,
+}
+
+/// Walk the transaction log back `cfg.backfill_days`, in 7-day windows with
+/// cursor pagination, collecting the settlement-coin entries. Bybit retains ~730
+/// days; older data is unrecoverable, so a long-running deployment relies on its
+/// own accumulated history rather than re-fetching everything each run.
+pub async fn fetch_transaction_log(
+    http: &reqwest::Client,
+    cfg: &BybitConfig,
+    api_key: &str,
+    secret: &str,
+    now_ms: i64,
+) -> Result<Vec<LedgerEntry>> {
+    let start_floor = now_ms - cfg.backfill_days * DAY_MS;
+    let mut entries = Vec::new();
+    let mut win_end = now_ms;
+
+    while win_end > start_floor {
+        let win_start = (win_end - WINDOW_MS).max(start_floor);
+        let mut cursor = String::new();
+        loop {
+            let mut query = format!(
+                "accountType=UNIFIED&category=linear&currency={}&limit=50&startTime={}&endTime={}",
+                cfg.settle_coin, win_start, win_end
+            );
+            if !cursor.is_empty() {
+                // Bybit returns the cursor already URL-encoded, so it is signed
+                // and sent verbatim (re-encoding would break the signature).
+                query.push_str(&format!("&cursor={cursor}"));
+            }
+
+            let res: TxnResult = signed_get(
+                http,
+                cfg,
+                api_key,
+                secret,
+                "/v5/account/transaction-log",
+                &query,
+            )
+            .await?;
+
+            for row in &res.list {
+                if !row.currency.is_empty() && row.currency != cfg.settle_coin {
+                    continue;
+                }
+                entries.push(LedgerEntry {
+                    ts_ms: row.transaction_time.parse::<i64>().unwrap_or(0),
+                    kind: row.r#type.clone(),
+                    change: row.change.parse::<f64>().unwrap_or(0.0),
+                    cash_balance: row.cash_balance.parse::<f64>().unwrap_or(0.0),
+                });
+            }
+
+            if res.next_page_cursor.is_empty() {
+                break;
+            }
+            cursor = res.next_page_cursor;
+        }
+        win_end = win_start;
+    }
+
+    Ok(entries)
+}
