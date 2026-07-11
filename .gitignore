@@ -14,3 +14,8 @@
 .devcontainer/docker/dynamodb/
 .claude/settings.local.json
 .claude/worktrees/
+.claude/workflows/
+
+# Chart data is published by CI (pages-publish), never committed — it holds
+# live account performance and would otherwise ship stale/sample numbers.
+/site/data/
