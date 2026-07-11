@@ -1,4 +1,5 @@
 use crate::domain::bot::{Bot, BotRepository};
+use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchKind, ConfigSwitchRepository};
 use crate::domain::error::DomainError;
 use crate::domain::exchange::Exchange;
 use crate::domain::runtime::{
@@ -58,6 +59,16 @@ fn is_runtime_row(item: &HashMap<String, AttributeValue>) -> bool {
     item.get("sk")
         .and_then(|v| v.as_s().ok())
         .is_some_and(|sk| sk.starts_with(ECS_TASK_METADATA_SK_PREFIX))
+}
+
+/// A bot's partition also holds its config-switch timeline rows
+/// (`sk = config_switch#<bot_id>#<applied_at>`). Like the runtime row they are
+/// not bots, so a `find_by_user_id` query must skip them rather than mis-parse
+/// one as a `CorruptRecord` and fail the whole list.
+fn is_config_switch_row(item: &HashMap<String, AttributeValue>) -> bool {
+    item.get("sk")
+        .and_then(|v| v.as_s().ok())
+        .is_some_and(|sk| sk.starts_with(CONFIG_SWITCH_SK_PREFIX))
 }
 
 /// Storage model for the infra layer
@@ -175,6 +186,10 @@ struct BotECSTaskMetadata {
 /// row rather than the bot row itself. Both live under the same `pk`.
 const ECS_TASK_METADATA_SK_PREFIX: &str = "ecs_task_metadata#";
 
+/// Sort-key prefix that marks a row as a config-switch timeline event for a bot
+/// (`sk = config_switch#<bot_id>#<applied_at>`), sharing the bot's `pk`.
+const CONFIG_SWITCH_SK_PREFIX: &str = "config_switch#";
+
 impl BotECSTaskMetadata {
     fn construct_sk(bot_id: &str) -> String {
         format!("{ECS_TASK_METADATA_SK_PREFIX}{bot_id}")
@@ -262,6 +277,97 @@ impl BotECSTaskMetadata {
             version: self.task_current_version,
             observed_at: self.updated_at,
         }
+    }
+}
+
+/// Storage/mapping struct for a bot's config-switch timeline event.
+/// Item shape: pk = user_id#<user_id>, sk = config_switch#<bot_id>#<applied_at>,
+/// attributes: bot_id (String), kind (String), template_name (String),
+/// template_version (String, only when present), applied_at (Number, unix
+/// seconds). `applied_at` is fixed-width in the sort key, so the natural key
+/// order is chronological.
+struct ConfigSwitchItem {
+    pk: String, // user_id#<user_id>
+    sk: String, // config_switch#<bot_id>#<applied_at>
+    bot_id: String,
+    kind: String,
+    template_name: String,
+    template_version: Option<String>,
+    applied_at: i64,
+}
+
+impl ConfigSwitchItem {
+    fn construct_sk(bot_id: &str, applied_at: i64) -> String {
+        format!("{CONFIG_SWITCH_SK_PREFIX}{bot_id}#{applied_at}")
+    }
+
+    /// Sort-key prefix selecting every switch event of one bot, for a
+    /// `begins_with` range query.
+    fn sk_prefix_for_bot(bot_id: &str) -> String {
+        format!("{CONFIG_SWITCH_SK_PREFIX}{bot_id}#")
+    }
+
+    fn from_domain(event: &ConfigSwitchEvent) -> Self {
+        Self {
+            pk: BotItem::construct_pk(&event.user_id),
+            sk: Self::construct_sk(&event.bot_id, event.applied_at),
+            bot_id: event.bot_id.clone(),
+            kind: event.kind.as_str().to_string(),
+            template_name: event.template_name.clone(),
+            template_version: event.template_version.clone(),
+            applied_at: event.applied_at,
+        }
+    }
+
+    fn to_item(&self) -> HashMap<String, AttributeValue> {
+        let mut map = HashMap::new();
+        map.insert("pk".to_string(), AttributeValue::S(self.pk.clone()));
+        map.insert("sk".to_string(), AttributeValue::S(self.sk.clone()));
+        map.insert("bot_id".to_string(), AttributeValue::S(self.bot_id.clone()));
+        map.insert("kind".to_string(), AttributeValue::S(self.kind.clone()));
+        map.insert(
+            "template_name".to_string(),
+            AttributeValue::S(self.template_name.clone()),
+        );
+        if let Some(version) = &self.template_version {
+            map.insert(
+                "template_version".to_string(),
+                AttributeValue::S(version.clone()),
+            );
+        }
+        map.insert(
+            "applied_at".to_string(),
+            AttributeValue::N(self.applied_at.to_string()),
+        );
+        map
+    }
+
+    fn from_item(item: &HashMap<String, AttributeValue>) -> Option<Self> {
+        Some(Self {
+            pk: item.get("pk")?.as_s().ok()?.to_string(),
+            sk: item.get("sk")?.as_s().ok()?.to_string(),
+            bot_id: item.get("bot_id")?.as_s().ok()?.to_string(),
+            kind: item.get("kind")?.as_s().ok()?.to_string(),
+            template_name: item.get("template_name")?.as_s().ok()?.to_string(),
+            template_version: item
+                .get("template_version")
+                .and_then(|v| v.as_s().ok())
+                .map(|s| s.to_string()),
+            applied_at: item.get("applied_at")?.as_n().ok()?.parse().ok()?,
+        })
+    }
+
+    fn to_domain(&self) -> Option<ConfigSwitchEvent> {
+        let user_id = BotItem::extract_user_id_from_pk(&self.pk)?;
+        let kind = ConfigSwitchKind::from_str(&self.kind)?;
+        Some(ConfigSwitchEvent {
+            user_id,
+            bot_id: self.bot_id.clone(),
+            kind,
+            template_name: self.template_name.clone(),
+            template_version: self.template_version.clone(),
+            applied_at: self.applied_at,
+        })
     }
 }
 
@@ -652,15 +758,16 @@ impl BotRepository for DynamoBotRepository {
             .map_err(|e| repo_err("DynamoDB query failed", e))?;
 
         // The query returns the whole partition, which mixes bot rows with each
-        // bot's `ecs_task_metadata#` runtime row; the latter are skipped (they are
-        // not bots). Among the rows that SHOULD be bots, a single unparseable one
-        // fails the whole list rather than silently dropping out of it — a partial
-        // list that looks complete is the same swallowed-fault trap as a collapsed
-        // `None` (docs/conventions.md § Error Handling).
+        // bot's `ecs_task_metadata#` runtime row and its `config_switch#` timeline
+        // rows; those non-bot rows are skipped. Among the rows that SHOULD be bots,
+        // a single unparseable one fails the whole list rather than silently
+        // dropping out of it — a partial list that looks complete is the same
+        // swallowed-fault trap as a collapsed `None` (docs/conventions.md § Error
+        // Handling).
         output
             .items()
             .iter()
-            .filter(|item| !is_runtime_row(item))
+            .filter(|item| !is_runtime_row(item) && !is_config_switch_row(item))
             .map(|item| parse_bot_row(item, user_id))
             .collect()
     }
@@ -678,5 +785,65 @@ impl BotRepository for DynamoBotRepository {
             .map_err(|e| repo_err("Failed to delete bot", e))?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ConfigSwitchRepository for DynamoBotRepository {
+    async fn record(&self, event: &ConfigSwitchEvent) -> Result<(), DomainError> {
+        // Append-only: each event has a distinct sort key (…#<applied_at>), so an
+        // unconditional put adds to the timeline rather than overwriting it.
+        let item = ConfigSwitchItem::from_domain(event).to_item();
+
+        self.client
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await
+            .map_err(|e| repo_err("DynamoDB put_item failed", e))?;
+
+        Ok(())
+    }
+
+    async fn list_for_bot(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+    ) -> Result<Vec<ConfigSwitchEvent>, DomainError> {
+        let output = self
+            .client
+            .query()
+            .table_name(&self.table_name)
+            .key_condition_expression("pk = :pk AND begins_with(sk, :prefix)")
+            .expression_attribute_values(":pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .expression_attribute_values(
+                ":prefix",
+                AttributeValue::S(ConfigSwitchItem::sk_prefix_for_bot(bot_id)),
+            )
+            .send()
+            .await
+            .map_err(|e| repo_err("DynamoDB query failed", e))?;
+
+        // Every row under this prefix is a switch event; an unparseable one is a
+        // CorruptRecord fault, never dropped, so a broken timeline fails loud
+        // rather than reading back as a silently short one (docs/conventions.md
+        // § Error Handling).
+        let mut events = output
+            .items()
+            .iter()
+            .map(|item| {
+                ConfigSwitchItem::from_item(item)
+                    .and_then(|ci| ci.to_domain())
+                    .ok_or_else(|| {
+                        DomainError::CorruptRecord(format!(
+                            "config_switch row pk=user_id#{user_id} did not parse"
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        events.sort_by_key(|e| e.applied_at);
+        Ok(events)
     }
 }

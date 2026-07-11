@@ -67,9 +67,14 @@ async fn main() -> anyhow::Result<()> {
     let list_templates_usecase = Arc::new(ListTemplatesUseCase::new(template_repository.clone()));
 
     // Create use cases - Bot config management
+    // DynamoBotRepository also implements ConfigSwitchRepository; the same Arc is
+    // upcast into that port so applying a template records the switch timeline the
+    // return-curve chart annotates.
+    let config_switches: Arc<dyn domain::ConfigSwitchRepository> = bot_repository.clone();
     let apply_template_usecase = Arc::new(ApplyTemplateUseCase::new(
         template_repository.clone(),
         bot_config_repository.clone(),
+        config_switches,
         clock.clone(),
     ));
     let get_bot_config_usecase = Arc::new(GetBotConfigUseCase::new(bot_config_repository.clone()));

@@ -20,6 +20,9 @@ use aws_sdk_dynamodb::types::{
 };
 
 use pbtb_rust::domain::bot::{Bot, BotRepository};
+use pbtb_rust::domain::configswitch::{
+    ConfigSwitchEvent, ConfigSwitchKind, ConfigSwitchRepository,
+};
 use pbtb_rust::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
@@ -605,4 +608,100 @@ async fn terminal_stopped_settles_future_stamped_stopping() {
         "a stale stopped must not clobber a newer running row"
     );
     assert_eq!(still.task_id.as_deref(), Some("task-2"));
+}
+
+/// Config-switch timeline: `record` appends per-bot events and `list_for_bot`
+/// returns them chronologically, scoped to the bot by a `begins_with(sk, …)`
+/// key-condition. Validated against real DynamoDB Local because a malformed
+/// key-condition expression surfaces only as a runtime ValidationException, not
+/// a compile error. Also guards that `config_switch#` rows never leak into the
+/// bot listing.
+#[tokio::test]
+async fn config_switch_record_and_list() {
+    let Some((_container, client)) = start_dynamodb().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+
+    // Two switches for alpha-bot, recorded out of chronological order …
+    ConfigSwitchRepository::record(
+        &repo,
+        &ConfigSwitchEvent::template(
+            "user-1".into(),
+            "alpha-bot".into(),
+            "grid-v2".into(),
+            Some("2".into()),
+            1_700_000_200,
+        ),
+    )
+    .await
+    .expect("record switch should succeed");
+    ConfigSwitchRepository::record(
+        &repo,
+        &ConfigSwitchEvent::template(
+            "user-1".into(),
+            "alpha-bot".into(),
+            "grid-v1".into(),
+            None,
+            1_700_000_100,
+        ),
+    )
+    .await
+    .expect("record switch should succeed");
+    // … and one for a DIFFERENT bot in the same partition (must be excluded).
+    ConfigSwitchRepository::record(
+        &repo,
+        &ConfigSwitchEvent::template(
+            "user-1".into(),
+            "beta-bot".into(),
+            "dca".into(),
+            None,
+            1_700_000_150,
+        ),
+    )
+    .await
+    .expect("record switch should succeed");
+
+    // list_for_bot returns only alpha-bot's events, oldest first.
+    let events = repo
+        .list_for_bot("user-1", "alpha-bot")
+        .await
+        .expect("list_for_bot should not error");
+    assert_eq!(events.len(), 2, "only alpha-bot's two switches");
+    assert_eq!(events[0].template_name, "grid-v1");
+    assert_eq!(events[0].applied_at, 1_700_000_100);
+    assert_eq!(events[0].template_version, None);
+    assert_eq!(events[0].kind, ConfigSwitchKind::Template);
+    assert_eq!(events[1].template_name, "grid-v2");
+    assert_eq!(events[1].applied_at, 1_700_000_200);
+    assert_eq!(events[1].template_version, Some("2".to_string()));
+
+    // A bot with no switches yields an empty timeline (absence, not error).
+    let none = repo
+        .list_for_bot("user-1", "no-such-bot")
+        .await
+        .expect("list_for_bot should not error");
+    assert!(none.is_empty());
+
+    // config_switch# rows must NOT leak into the bot listing: save a real bot,
+    // then confirm find_by_user_id returns exactly it despite the switch rows
+    // sharing the partition.
+    let bot = Bot::create(
+        "user-1".to_string(),
+        "alpha-bot".to_string(),
+        "ak".to_string(),
+        "sk".to_string(),
+        1_700_000_000,
+    );
+    repo.save(&bot).await.expect("save should succeed");
+    let bots = repo
+        .find_by_user_id("user-1")
+        .await
+        .expect("find_by_user_id should not error");
+    assert_eq!(
+        bots.len(),
+        1,
+        "config_switch# rows must be skipped by bot listing"
+    );
+    assert_eq!(bots[0].id, "alpha-bot");
 }
