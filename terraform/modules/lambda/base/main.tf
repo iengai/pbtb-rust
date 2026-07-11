@@ -22,9 +22,9 @@ resource "aws_iam_role" "lambda_exec" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 
@@ -37,6 +37,15 @@ resource "aws_iam_role" "lambda_exec" {
 resource "aws_iam_role_policy_attachment" "basic" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# A VPC-attached function manages its own ENIs, which needs these EC2 perms.
+# Only attached when the function is placed in the VPC (subnet_ids non-empty);
+# non-VPC lambdas on this base are unaffected.
+resource "aws_iam_role_policy_attachment" "vpc_access" {
+  count      = length(var.subnet_ids) > 0 ? 1 : 0
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 resource "aws_lambda_function" "this" {
@@ -56,6 +65,17 @@ resource "aws_lambda_function" "this" {
 
   environment {
     variables = var.environment_variables
+  }
+
+  # Attached to the VPC only when subnet_ids are provided — the return-curve
+  # collector needs a fixed egress IP (via the NAT instance) for IP-whitelisted
+  # exchange keys. Other lambdas pass no subnets and stay outside the VPC.
+  dynamic "vpc_config" {
+    for_each = length(var.subnet_ids) > 0 ? [1] : []
+    content {
+      subnet_ids         = var.subnet_ids
+      security_group_ids = var.security_group_ids
+    }
   }
 
   tags = merge(

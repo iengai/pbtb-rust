@@ -1,0 +1,61 @@
+name: pages-publish
+
+# Pull the per-bot return JSON from the private chart bucket and publish the
+# static site (site/) to GitHub Pages. The bucket stays private; this workflow's
+# scoped OIDC role is the only reader. Runs after the collector's daily schedule.
+#
+# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
+
+on:
+  schedule:
+    - cron: '30 1 * * *' # 30 min after the collector's 01:00 UTC run
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC -> assume the read role
+  contents: read
+  pages: write # deploy to GitHub Pages
+
+# Never run two publishes at once (they race on the Pages deployment).
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-northeast-1
+  CHART_BUCKET: scalable-cluster-dev-return-charts
+  CHART_PREFIX: charts
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PAGES_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync chart data from S3 and build the bot index
+        run: |
+          set -euo pipefail
+          mkdir -p site/data
+          aws s3 sync "s3://$CHART_BUCKET/$CHART_PREFIX/" site/data/ --delete
+          # Build data/index.json (array of bot ids) from the synced per-bot files.
+          find site/data -maxdepth 1 -name '*.json' ! -name 'index.json' -printf '%f\n' \
+            | sed 's/\.json$//' | jq -R . | jq -s . > site/data/index.json
+          echo "bots: $(cat site/data/index.json)"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

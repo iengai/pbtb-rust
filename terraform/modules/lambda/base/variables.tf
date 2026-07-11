@@ -57,3 +57,15 @@ variable "code_s3_key_prefix" {
   default     = "lambda"
   description = "S3 key prefix for lambda code objects"
 }
+
+variable "subnet_ids" {
+  type        = list(string)
+  default     = []
+  description = "Private subnet IDs to attach the function to. Empty (default) leaves the function outside the VPC, so existing lambdas on this base are unaffected."
+}
+
+variable "security_group_ids" {
+  type        = list(string)
+  default     = []
+  description = "Security group IDs for the VPC-attached ENI (used only when subnet_ids is non-empty)."
+}
