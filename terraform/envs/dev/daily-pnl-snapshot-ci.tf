@@ -18,7 +18,11 @@ resource "aws_iam_role" "gh_daily_pnl_deploy" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main" }
+        # Any branch of this repo may dispatch a deploy. The workflow is
+        # workflow_dispatch-only and the role can do nothing but UpdateFunctionCode
+        # on this one dev function, so branch-scoping buys little; the feature
+        # branch (not yet merged to main) needs to deploy the collector.
+        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/*" }
       }
     }]
   })
