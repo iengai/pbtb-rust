@@ -18,7 +18,9 @@ resource "aws_iam_role" "gh_pages_publish" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main" }
+        # The publish job runs in the `github-pages` environment, so its OIDC
+        # token subject is scoped to that environment, not a branch ref.
+        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:github-pages" }
       }
     }]
   })
