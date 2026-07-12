@@ -64,8 +64,8 @@ variable "bybit_base_url" {
 
 variable "backfill_days" {
   type        = number
-  default     = 730
-  description = "Days a bot's FIRST run back-fills (Bybit keeps ~2y of transaction log); routine runs are incremental (only new days)"
+  default     = 720
+  description = "Days a bot's FIRST run back-fills; capped just under Bybit's hard 2-year transaction-log limit (730d is rejected as 'earlier than 2 years'). Routine runs are incremental (only new days)."
 }
 
 variable "subnet_ids" {
