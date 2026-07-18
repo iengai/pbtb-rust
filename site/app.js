@@ -15,12 +15,8 @@ const fmtDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
 const RANGES = [
   { k: "30D", days: 30 },
   { k: "90D", days: 90 },
-  { k: "180D", days: 180 },
-  { k: "1Y", days: 365 },
-  { k: "All", days: null },
 ];
-let RANGE_I = 1; // default: 90D — a readable recent view; an early blow-up can
-// squash the full-history axis into a flat line, so "All" is opt-in.
+let RANGE_I = 1; // default: 90D
 let CURRENT = null; // the loaded BotReturnSeries
 
 async function getJSON(url) {
