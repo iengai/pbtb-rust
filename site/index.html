@@ -71,6 +71,13 @@
       .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
       .swatch.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--switch); }
       .msg { color: var(--muted); padding: 40px 0; text-align: center; }
+      .msg .hint { font-size: 13px; opacity: .8; }
+      .warn {
+        background: color-mix(in srgb, var(--switch) 12%, var(--panel));
+        border: 1px solid color-mix(in srgb, var(--switch) 40%, var(--border));
+        color: var(--text); border-radius: 10px; padding: 10px 13px;
+        font-size: 13px; line-height: 1.45; margin-bottom: 18px;
+      }
       footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
       a { color: var(--accent); }
       /* Tooltip */
@@ -100,6 +107,7 @@
       </div>
 
       <div id="stats" class="stats" hidden></div>
+      <div id="warn" class="warn" hidden></div>
 
       <div class="chart-card">
         <div id="chart"><div class="msg">Loading…</div></div>
