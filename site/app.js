@@ -22,6 +22,7 @@ const DISTORT_BASE = 1; // base under 1% of the starting index (100) ⇒ noise
 const RANGES = [
   { k: "30D", days: 30 },
   { k: "90D", days: 90 },
+  { k: "180D", days: 180 },
 ];
 let RANGE_I = 1; // default: 90D
 let CURRENT = null; // the loaded BotReturnSeries
