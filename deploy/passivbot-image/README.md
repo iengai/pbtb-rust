@@ -2,10 +2,10 @@
 
 The `linux/arm64` live-trading image that the ECS `…-passivbot` task definition
 runs. Source of truth for the build files; the passivbot application code comes
-from a checkout of upstream (`E:/projects/passivbot`, currently **v7.12.0**).
+from a checkout of upstream (`E:/projects/passivbot`, currently **v8.1.0**).
 
 ECR repo: `passivbot-live` (account `025418542265`, `ap-northeast-1`).
-Current tag: **`v7.12.0-arm64`**.
+Current tag: **`v8.1.0-arm64`**.
 
 ## Files
 
@@ -25,9 +25,9 @@ so a build costs nothing.
 ## Build a new version
 
 ```bash
-python scripts/build_passivbot_image.py --tag v7.12.0-arm64
+python scripts/build_passivbot_image.py --tag v8.1.0-arm64
 # next bump, after pointing --passivbot-dir at the new checkout:
-python scripts/build_passivbot_image.py --tag v7.13.0-arm64
+python scripts/build_passivbot_image.py --tag v8.2.0-arm64
 ```
 
 The script overlays these build files onto a subset of the passivbot checkout

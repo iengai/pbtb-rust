@@ -147,6 +147,38 @@ pub struct BotConfig {
     pub updated_at: i64,
 }
 
+/// Key of the per-side wallet-exposure limit in a passivbot config.
+const EXPOSURE_KEY: &str = "total_wallet_exposure_limit";
+/// Key of the v8 `risk` object under `bot.<side>`.
+const RISK_KEY: &str = "risk";
+
+/// Config paths of one side's wallet-exposure limit under both passivbot
+/// schemas. v7 keeps it flat at `bot.<side>.total_wallet_exposure_limit`; v8
+/// (`config_version` v8.x) nests it under `bot.<side>.risk`. A v7 config never
+/// carries a `risk` object, so its presence is the schema discriminator, even
+/// when a stale flat key sits beside it. Both shapes coexist in S3, so readers
+/// and writers pick the path per config rather than per deployment.
+struct ExposurePaths {
+    side_key: &'static str,
+    side: &'static str,
+    flat: &'static str,
+    risk: &'static str,
+}
+
+const LONG_EXPOSURE: ExposurePaths = ExposurePaths {
+    side_key: "long",
+    side: "bot.long",
+    flat: "bot.long.total_wallet_exposure_limit",
+    risk: "bot.long.risk.total_wallet_exposure_limit",
+};
+
+const SHORT_EXPOSURE: ExposurePaths = ExposurePaths {
+    side_key: "short",
+    side: "bot.short",
+    flat: "bot.short.total_wallet_exposure_limit",
+    risk: "bot.short.risk.total_wallet_exposure_limit",
+};
+
 impl BotConfig {
     /// Create a new BotConfig from a template.
     /// The live.user field is overridden with the bot_id so the running task
@@ -177,31 +209,30 @@ impl BotConfig {
         self.updated_at = timestamp;
     }
 
-    /// Get risk level from config data
-    /// Extracts from config["bot"]["long"]["total_wallet_exposure_limit"] and
-    /// config["bot"]["short"]["total_wallet_exposure_limit"]
+    /// Get risk level from config data: the wallet-exposure limit of each side,
+    /// read from whichever schema the config uses (see `ExposurePaths`).
     pub fn risk_level(&self) -> Result<RiskLevel, DomainError> {
-        let long = self
-            .config_data
-            .get("bot")
-            .and_then(|bot| bot.get("long"))
-            .and_then(|long| long.get("total_wallet_exposure_limit"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingConfigPath(
-                "bot.long.total_wallet_exposure_limit",
-            ))?;
-
-        let short = self
-            .config_data
-            .get("bot")
-            .and_then(|bot| bot.get("short"))
-            .and_then(|short| short.get("total_wallet_exposure_limit"))
-            .and_then(|v| v.as_f64())
-            .ok_or(DomainError::MissingConfigPath(
-                "bot.short.total_wallet_exposure_limit",
-            ))?;
-
+        let long = self.side_exposure(&LONG_EXPOSURE)?;
+        let short = self.side_exposure(&SHORT_EXPOSURE)?;
         RiskLevel::new(long, short)
+    }
+
+    /// Wallet-exposure limit of one side. A `risk` object under `bot.<side>`
+    /// selects the v8 path; otherwise the flat v7 key is read. The error names
+    /// the path that was actually looked up.
+    fn side_exposure(&self, paths: &ExposurePaths) -> Result<f64, DomainError> {
+        let side = self
+            .config_data
+            .get("bot")
+            .and_then(|bot| bot.get(paths.side_key));
+        let (holder, path) = match side.and_then(|s| s.get(RISK_KEY)).filter(|r| r.is_object()) {
+            Some(risk) => (Some(risk), paths.risk),
+            None => (side, paths.flat),
+        };
+        holder
+            .and_then(|h| h.get(EXPOSURE_KEY))
+            .and_then(|v| v.as_f64())
+            .ok_or(DomainError::MissingConfigPath(path))
     }
 
     /// Get leverage from config data
@@ -247,25 +278,41 @@ impl BotConfig {
         Ok(Coins::new(long_coins, short_coins))
     }
 
-    /// Update risk level in config data
+    /// Update risk level in config data, writing each side's wallet-exposure
+    /// limit at the path its schema uses (see `ExposurePaths`).
     pub fn set_risk_level(&mut self, risk_level: &RiskLevel) -> Result<(), DomainError> {
         let bot = self
             .config_data
             .get_mut("bot")
             .ok_or(DomainError::MissingConfigPath("bot"))?;
+        Self::set_side_exposure(bot, &LONG_EXPOSURE, risk_level.long)?;
+        Self::set_side_exposure(bot, &SHORT_EXPOSURE, risk_level.short)?;
+        Ok(())
+    }
 
-        if let Some(long) = bot.get_mut("long") {
-            long["total_wallet_exposure_limit"] = serde_json::json!(risk_level.long);
-        } else {
-            return Err(DomainError::MissingConfigPath("bot.long"));
+    /// Write one side's wallet-exposure limit. With a `risk` object present
+    /// (v8) the value goes under it and any flat copy is removed: the v8 engine
+    /// still honours a flat key left beside `risk.*`, so keeping both would
+    /// leave the effective limit ambiguous. Without one (v7) the flat key is
+    /// written and no `risk` object is created, so a v7 config stays v7.
+    fn set_side_exposure(
+        bot: &mut Value,
+        paths: &ExposurePaths,
+        value: f64,
+    ) -> Result<(), DomainError> {
+        let side = bot
+            .get_mut(paths.side_key)
+            .and_then(|s| s.as_object_mut())
+            .ok_or(DomainError::MissingConfigPath(paths.side))?;
+        match side.get_mut(RISK_KEY).and_then(|r| r.as_object_mut()) {
+            Some(risk) => {
+                risk.insert(EXPOSURE_KEY.to_string(), serde_json::json!(value));
+                side.remove(EXPOSURE_KEY);
+            }
+            None => {
+                side.insert(EXPOSURE_KEY.to_string(), serde_json::json!(value));
+            }
         }
-
-        if let Some(short) = bot.get_mut("short") {
-            short["total_wallet_exposure_limit"] = serde_json::json!(risk_level.short);
-        } else {
-            return Err(DomainError::MissingConfigPath("bot.short"));
-        }
-
         Ok(())
     }
 
@@ -667,5 +714,112 @@ mod tests {
         );
 
         assert_eq!(BotConfig::embedded_template_name(&json!({})), None);
+    }
+
+    fn v8_config(now: i64) -> BotConfig {
+        let mut config = sample_config(now);
+        config.config_data = json!({
+            "config_version": "v8.1.0",
+            "bot": {
+                "long": { "risk": { "total_wallet_exposure_limit": 2.0 } },
+                "short": { "risk": { "total_wallet_exposure_limit": 4.0 } }
+            },
+            "live": { "leverage": 5.0 }
+        });
+        config
+    }
+
+    #[test]
+    fn risk_level_reads_v7_flat_path() {
+        let risk = sample_config(0).risk_level().unwrap();
+        assert_eq!(risk.long, 1.0);
+        assert_eq!(risk.short, 1.0);
+    }
+
+    #[test]
+    fn risk_level_reads_v8_risk_path() {
+        let risk = v8_config(0).risk_level().unwrap();
+        assert_eq!(risk.long, 2.0);
+        assert_eq!(risk.short, 4.0);
+    }
+
+    #[test]
+    fn risk_level_prefers_risk_path_over_stale_flat_key() {
+        let mut config = v8_config(0);
+        config.config_data["bot"]["long"]["total_wallet_exposure_limit"] = json!(9.0);
+        config.config_data["bot"]["short"]["total_wallet_exposure_limit"] = json!(9.5);
+
+        let risk = config.risk_level().unwrap();
+        assert_eq!(risk.long, 2.0);
+        assert_eq!(risk.short, 4.0);
+    }
+
+    #[test]
+    fn set_risk_level_on_v7_writes_flat_and_creates_no_risk_object() {
+        let mut config = sample_config(0);
+        config
+            .set_risk_level(&RiskLevel::new(3.0, 5.0).unwrap())
+            .unwrap();
+
+        let bot = &config.config_data["bot"];
+        assert_eq!(bot["long"]["total_wallet_exposure_limit"], json!(3.0));
+        assert_eq!(bot["short"]["total_wallet_exposure_limit"], json!(5.0));
+        assert!(bot["long"].get("risk").is_none());
+        assert!(bot["short"].get("risk").is_none());
+    }
+
+    #[test]
+    fn set_risk_level_on_v8_writes_risk_path_and_removes_flat_key() {
+        let mut config = v8_config(0);
+        config.config_data["bot"]["long"]["total_wallet_exposure_limit"] = json!(9.0);
+        config
+            .set_risk_level(&RiskLevel::new(3.0, 5.0).unwrap())
+            .unwrap();
+
+        let bot = &config.config_data["bot"];
+        assert_eq!(
+            bot["long"]["risk"]["total_wallet_exposure_limit"],
+            json!(3.0)
+        );
+        assert_eq!(
+            bot["short"]["risk"]["total_wallet_exposure_limit"],
+            json!(5.0)
+        );
+        assert!(bot["long"].get("total_wallet_exposure_limit").is_none());
+        assert!(bot["short"].get("total_wallet_exposure_limit").is_none());
+        assert_eq!(config.risk_level().unwrap().long, 3.0);
+    }
+
+    #[test]
+    fn risk_level_missing_path_names_the_schema_path_looked_up() {
+        // v7 shape without the flat key: the flat path is reported.
+        let mut v7 = sample_config(0);
+        v7.config_data = json!({ "bot": { "long": {}, "short": {} } });
+        match v7.risk_level() {
+            Err(DomainError::MissingConfigPath("bot.long.total_wallet_exposure_limit")) => {}
+            other => panic!("expected MissingConfigPath(flat), got {:?}", other),
+        }
+
+        // v8 shape whose `risk` object lacks the key: the risk path is
+        // reported, and a flat key beside it is not consulted.
+        let mut v8 = sample_config(0);
+        v8.config_data = json!({
+            "bot": {
+                "long": { "risk": {}, "total_wallet_exposure_limit": 1.0 },
+                "short": { "risk": { "total_wallet_exposure_limit": 1.0 } }
+            }
+        });
+        match v8.risk_level() {
+            Err(DomainError::MissingConfigPath("bot.long.risk.total_wallet_exposure_limit")) => {}
+            other => panic!("expected MissingConfigPath(risk), got {:?}", other),
+        }
+
+        // missing side object
+        let mut no_short = sample_config(0);
+        no_short.config_data = json!({ "bot": { "long": { "total_wallet_exposure_limit": 1.0 } } });
+        match no_short.set_risk_level(&RiskLevel::new(1.0, 1.0).unwrap()) {
+            Err(DomainError::MissingConfigPath("bot.short")) => {}
+            other => panic!("expected MissingConfigPath(bot.short), got {:?}", other),
+        }
     }
 }
