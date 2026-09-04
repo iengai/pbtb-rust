@@ -4,7 +4,10 @@
 #   - ECS injects BUCKET / USER_ID / BOT_ID.
 #   - entrypoint.sh pulls s3://$BUCKET/$USER_ID/$BOT_ID/$BOT_ID.json + api-keys.json,
 #     then runs `python src/main.py configs/$BOT_ID.json`, which launches passivbot
-#     live (the config carries live.user). passivbot 7.12.0 accepts the old config.
+#     live (the config carries live.user). The image runs passivbot 8.1.0, which
+#     expects the v8 config schema (config_version v8.1.0, per-side exposure under
+#     bot.<side>.risk); v7 configs must be migrated first
+#     (`passivbot tool migrate-config-v7`).
 #
 # Build ONLY for arm64 (the cluster is t4g/Graviton). The awscli download below
 # pins the aarch64 bundle, so an amd64 build would ship the wrong CLI.
@@ -33,6 +36,7 @@ COPY pyproject.toml setup.py ./
 COPY requirements-dev.txt requirements-full.txt requirements-live.txt requirements-rust.txt ./
 COPY src src
 COPY passivbot-rust/Cargo.toml passivbot-rust/Cargo.toml
+COPY passivbot-rust/Cargo.lock passivbot-rust/Cargo.lock
 COPY passivbot-rust/src passivbot-rust/src
 
 # Build the wheel (bundles the compiled passivbot_rust ext); deps resolved at install.

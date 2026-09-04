@@ -11,8 +11,8 @@ code comes from --passivbot-dir. This script overlays the former onto a subset o
 the latter, zips it, uploads it as the CodeBuild source, and starts the build.
 
 Usage:
-  python scripts/build_passivbot_image.py --tag v7.12.0-arm64
-  python scripts/build_passivbot_image.py --tag v7.13.0-arm64 --passivbot-dir E:/projects/passivbot
+  python scripts/build_passivbot_image.py --tag v8.1.0-arm64
+  python scripts/build_passivbot_image.py --tag v8.2.0-arm64 --passivbot-dir E:/projects/passivbot
 """
 
 import argparse
@@ -36,7 +36,7 @@ UPSTREAM_FLAT = [
     "requirements-live.txt", "requirements-rust.txt",
 ]
 UPSTREAM_TREES = ["src", "passivbot-rust/src"]
-UPSTREAM_EXTRA = ["passivbot-rust/Cargo.toml"]
+UPSTREAM_EXTRA = ["passivbot-rust/Cargo.toml", "passivbot-rust/Cargo.lock"]
 
 PROJECT = "pbtb-passivbot-image-builder"
 SRC_BUCKET = "scalable-cluster-dev-lambda-code"
