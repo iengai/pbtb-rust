@@ -19,7 +19,7 @@ impl S3TemplateRepository {
 
     /// Helper: construct S3 key for template
     fn template_key(template_name: &str) -> String {
-        format!("predefined/{}.json", template_name)
+        format!("predefined/{template_name}.json")
     }
 }
 
@@ -95,7 +95,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             // A 404/NotFound is a genuine absence; anything else is a real read
             // failure that must surface rather than read back as "no template".
             Err(e) => {
-                let error_msg = format!("{:?}", e);
+                let error_msg = format!("{e:?}");
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {

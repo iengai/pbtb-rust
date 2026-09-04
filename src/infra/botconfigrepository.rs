@@ -20,12 +20,7 @@ impl S3BotConfigRepository {
 
     /// Helper: construct S3 key for bot config
     fn bot_config_key(user_id: &str, bot_id: &str) -> String {
-        format!("{}/{}/{}.json", user_id, bot_id, bot_id)
-    }
-
-    /// Helper: construct S3 prefix for user's configs
-    fn user_prefix(user_id: &str) -> String {
-        format!("{}/", user_id)
+        format!("{user_id}/{bot_id}/{bot_id}.json")
     }
 }
 
@@ -138,7 +133,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             // real read failure that must surface (a swallowed permission error
             // here would read back as "no config").
             Err(e) => {
-                let error_msg = format!("{:?}", e);
+                let error_msg = format!("{e:?}");
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
