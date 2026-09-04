@@ -81,7 +81,9 @@ resource "aws_ecs_task_definition" "main" {
       TaskType = "passivbot"
     },
     {
-      Version = "v7.12.0"
+      # The image tag (everything after the last ":" of the image URI), so the
+      # tag can never disagree with the image the revision actually runs.
+      Version = regex("[^:/]+$", var.container_image)
     }
   )
 }

@@ -46,10 +46,20 @@ Procedure (maintenance window):
 - **Ship a new telebot build:** push to `main` → `telebot-build` builds+pushes →
   run **telebot-deploy** (`tag=latest`). Re-pulls the image + rewrites env + restart.
 - **Roll telebot back to an older image:** telebot-deploy with `tag=<git-sha>`.
-- **Bump the passivbot version:** edit `var.passivbot_image_tag` → `terraform apply`
-  (registers a new task-def revision; the lambda picks it up at apply) → **then run
-  telebot-deploy** (`passivbot_revision=latest`) so telebot also launches the new
-  revision. See the divergence rule below.
+- **Bump the passivbot version:** edit `var.passivbot_image_tag` → scoped apply:
+  ```
+  terraform apply -target=module.passivbot_task -target=module.lambda_task_state_change_handler
+  ```
+  (registers a new task-def revision; the lambda module is targeted too because
+  it bakes the revisioned ARN into `APP__ECS__TD_PASSIVBOT_ARN`, and `-target`
+  does not pull in dependents) → **then run telebot-deploy**
+  (`passivbot_revision=latest`) so telebot also launches the new revision. See
+  the divergence rule below.
+  - *Memory caveat:* the task definition reserves a hard 400 MB
+    (`modules/task-definitions/passivbot/main.tf`), sized on v7 peaks. passivbot
+    v8 carries more runtime machinery, so measure the container RSS after the
+    first v8 bot start (CloudWatch `MemoryUtilization` or `docker stats` on the
+    host) before starting the rest; raise `memory` if the headroom is gone.
 
 ## passivbot task-def ARN: keep lambda and telebot in sync
 
@@ -95,7 +105,8 @@ re-run those two commands. **Never** let terraform recreate these repos.
 The passivbot image is composed as
 `module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_image_tag}`. To
 ship a new passivbot build: push the image to `passivbot-live` under a new tag, set
-`passivbot_image_tag` in tfvars, `terraform apply` (registers a new task-def
+`passivbot_image_tag` in tfvars, `terraform apply -target=module.passivbot_task
+-target=module.lambda_task_state_change_handler` (registers a new task-def
 revision), then run **telebot-deploy** (the passivbot sync rule above).
 
 > NOTE: `terraform plan/apply/import` here evaluates the lambda's `archive_file`

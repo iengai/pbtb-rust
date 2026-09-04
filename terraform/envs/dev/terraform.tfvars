@@ -36,7 +36,7 @@ telebot_image_tag = "latest"
 github_repo         = "iengai/pbtb-rust"
 min_size            = 0
 max_size            = 3
-passivbot_image_tag = "v7.12.0-arm64"
+passivbot_image_tag = "v8.1.0-arm64"
 
 log_retention_days = 30
 
