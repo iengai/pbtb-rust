@@ -35,7 +35,15 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-PROJECT = "scalable-cluster"
+# Everything deployment-specific is overridable by env so the same CLI serves a
+# fork of this setup: PBTB_PROJECT, PBTB_ENV, PBTB_REGION, PBTB_AWS_PROFILE,
+# PBTB_NAT_TAG (Name tag of the NAT/telebot host), PBTB_PASSIVBOT_ECR_REPO.
+PROJECT = os.environ.get("PBTB_PROJECT", "scalable-cluster")
+DEFAULT_ENV = os.environ.get("PBTB_ENV", "dev")
+DEFAULT_REGION = os.environ.get("PBTB_REGION", "ap-northeast-1")
+DEFAULT_PROFILE = os.environ.get("PBTB_AWS_PROFILE", "dev")
+NAT_TAG = os.environ.get("PBTB_NAT_TAG", "nat-instance")
+PASSIVBOT_ECR_REPO = os.environ.get("PBTB_PASSIVBOT_ECR_REPO", "passivbot-live")
 
 # ---------------------------------------------------------------- plumbing
 
@@ -49,10 +57,10 @@ def cfg(env: str) -> dict:
         "config_bucket": f"{p}-bot-configs",
         "chart_bucket": f"{p}-return-charts",
         "passivbot_family_prefix": f"{p}-passivbot",
-        "passivbot_repo": "passivbot-live",
+        "passivbot_repo": PASSIVBOT_ECR_REPO,
         "telebot_repo": f"{p}-telebot",
         "base_env_param": f"/{PROJECT}/{env}/telebot/base-env",
-        "nat_tag_name": "nat-instance",
+        "nat_tag_name": NAT_TAG,
         "lambdas": {
             "task-state": f"{p}-task-state-change-handler",
             "daily-pnl": f"{p}-daily-pnl-snapshot",
@@ -519,9 +527,9 @@ def cmd_smoke_lambda(a):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--profile", default="dev")
-    p.add_argument("--region", default="ap-northeast-1")
-    p.add_argument("--env", default="dev")
+    p.add_argument("--profile", default=DEFAULT_PROFILE)
+    p.add_argument("--region", default=DEFAULT_REGION)
+    p.add_argument("--env", default=DEFAULT_ENV)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("bot-status", help="desired vs observed state per bot")

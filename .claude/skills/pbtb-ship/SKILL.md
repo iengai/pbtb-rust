@@ -7,12 +7,14 @@ description: Getting a change from a working tree onto main in this repo — bra
 
 ## Accounts (the #1 source of friction)
 
-- `kk-xaiondata` is the default gh account and has **no** push rights and no
-  `workflow` scope. `iengai` has both.
+- Two GitHub accounts are logged in on this machine. Only the **repo owner
+  account** (`gh repo view --json owner -q .owner.login`; here `iengai`) has
+  push rights and the `workflow` scope; the other is the default and gets a 403
+  on push and a "workflow scope" error on dispatch.
 - Before any `git push`, `gh pr create/merge/comment`, `gh workflow run`,
-  `gh secret set`: `gh auth switch --user iengai`. **Switch back** afterwards:
-  `gh auth switch --user kk-xaiondata`. Keep both in one command so the switch
-  cannot be forgotten.
+  `gh secret set`: `gh auth switch --user <owner>`. **Switch back** to the
+  default account afterwards (`gh auth status` shows which is active). Keep
+  both in one command so the switch cannot be forgotten.
 - Never combine an account switch with a parallel background command that also
   switches; the active account is process-global.
 
