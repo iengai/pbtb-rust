@@ -116,9 +116,9 @@ Two consumers resolve the passivbot task-def from **different** sources:
 - **telebot** (user "Run bot"): the ARN resolved by `telebot-deploy` at deploy time.
 
 **Rule: every passivbot apply is followed by a `telebot-deploy`** (default
-`passivbot_revision=latest` matches the just-applied revision). Skip it and the
+`passivbot_revisions=latest` matches the just-applied revision). Skip it and the
 Lambda restarts at the new revision while telebot still launches the old one. A
-deliberate telebot-only rollback (`passivbot_revision=<n>`) knowingly diverges from
+deliberate telebot-only rollback (`passivbot_revisions=<major>=<n>`) knowingly diverges from
 the Lambda until the next apply. See the [dev RUNBOOK](../../terraform/envs/dev/RUNBOOK.md)
 for the full procedure.
 

@@ -36,9 +36,9 @@ The script overlays these build files onto a subset of the passivbot checkout
 CodeBuild project with `IMAGE_TAG` overridden.
 
 Then roll it out (see `terraform/envs/dev/RUNBOOK.md` → "Bump the passivbot
-version"): set `passivbot_image_tag` in `terraform.tfvars` → `terraform apply`
+version"): set the line's `image_tag` in `passivbot_engines` (`terraform.tfvars`; a new major is a new entry) → `terraform apply`
 (registers a new `…-passivbot` task-def revision) → run **telebot-deploy**
-(`passivbot_revision=latest`) so telebot launches the new revision too.
+(`passivbot_revisions=latest`) so telebot launches the new revision too.
 
 ## One-time AWS setup (already done)
 

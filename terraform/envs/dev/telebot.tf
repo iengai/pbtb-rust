@@ -60,6 +60,9 @@ locals {
     "APP__ECS__REGION=${var.region}",
     "APP__ECS__CLUSTER_ARN=${local.ecs_cluster_arn}",
     "APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=${var.passivbot_container_name}",
+    # Not APP__-prefixed: the binary never reads it. telebot-deploy resolves each
+    # family's revision into APP__ECS__TD_PASSIVBOT_BY_ENGINE at deploy time.
+    "PBTB_PASSIVBOT_FAMILIES=${local.passivbot_families}",
     "TELEBOT_REGION=${var.region}",
     "TELEBOT_ECR_REGISTRY=${local.ecr_registry}",
     "TELEBOT_IMAGE=${local.telebot_image}",

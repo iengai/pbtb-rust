@@ -33,10 +33,16 @@ nat_instance_type = "t4g.micro"
 telebot_image_tag = "latest"
 
 # GitHub repo allowed to assume the CI (build/deploy) roles via OIDC.
-github_repo         = "iengai/pbtb-rust"
-min_size            = 0
-max_size            = 3
-passivbot_image_tag = "v7.12.0-arm64"
+github_repo = "iengai/pbtb-rust"
+min_size    = 0
+max_size    = 3
+# Engine lines bots may run on. "7" keeps the original family name (its live
+# tasks and log group are untouched); "8" is a separate family. v8 memory is a
+# provisional copy of v7's -- measure RSS after the first v8 bot start.
+passivbot_engines = {
+  "7" = { image_tag = "v7.12.0-arm64", memory = 400, family_suffix = "" }
+  "8" = { image_tag = "v8.1.0-arm64", memory = 400 }
+}
 
 log_retention_days = 30
 

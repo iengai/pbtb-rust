@@ -117,7 +117,7 @@ triggers exactly one NAT rebuild):
    `ssm:resourceTag/Name = nat-instance` tag, which survives recreation, so a NAT
    rebuild alone does not require a policy change.
 3. **Immediately run `telebot-deploy`.** Trigger the `telebot-deploy` workflow with
-   `tag=latest` and `passivbot_revision=latest`. It composes
+   `tag=latest` and `passivbot_revisions=latest`. It composes
    `/etc/telebot/telebot.env` (base-env + the resolved passivbot task-def ARN),
    writes it to the NAT via SSM, and restarts telebot. Until this runs, telebot is
    down.

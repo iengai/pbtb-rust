@@ -16,8 +16,12 @@ module "base" {
     {
       APP__ECS__REGION                      = var.ecs_region
       APP__ECS__CLUSTER_ARN                 = var.ecs_cluster_arn
-      APP__ECS__TD_PASSIVBOT_ARN            = var.td_passivbot_arn
+      APP__ECS__TD_PASSIVBOT_BY_ENGINE      = var.td_passivbot_by_engine
       APP__ECS__TD_PASSIVBOT_CONTAINER_NAME = var.passivbot_container_name
+      # Bot-config bucket: the restart reads the bot's config for its engine line.
+      APP__S3__REGION       = var.ecs_region
+      APP__S3__BUCKET_NAME  = var.bot_config_bucket_name
+      APP__S3__ENDPOINT_URL = "https://s3.${var.ecs_region}.amazonaws.com"
     }
   )
 }
@@ -79,6 +83,25 @@ resource "aws_iam_role_policy" "dynamodb" {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
         Resource = var.dynamodb_table_arn
+      }
+    ]
+  })
+}
+
+# Bot configs: the restart path reads <user_id>/<bot_id>/<bot_id>.json to route
+# the relaunch to the engine line the config targets. Read-only, this bucket only.
+resource "aws_iam_role_policy" "bot_config_read" {
+  name = "${var.project}-${var.env}-task-state-change-handler-bot-config-read"
+  role = module.base.role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadBotConfig"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${var.bot_config_bucket_arn}/*"
       }
     ]
   })

@@ -1,12 +1,12 @@
 # CloudWatch Log Group for this task type
 resource "aws_cloudwatch_log_group" "main" {
-  name              = "/ecs/${var.project}-${var.env}/passivbot"
+  name              = "/ecs/${var.project}-${var.env}/passivbot${var.family_suffix}"
   retention_in_days = var.log_retention_days
 
   tags = merge(
     var.common_tags,
     {
-      Name     = "${var.project}-${var.env}-passivbot-logs"
+      Name     = "${var.project}-${var.env}-passivbot${var.family_suffix}-logs"
       TaskType = "passivbot"
     }
   )
@@ -14,15 +14,16 @@ resource "aws_cloudwatch_log_group" "main" {
 
 # ECS Task Definition for Bot Processor
 resource "aws_ecs_task_definition" "main" {
-  family                   = "${var.project}-${var.env}-passivbot"
+  family                   = "${var.project}-${var.env}-passivbot${var.family_suffix}"
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   cpu                      = 128
-  # 400 MB hard limit (task-level). Observed peak (incl. startup) is ~357 MB for the
-  # heaviest bot (dual-sided DollarDigger), so this gives ~12% headroom while keeping
-  # placement dense (~9 tasks/host on the 3835 MiB t4g.medium). With task-level
-  # memory set, ECS reserves THIS value for scheduling, so there is no overcommit.
-  memory             = 400
+  # Task-level hard limit, set per engine line. The v7 line's 400 MB came from an
+  # observed peak (incl. startup) of ~357 MB on the heaviest bot (dual-sided
+  # DollarDigger): ~12% headroom while keeping placement dense (~9 tasks/host on the
+  # 3835 MiB t4g.medium). With task-level memory set, ECS reserves THIS value for
+  # scheduling, so there is no overcommit.
+  memory             = var.memory
   execution_role_arn = var.execution_role_arn
   task_role_arn      = var.task_role_arn
 
@@ -81,7 +82,8 @@ resource "aws_ecs_task_definition" "main" {
       TaskType = "passivbot"
     },
     {
-      Version = "v7.12.0"
+      # Derived from the image URI so the tag can never drift from what runs.
+      Version = regex("[^:/]+$", var.container_image)
     }
   )
 }
