@@ -22,6 +22,10 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 | Terraform infra / NAT | [docs/deployment/infra.md](docs/deployment/infra.md) · [terraform/envs/dev/RUNBOOK.md](terraform/envs/dev/RUNBOOK.md) |
 | Lambda deploy | [docs/deployment/lambda.md](docs/deployment/lambda.md) |
 | telebot deploy | [docs/deployment/telebot.md](docs/deployment/telebot.md) |
+| **Something is broken / an error ref / a bot not running / CI red** | skill `pbtb-triage` (`.claude/skills/pbtb-triage/`) — component map + symptom playbooks; evidence via `python scripts/ops/pbtb_ops.py` |
+| Verifying a change before commit/PR/merge | skill `verify` (`bash .claude/skills/verify/scripts/gate.sh`) |
+| Rolling a change out, adding a passivbot engine line | skill `pbtb-deploy` (order + coupling rules) |
+| Branch / rebase / PR / merge mechanics, accounts | skill `pbtb-ship` |
 
 ## Critical invariants (do not violate)
 
@@ -46,7 +50,8 @@ These are irreversible or trading-impacting; they are inline here on purpose, no
 
 ## Working agreements
 
-- Run `cargo fmt && cargo clippy` before committing.
+- Run the `verify` skill gate (`bash .claude/skills/verify/scripts/gate.sh`) before committing; it covers fmt, check, clippy `-D warnings`, tests (dynamodb-local), terraform/workflow checks with explicit exit guards.
+- Operational questions (what is deployed, is a bot healthy, why did X fail) go through `scripts/ops/pbtb_ops.py` (`deploy-audit`, `bot-status --memory`, `telebot-logs`, `lambda-logs`, `codebuild-log`, `smoke-lambda`) so answers are reproducible.
 - Branch `<type>/<kebab-summary>`; commit `<type>: <summary>` (lowercase imperative, ≤72 chars). Types: feat/fix/refactor/test/chore/docs. Details in [docs/conventions.md](docs/conventions.md).
 - Keep changes minimal and targeted; ask before long or destructive commands; update or add tests when behavior changes.
 - Do not commit secrets or `.env` files; do not introduce hardcoded credentials.
