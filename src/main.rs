@@ -28,7 +28,10 @@ async fn main() -> anyhow::Result<()> {
     // Setup S3
     let (s3_client, bucket_name) = setup_s3_with_configs(&configs).await;
     // Setup ECS (for telebot Run/Stop -> RunTask/StopTask actuation)
-    let (ecs_client, cluster_arn, td_arn) = setup_ecs_with_configs(&configs).await;
+    let (ecs_client, cluster_arn, td_by_engine) = setup_ecs_with_configs(&configs).await;
+    // engine line -> passivbot task definition; a bad table fails startup.
+    let engines =
+        EngineTaskDefinitions::parse(&td_by_engine).context("APP__ECS__TD_PASSIVBOT_BY_ENGINE")?;
     let container_name = configs.ecs.td_passivbot_container_name.clone();
 
     // Create repositories
@@ -73,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
         bot_config_repository.clone(),
         config_switches,
         clock.clone(),
+        engines.clone(),
     ));
     let get_bot_config_usecase = Arc::new(GetBotConfigUseCase::new(bot_config_repository.clone()));
     let update_bot_config_usecase = Arc::new(UpdateBotConfigUseCase::new(
@@ -97,6 +101,13 @@ async fn main() -> anyhow::Result<()> {
     let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone()));
 
     // Create use cases - ECS actuation (Run/Stop buttons -> RunTask/StopTask)
+    // A launch is routed to the task definition registered for the engine line the
+    // bot's stored config targets (config_version), so a proven v7 strategy is
+    // never started on a v8 binary or vice versa.
+    let bot_configs_port: Arc<dyn domain::botconfig::BotConfigRepository> =
+        bot_config_repository.clone();
+    let launch_targets: Arc<dyn LaunchTargetResolver> =
+        Arc::new(EngineRoutedResolver::new(bot_configs_port, engines));
     let task_runner: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client.clone()));
     let task_controller: Arc<dyn TaskController> = Arc::new(EcsTaskController::new(ecs_client));
     let start_bot_usecase = Arc::new(StartBotUseCase::new(
@@ -107,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         task_controller.clone(),
         clock.clone(),
         cluster_arn.clone(),
-        td_arn,
+        launch_targets,
         container_name,
     ));
     let stop_bot_usecase = Arc::new(StopBotUseCase::new(

@@ -3,6 +3,7 @@ use crate::domain::clock::Clock;
 use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchRepository};
 use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::error::DomainError;
+use crate::usecase::engine_routing::EngineTaskDefinitions;
 use std::sync::Arc;
 
 pub struct ApplyTemplateUseCase {
@@ -10,6 +11,7 @@ pub struct ApplyTemplateUseCase {
     bot_config_repository: Arc<dyn BotConfigRepository>,
     config_switch_repository: Arc<dyn ConfigSwitchRepository>,
     clock: Arc<dyn Clock>,
+    engines: EngineTaskDefinitions,
 }
 
 impl ApplyTemplateUseCase {
@@ -18,12 +20,14 @@ impl ApplyTemplateUseCase {
         bot_config_repository: Arc<dyn BotConfigRepository>,
         config_switch_repository: Arc<dyn ConfigSwitchRepository>,
         clock: Arc<dyn Clock>,
+        engines: EngineTaskDefinitions,
     ) -> Self {
         Self {
             template_repository,
             bot_config_repository,
             config_switch_repository,
             clock,
+            engines,
         }
     }
 
@@ -76,6 +80,12 @@ impl ApplyTemplateUseCase {
     ) -> Result<BotConfig, DomainError> {
         let template = self.template_repository.get(template_name).await?;
         let now = self.clock.now();
-        BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)
+        let config =
+            BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)?;
+        // A config that targets an engine with no registered image could never
+        // launch; refuse it here, at the confirmation modal, rather than at the
+        // next Run. The preview is what the user confirms, so the gate sits on it.
+        self.engines.resolve(config.engine_version()?)?;
+        Ok(config)
     }
 }
