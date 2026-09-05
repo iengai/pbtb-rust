@@ -16,8 +16,8 @@ on:
       tag:
         description: 'Telebot ECR image tag to deploy (a git SHA, or "latest")'
         default: 'latest'
-      passivbot_revision:
-        description: 'Passivbot task-def revision telebot should launch (a number, or "latest" for the current active)'
+      passivbot_revisions:
+        description: 'Task-def revision per passivbot engine line: "latest" (current active revision of every family), or "<major>=<rev>,..." to pin lines (unlisted lines take latest), e.g. "7=12,8=latest"'
         default: 'latest'
 
 permissions:
@@ -31,7 +31,6 @@ env:
   # (GetParameter on a missing name / DescribeTaskDefinition on a stale family).
   AWS_REGION: ap-northeast-1
   ECR_REPO: scalable-cluster-dev-telebot
-  PASSIVBOT_FAMILY: scalable-cluster-dev-passivbot
   BASE_ENV_PARAM: /scalable-cluster/dev/telebot/base-env
 
 jobs:
@@ -64,33 +63,51 @@ jobs:
             --image-manifest "$MANIFEST" >/dev/null
           echo "Re-pointed :latest -> ${{ github.event.inputs.tag }}"
 
-      # The pinned passivbot revision telebot launches via ecs:RunTask. Resolving
-      # the full revisioned ARN here (not in user_data) is what decouples the NAT
-      # from passivbot bumps while keeping the launch precisely pinned.
-      - name: Resolve passivbot task-definition ARN
+      # The pinned passivbot revision per ENGINE LINE that telebot launches via
+      # ecs:RunTask. The families come from terraform (base-env
+      # PBTB_PASSIVBOT_FAMILIES = "7=<family>,8=<family>"); only the revision is
+      # resolved here. Resolving the revisioned ARNs at deploy time (not in
+      # user_data) is what decouples the NAT from passivbot bumps while keeping
+      # every launch precisely pinned.
+      - name: Resolve passivbot task-definition ARN per engine
         id: td
         run: |
           set -euo pipefail
-          REF="$PASSIVBOT_FAMILY"
-          REV='${{ github.event.inputs.passivbot_revision }}'
-          if [ -n "$REV" ] && [ "$REV" != "latest" ]; then REF="$PASSIVBOT_FAMILY:$REV"; fi
-          ARN=$(aws ecs describe-task-definition --task-definition "$REF" \
-                  --query 'taskDefinition.taskDefinitionArn' --output text)
-          if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then echo "task-def not found: $REF"; exit 1; fi
-          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
-          echo "Resolved passivbot task-def: $ARN"
+          BASE=$(aws ssm get-parameter --name "$BASE_ENV_PARAM" --query 'Parameter.Value' --output text)
+          # Fail on the runner BEFORE anything touches the host's good env file.
+          { [ -n "$BASE" ] && [ "$BASE" != "None" ]; } || { echo "base-env param '$BASE_ENV_PARAM' is empty/None"; exit 1; }
+          FAMILIES=$(grep '^PBTB_PASSIVBOT_FAMILIES=' <<<"$BASE" | cut -d= -f2- || true)
+          [ -n "$FAMILIES" ] || { echo "base-env has no PBTB_PASSIVBOT_FAMILIES (apply terraform first)"; exit 1; }
+          PINS='${{ github.event.inputs.passivbot_revisions }}'
+
+          TABLE=""
+          IFS=',' read -ra ENTRIES <<<"$FAMILIES"
+          for entry in "${ENTRIES[@]}"; do
+            major="${entry%%=*}"; family="${entry#*=}"
+            rev=latest
+            if [ "$PINS" != "latest" ]; then
+              pin=$(tr ',' '\n' <<<"$PINS" | grep "^${major}=" | cut -d= -f2 || true)
+              [ -n "$pin" ] && rev="$pin"
+            fi
+            ref="$family"; [ "$rev" != "latest" ] && ref="$family:$rev"
+            arn=$(aws ecs describe-task-definition --task-definition "$ref" \
+                    --query 'taskDefinition.taskDefinitionArn' --output text)
+            if [ -z "$arn" ] || [ "$arn" = "None" ]; then echo "task-def not found: $ref"; exit 1; fi
+            echo "engine v$major -> $arn"
+            TABLE="${TABLE:+$TABLE,}${major}=${arn}"
+          done
+          echo "table=$TABLE" >> "$GITHUB_OUTPUT"
+          { echo "base<<PBTB_EOF"; echo "$BASE"; echo "PBTB_EOF"; } >> "$GITHUB_OUTPUT"
 
       - name: Push telebot.env and restart on the NAT via SSM
         run: |
           set -euo pipefail
           # Compose the env file: terraform-managed base config + the one
-          # deploy-time value (the resolved passivbot task-def ARN).
-          BASE=$(aws ssm get-parameter --name "$BASE_ENV_PARAM" --query 'Parameter.Value' --output text)
-          # Fail on the runner BEFORE overwriting the host's good env file.
-          { [ -n "$BASE" ] && [ "$BASE" != "None" ]; } || { echo "base-env param '$BASE_ENV_PARAM' is empty/None"; exit 1; }
+          # deploy-time value (the per-engine passivbot task-def table).
+          BASE='${{ steps.td.outputs.base }}'
           # The token must never live in base-env (it is fetched live from SSM); fail closed if it ever does.
           if grep -qi 'TELOXIDE_TOKEN' <<<"$BASE"; then echo "base-env must not contain the Telegram token"; exit 1; fi
-          ENV_CONTENT=$(printf '%s\nAPP__ECS__TD_PASSIVBOT_ARN=%s\n' "$BASE" "${{ steps.td.outputs.arn }}")
+          ENV_CONTENT=$(printf '%s\nAPP__ECS__TD_PASSIVBOT_BY_ENGINE=%s\n' "$BASE" "${{ steps.td.outputs.table }}")
           ENV_B64=$(printf '%s' "$ENV_CONTENT" | base64 -w0)
 
           # Build the remote script. Single-quoted lines stay literal (the health
@@ -121,7 +138,7 @@ jobs:
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$NAT_ID" \
             --document-name AWS-RunShellScript \
-            --comment "telebot deploy tag=${{ github.event.inputs.tag }} pb=${{ github.event.inputs.passivbot_revision }}" \
+            --comment "telebot deploy tag=${{ github.event.inputs.tag }} pb=${{ github.event.inputs.passivbot_revisions }}" \
             --parameters "$PARAMS" \
             --query 'Command.CommandId' --output text)
           echo "SSM command: $CMD_ID"

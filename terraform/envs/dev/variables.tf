@@ -68,9 +68,13 @@ variable "max_size" {
   type        = number
 }
 
-variable "passivbot_image_tag" {
-  description = "Image tag of the passivbot image in the passivbot-live ECR repo (dotted semver, e.g. v7.12.0-arm64). The full image is composed from the repo URL + this tag; bump this to roll a new passivbot version."
-  type        = string
+variable "passivbot_engines" {
+  description = "One passivbot task definition per ENGINE LINE a bot config may target, keyed by the config's config_version major (\"7\", \"8\", ...). A bot launches on the entry matching its config, so a strategy validated on v7 keeps running the v7 image after v8 is rolled out. image_tag: tag in the passivbot-live ECR repo. memory: the task's hard limit in MiB, sized per engine. family_suffix: defaults to \"-v<major>\"; the line that inherited the original, unsuffixed family sets \"\" so its running tasks and log group are untouched."
+  type = map(object({
+    image_tag     = string
+    memory        = optional(number, 400)
+    family_suffix = optional(string)
+  }))
 }
 
 variable "passivbot_container_name" {

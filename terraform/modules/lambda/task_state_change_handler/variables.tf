@@ -30,9 +30,19 @@ variable "ecs_region" {
   description = "ECS region for AWS SDK client"
 }
 
-variable "td_passivbot_arn" {
+variable "td_passivbot_by_engine" {
   type        = string
-  description = "Task definition ARN for the passivbot family"
+  description = "passivbot task definition per engine line, as <major>=<arn> pairs, comma-separated (envs/dev local.td_passivbot_by_engine). The restart launches on the line the bot's config targets."
+}
+
+variable "bot_config_bucket_name" {
+  type        = string
+  description = "Bucket holding <user_id>/<bot_id>/<bot_id>.json -- read on restart to pick the engine line"
+}
+
+variable "bot_config_bucket_arn" {
+  type        = string
+  description = "ARN of the bot-config bucket (GetObject grant)"
 }
 
 variable "passivbot_container_name" {

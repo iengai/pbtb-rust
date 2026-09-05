@@ -65,3 +65,15 @@ variable "s3_bucket_name" {
   description = "S3 bucket name for file downloads"
   type        = string
 }
+
+variable "family_suffix" {
+  description = "Appended to the task-definition family (and log group) so each passivbot engine line has its own family, e.g. \"-v8\". The line that inherited the original family keeps \"\"."
+  type        = string
+  default     = ""
+}
+
+variable "memory" {
+  description = "Task-level hard memory limit (MiB) for this engine line. Sized per engine: a newer passivbot can have a different RSS profile, so it must not inherit another line's number blindly."
+  type        = number
+  default     = 400
+}

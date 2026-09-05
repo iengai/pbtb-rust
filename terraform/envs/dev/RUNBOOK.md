@@ -35,7 +35,7 @@ Procedure (maintenance window):
    plus the `aws_ssm_parameter.telebot_base_env`). This rebuilds the NAT and
    (re)publishes base-env.
 3. **Immediately** run the **telebot-deploy** workflow (tag `latest`,
-   `passivbot_revision=latest`). This writes the env file and brings telebot up.
+   `passivbot_revisions=latest`). This writes the env file and brings telebot up.
 4. Verify telebot is running and egress works before resuming trading.
 
 > The **first** application of the config-decoupling refactor is exactly this:
@@ -46,24 +46,87 @@ Procedure (maintenance window):
 - **Ship a new telebot build:** push to `main` → `telebot-build` builds+pushes →
   run **telebot-deploy** (`tag=latest`). Re-pulls the image + rewrites env + restart.
 - **Roll telebot back to an older image:** telebot-deploy with `tag=<git-sha>`.
-- **Bump the passivbot version:** edit `var.passivbot_image_tag` → `terraform apply`
+- **Bump a passivbot line:** edit that line's `image_tag` in `var.passivbot_engines` → scoped `terraform apply`
   (registers a new task-def revision; the lambda picks it up at apply) → **then run
-  telebot-deploy** (`passivbot_revision=latest`) so telebot also launches the new
+  telebot-deploy** (`passivbot_revisions=latest`) so telebot also launches the new
   revision. See the divergence rule below.
 
-## passivbot task-def ARN: keep lambda and telebot in sync
+## passivbot engine lines: which image a bot launches on
 
-Two consumers resolve the passivbot task-def from **different** sources:
-- **lambda** (auto-restart on OOM): the revisioned ARN baked at `terraform apply`
-  (`envs/dev/main.tf` → lambda `APP__ECS__TD_PASSIVBOT_ARN`).
-- **telebot** (user "Run bot"): the ARN resolved by **telebot-deploy** at deploy time.
+A bot never launches on "the passivbot image". It launches on the task
+definition registered for the **engine line its config targets**: the major of
+the config's `config_version` (`v7.12.0` -> 7, `v8.1.0` -> 8). A legacy config
+with no stamp is classified by shape (only the v8 schema nests
+`bot.<side>.risk`); a stamp that is present but unparseable is refused, never
+guessed. Rationale: a strategy is only proven on the engine it was validated on
+-- v8 broke the v7 schema, and a migrated config is not the same strategy.
 
-If you bump passivbot via apply but do **not** re-run telebot-deploy, the lambda
-restarts at the new revision while telebot still launches the old one (or vice
-versa on a telebot-only rollback). **Rule: every passivbot apply is followed by a
-telebot-deploy** (default `passivbot_revision=latest` matches the just-applied
-revision). A deliberate telebot-only rollback (`passivbot_revision=<n>`) knowingly
-diverges from the lambda until the next apply.
+Both launchers route this way, so they can never disagree:
+- telebot **Run** (`StartBotUseCase`) and the **Choose config** confirmation
+  (which refuses a config whose line has no registered image),
+- the lambda **auto-restart** (`ReconcileStoppedTaskUseCase`), which reads the
+  bot's current config from the config bucket.
+
+Source of truth: `var.passivbot_engines` in `terraform.tfvars` -> one task-def
+family per line (`…-passivbot` for the inherited "7" line, `…-passivbot-v8`, ...)
+-> `local.td_passivbot_by_engine` = `7=<arn>,8=<arn>`.
+
+Two consumers still resolve that table from **different** sources -- same
+sync rule as before, now per line:
+- **lambda**: `APP__ECS__TD_PASSIVBOT_BY_ENGINE`, revisioned ARNs baked at
+  `terraform apply`.
+- **telebot**: **telebot-deploy** reads the families from base-env
+  (`PBTB_PASSIVBOT_FAMILIES`) and resolves each to its current revision
+  (`passivbot_revisions=latest`), or pins a line (`7=12,8=latest`).
+
+**Rule: every passivbot apply is followed by a telebot-deploy.** A deliberate
+telebot-only pin knowingly diverges from the lambda until the next apply.
+
+### First apply of the per-engine split
+
+The migration from the single `module.passivbot_task` to the per-line map is
+carried by chained `moved` blocks. Terraform refuses a targeted plan that leaves
+a moved instance out, so this one apply must target the whole map, not a single
+line:
+
+`terraform apply -target=module.passivbot_task -target=module.lambda_task_state_change_handler -target=aws_ssm_parameter.telebot_base_env`
+
+Expected: 3 to add (the "8" family + log group, the lambda's config-read
+policy), 3 to change (the "7" task definition -- only its `Version` tag, family
+and revision untouched; the lambda env; the base-env parameter), 0 to destroy.
+Then `telebot-deploy` (`passivbot_revisions=latest`).
+
+Both binaries change shape with this apply: the lambda now reads
+`APP__ECS__TD_PASSIVBOT_BY_ENGINE` (+ `APP__S3__*`), telebot reads the same
+table. An old binary with the new env -- or the new binary with the old env --
+fails at config load. So do it back-to-back: merge (telebot-build pushes the new
+`:latest`) -> this apply -> `telebot-deploy` -> `lambda-deploy`. Until
+lambda-deploy lands, an OOM in that window is not auto-restarted (telebot Run
+still works once telebot-deploy is done).
+
+### Adding an engine line (e.g. v9)
+
+1. Build + push the image: `python scripts/build_passivbot_image.py --tag v9.0.0-arm64`.
+2. Add `"9" = { image_tag = "v9.0.0-arm64", memory = <measured MiB> }` to
+   `passivbot_engines`. Do NOT set `family_suffix = ""` -- that is reserved for
+   the one line that inherited the original family.
+3. Scoped apply -- the new family, the lambda (bakes the table), and the telebot
+   base-env parameter in `telebot.tf` (carries the families):
+   `terraform apply -target='module.passivbot_task["9"]' -target=module.lambda_task_state_change_handler -target=aws_ssm_parameter.telebot_base_env`.
+   Never a blanket apply (see the NAT section above).
+4. `telebot-deploy` with `passivbot_revisions=latest`.
+5. Only templates stamped `config_version: v9.x` will launch on it; every
+   existing bot keeps its line until its config is switched.
+
+Memory: size each line from its own observed RSS. The v8 entry starts as a copy
+of v7's 400 MB -- measure after the first v8 bot start and adjust.
+
+### Retiring a line
+
+Only once no bot config targets it (check `config_version` across
+`<user_id>/<bot_id>/<bot_id>.json`). Remove the map entry and apply. Deregistering
+a task definition does NOT stop tasks already running on it; they just can no
+longer be (re)launched -- so drain first.
 
 ## ECR repositories (module.ecr)
 
@@ -93,9 +156,9 @@ in-place tag addition on passivbot-live). If you ever rebuild state from scratch
 re-run those two commands. **Never** let terraform recreate these repos.
 
 The passivbot image is composed as
-`module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_image_tag}`. To
+`module.ecr.repository_urls["passivbot_v741"]:${var.passivbot_engines[<major>].image_tag}`. To
 ship a new passivbot build: push the image to `passivbot-live` under a new tag, set
-`passivbot_image_tag` in tfvars, `terraform apply` (registers a new task-def
+that line's `image_tag` in `passivbot_engines` (tfvars), scoped `terraform apply` (registers a new task-def
 revision), then run **telebot-deploy** (the passivbot sync rule above).
 
 > NOTE: `terraform plan/apply/import` here evaluates the lambda's `archive_file`

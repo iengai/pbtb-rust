@@ -92,8 +92,12 @@ module "ecr" {
   }
 }
 
+# One task definition per passivbot engine line (see var.passivbot_engines). A
+# bot is launched on the line its config targets; telebot and the restart lambda
+# both receive the whole table (local.td_passivbot_by_engine).
 module "passivbot_task" {
-  source = "../../modules/task-definitions/passivbot"
+  for_each = var.passivbot_engines
+  source   = "../../modules/task-definitions/passivbot"
 
   project            = var.project
   env                = var.env
@@ -101,19 +105,40 @@ module "passivbot_task" {
   common_tags        = var.common_tags
   execution_role_arn = module.task_base.task_execution_role_arn
   task_role_arn      = module.task_base.task_role_arn
-  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${var.passivbot_image_tag}"
+  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${each.value.image_tag}"
+  memory             = each.value.memory
+  # coalesce() would skip an explicit "" (the original-family line), so test null.
+  family_suffix      = each.value.family_suffix != null ? each.value.family_suffix : "-v${each.key}"
   log_retention_days = var.log_retention_days
   container_name     = var.passivbot_container_name
 
   s3_bucket_name = module.s3_bucket.bucket_name
 }
 
-# Preserve state across the module rename so the apply doesn't read as a
-# destroy+create of the wrapper (the task def still gets a new revision because
-# the family string changed).
+locals {
+  # "7=<arn>,8=<arn>" -- what APP__ECS__TD_PASSIVBOT_BY_ENGINE carries. HCL iterates
+  # a map in key order, so the string is stable across applies.
+  td_passivbot_by_engine = join(",", [
+    for major, td in module.passivbot_task : "${major}=${td.task_definition_arn}"
+  ])
+  # "7=<family>,8=<family>" -- telebot-deploy resolves each family's revision from this.
+  passivbot_families = join(",", [
+    for major, td in module.passivbot_task : "${major}=${td.task_definition_family}"
+  ])
+}
+
+# Preserve state across the module renames so the applies never read as a
+# destroy+create of the wrapper. Chained: the pre-rename module became the single
+# passivbot_task, which is now the "7" instance of the per-engine map -- the
+# original family string is unchanged, so its running tasks are untouched.
 moved {
   from = module.passivbot_v741_task
   to   = module.passivbot_task
+}
+
+moved {
+  from = module.passivbot_task
+  to   = module.passivbot_task["7"]
 }
 
 module "s3_bucket" {
@@ -150,9 +175,12 @@ module "lambda_task_state_change_handler" {
     APP__DYNAMODB__TABLE_NAME = module.dynamodb.bots_table_name
   }
 
-  ecs_region       = var.region
-  ecs_cluster_arn  = module.ecs.cluster_arn
-  td_passivbot_arn = module.passivbot_task.task_definition_arn
+  ecs_region             = var.region
+  ecs_cluster_arn        = module.ecs.cluster_arn
+  td_passivbot_by_engine = local.td_passivbot_by_engine
+  # The restart reads the bot's config to pick its engine line.
+  bot_config_bucket_name = module.s3_bucket.bucket_name
+  bot_config_bucket_arn  = "arn:aws:s3:::${module.s3_bucket.bucket_name}"
   # Pass the container name explicitly so the lambda's RunTask override targets
   # the same container as the task def + telebot (all from one source of truth).
   passivbot_container_name    = var.passivbot_container_name
