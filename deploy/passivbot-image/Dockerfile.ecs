@@ -39,9 +39,13 @@ COPY passivbot-rust/Cargo.toml passivbot-rust/Cargo.toml
 COPY passivbot-rust/Cargo.lock passivbot-rust/Cargo.lock
 COPY passivbot-rust/src passivbot-rust/src
 
-# Build the wheel (bundles the compiled passivbot_rust ext); deps resolved at install.
+# Build the passivbot wheel (bundles the compiled passivbot_rust ext) AND a wheel
+# for every live dependency. Deps that ship no aarch64 wheel for this Python
+# (psutil 5.9.x on cp312) must be compiled here, where gcc and python3-dev exist;
+# the slim runtime stage below has neither and must never compile anything.
 RUN pip install --no-cache-dir -r requirements-rust.txt setuptools-rust wheel \
-    && python -m pip wheel . --no-deps --no-build-isolation -w /tmp/wheels
+    && python -m pip wheel . --no-deps --no-build-isolation -w /tmp/wheels \
+    && python -m pip wheel -r requirements-live.txt -w /tmp/wheels
 
 # Stage 2: slim runtime — no Rust toolchain, no build-essential.
 FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm
@@ -71,9 +75,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY broker_codes.hjson broker_codes.hjson
 COPY requirements-live.txt requirements-rust.txt ./
 
-# Install the live wheel (pulls requirements-live deps + the prebuilt ext).
+# Install the live wheel; its dependencies resolve from the wheels prebuilt in
+# stage 1 (--find-links), so nothing is compiled here. The index stays reachable
+# only as a fallback for anything not in that directory.
 COPY --from=builder /tmp/wheels/*.whl /tmp/wheels/
-RUN pip install --no-cache-dir /tmp/wheels/passivbot-*.whl \
+RUN pip install --no-cache-dir --find-links /tmp/wheels /tmp/wheels/passivbot-*.whl \
     && rm -rf /tmp/* ~/.cache/pip
 
 # Keep the source tree so the `python src/main.py` contract holds verbatim.
