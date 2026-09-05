@@ -84,6 +84,12 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
         .data_exchange()
         .map(|e| format!("🏦 Tuned on: {e} data\n"))
         .unwrap_or_default();
+    // The passivbot engine line this config will run on (config_version major).
+    // The launch is routed by it, so it is worth seeing before confirming.
+    let engine = preview
+        .engine_version()
+        .map(|e| format!("🧠 Engine: passivbot {e} line\n"))
+        .unwrap_or_default();
 
     let exposure = match preview.risk_level() {
         Ok(r) => format!("   • Long: {:.2}\n   • Short: {:.2}", r.long, r.short),
@@ -109,7 +115,7 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     format!(
         "📄 Apply this config?\n\n\
         • Template: {template_name}\n\
-        {data_source}🤖 Strategy: {strategies}\n\
+        {data_source}{engine}🤖 Strategy: {strategies}\n\
         📝 Description: {description}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
         {exposure}\n\n\

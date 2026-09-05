@@ -2,6 +2,7 @@ use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
 use crate::domain::error::DomainError;
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
+use crate::usecase::engine_routing::LaunchTargetResolver;
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
 use std::sync::Arc;
@@ -41,7 +42,7 @@ pub struct StartBotUseCase {
     controller: Arc<dyn TaskController>,
     clock: Arc<dyn Clock>,
     cluster_arn: String,
-    td_arn: String,
+    targets: Arc<dyn LaunchTargetResolver>,
     container_name: String,
 }
 
@@ -55,7 +56,7 @@ impl StartBotUseCase {
         controller: Arc<dyn TaskController>,
         clock: Arc<dyn Clock>,
         cluster_arn: String,
-        td_arn: String,
+        targets: Arc<dyn LaunchTargetResolver>,
         container_name: String,
     ) -> Self {
         Self {
@@ -66,7 +67,7 @@ impl StartBotUseCase {
             controller,
             clock,
             cluster_arn,
-            td_arn,
+            targets,
             container_name,
         }
     }
@@ -76,6 +77,12 @@ impl StartBotUseCase {
             Some(b) => b,
             None => return Ok(StartOutcome::BotNotFound),
         };
+
+        // Which engine this bot's config needs, and the task definition for it.
+        // Resolved BEFORE desired state is flipped on: a config that cannot launch
+        // (unparseable stamp, no image registered for its engine) is the user's to
+        // fix, and must not leave intent ON for the auto-restart to chase.
+        let target = self.targets.resolve(user_id, bot_id).await?;
 
         // Desired state ON first: intent is recorded even if the launch fails,
         // and auto-restart keys off it.
@@ -132,7 +139,7 @@ impl StartBotUseCase {
                 user_id,
                 bot_id,
                 &self.cluster_arn,
-                &self.td_arn,
+                &target.td_arn,
                 &self.container_name,
             )
             .await
@@ -173,9 +180,11 @@ impl StartBotUseCase {
 mod tests {
     use super::*;
     use crate::domain::bot::Bot;
+    use crate::domain::engine::EngineVersion;
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use crate::domain::runtime::BotRuntime;
+    use crate::usecase::engine_routing::LaunchTarget;
     use anyhow::{Result, anyhow};
     use async_trait::async_trait;
     use std::collections::HashMap;
@@ -385,6 +394,23 @@ mod tests {
         }
     }
 
+    /// Resolver that always routes to one fixed task definition, or refuses.
+    struct FixedTarget(Option<&'static str>);
+    #[async_trait]
+    impl LaunchTargetResolver for FixedTarget {
+        async fn resolve(&self, _u: &str, _b: &str) -> Result<LaunchTarget, DomainError> {
+            match self.0 {
+                Some(arn) => Ok(LaunchTarget {
+                    engine: EngineVersion::new(7),
+                    td_arn: arn.to_string(),
+                }),
+                None => Err(DomainError::InvalidConfig(
+                    "no image registered for engine v9".to_string(),
+                )),
+            }
+        }
+    }
+
     fn bot(enabled: bool) -> Bot {
         Bot::new(
             "bot-1".to_string(),
@@ -425,7 +451,7 @@ mod tests {
             controller,
             Arc::new(FixedClock),
             "cluster".to_string(),
-            "td".to_string(),
+            Arc::new(FixedTarget(Some("td"))),
             "container".to_string(),
         )
     }
@@ -638,5 +664,34 @@ mod tests {
             1,
             "relaunch once the task is confirmed gone"
         );
+    }
+
+    #[tokio::test]
+    async fn unresolvable_config_refuses_before_enabling_or_locking() {
+        let bots = Arc::new(InMemoryBots::with(bot(false)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(MockRunner::ok("task-xyz"));
+        let controller = Arc::new(MockController::new(TaskLiveness::Gone));
+        let uc = StartBotUseCase::new(
+            bots.clone(),
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller,
+            Arc::new(FixedClock),
+            "cluster".to_string(),
+            Arc::new(FixedTarget(None)),
+            "container".to_string(),
+        );
+
+        let err = uc.execute("user-1", "bot-1").await.unwrap_err();
+        assert!(matches!(err, DomainError::InvalidConfig(_)), "{err}");
+        assert!(
+            !bots.get("user-1", "bot-1").unwrap().enabled,
+            "desired state must stay OFF for a config that cannot launch"
+        );
+        assert_eq!(*locks.acquire_calls.lock().unwrap(), 0, "no lock attempt");
+        assert_eq!(runner.call_count(), 0, "no launch");
     }
 }

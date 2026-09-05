@@ -1,5 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, StartClaim, StartLockRepository};
+use crate::usecase::engine_routing::LaunchTargetResolver;
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::TaskController;
 use anyhow::Result;
@@ -31,6 +32,7 @@ pub struct ReconcileStoppedTaskUseCase {
     locks: Arc<dyn StartLockRepository>,
     run_task: Arc<dyn TaskRunner>,
     stopper: Arc<dyn TaskController>,
+    targets: Arc<dyn LaunchTargetResolver>,
 }
 
 impl ReconcileStoppedTaskUseCase {
@@ -40,6 +42,7 @@ impl ReconcileStoppedTaskUseCase {
         locks: Arc<dyn StartLockRepository>,
         run_task: Arc<dyn TaskRunner>,
         stopper: Arc<dyn TaskController>,
+        targets: Arc<dyn LaunchTargetResolver>,
     ) -> Self {
         Self {
             bots,
@@ -47,6 +50,7 @@ impl ReconcileStoppedTaskUseCase {
             locks,
             run_task,
             stopper,
+            targets,
         }
     }
 
@@ -62,7 +66,6 @@ impl ReconcileStoppedTaskUseCase {
         bot_id: &str,
         stopped_task_id: &str,
         cluster_arn: &str,
-        td_arn: &str,
         container_name: &str,
         stop: StopInfo,
         observed_at: i64,
@@ -125,6 +128,11 @@ impl ReconcileStoppedTaskUseCase {
             return Ok(ReconcileOutcome::SkippedNotMemoryRelated);
         }
 
+        // The engine line the bot's CURRENT config targets, and its task
+        // definition. Resolved before the lock is claimed: a config that cannot
+        // launch is an error to surface, not a lock to churn.
+        let target = self.targets.resolve(user_id, bot_id).await?;
+
         // Claim the restart through the same exclusive lock the telebot uses,
         // keyed on the stopped task. Only the claim that finds this task still
         // current launches, so a duplicate STOPPED event (EventBridge is
@@ -168,7 +176,7 @@ impl ReconcileStoppedTaskUseCase {
         // the lock back to stopped so the bot can be started again.
         let task_id = match self
             .run_task
-            .run(user_id, bot_id, cluster_arn, td_arn, container_name)
+            .run(user_id, bot_id, cluster_arn, &target.td_arn, container_name)
             .await
         {
             Ok(id) => id,
@@ -240,8 +248,22 @@ impl ReconcileStoppedTaskUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::engine::EngineVersion;
     use crate::domain::runtime::RuntimePhase;
+    use crate::usecase::engine_routing::LaunchTarget;
     use crate::usecase::run_task::RunTaskUseCase;
+
+    /// Resolver that always routes to one fixed task definition.
+    struct FixedTarget;
+    #[async_trait]
+    impl LaunchTargetResolver for FixedTarget {
+        async fn resolve(&self, _u: &str, _b: &str) -> Result<LaunchTarget, DomainError> {
+            Ok(LaunchTarget {
+                engine: EngineVersion::new(7),
+                td_arn: "td".to_string(),
+            })
+        }
+    }
 
     // Fixed event time used by the behaviour tests below.
     const EVENT_AT: i64 = 1_700_000_000;
@@ -471,6 +493,7 @@ mod tests {
             locks,
             run_task,
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let outcome = uc
@@ -479,7 +502,6 @@ mod tests {
                 "bot-1",
                 "stopped-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -511,6 +533,7 @@ mod tests {
             locks,
             run_task,
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         // exit 0 => not memory related.
@@ -520,7 +543,6 @@ mod tests {
                 "bot-1",
                 "stopped-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 0,
@@ -540,7 +562,6 @@ mod tests {
                 "bot-1",
                 "stopped-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -569,6 +590,7 @@ mod tests {
             locks,
             run_task,
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let outcome = uc
@@ -577,7 +599,6 @@ mod tests {
                 "ghost",
                 "stopped-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -638,6 +659,7 @@ mod tests {
             locks.clone(),
             runner.clone(),
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         // OOM stop: exit 137, not UserInitiated.
@@ -647,7 +669,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -691,6 +712,7 @@ mod tests {
             locks.clone(),
             runner.clone(),
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let outcome = uc
@@ -699,7 +721,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -754,6 +775,7 @@ mod tests {
             locks.clone(),
             runner.clone(),
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let outcome = uc
@@ -762,7 +784,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -832,6 +853,7 @@ mod tests {
             locks.clone(),
             runner.clone(),
             stopper.clone(),
+            Arc::new(FixedTarget),
         );
 
         let outcome = uc
@@ -840,7 +862,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -900,6 +921,7 @@ mod tests {
             locks,
             runner.clone(),
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let result = uc
@@ -908,7 +930,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,
@@ -968,6 +989,7 @@ mod tests {
             locks.clone(),
             runner.clone(),
             Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
         );
 
         let result = uc
@@ -976,7 +998,6 @@ mod tests {
                 "bot-1",
                 "old-task",
                 "cluster",
-                "td",
                 "container",
                 StopInfo {
                     exit_code: 137,

@@ -1,6 +1,7 @@
 mod add_bot;
 mod apply_template;
 mod delete_bot;
+mod engine_routing;
 mod get_bot_config;
 mod get_bot_runtime;
 mod list_bots;
@@ -18,6 +19,9 @@ mod update_risklevel;
 pub use add_bot::{AddBotUseCase, AddOutcome};
 pub use apply_template::ApplyTemplateUseCase;
 pub use delete_bot::DeleteBotUseCase;
+pub use engine_routing::{
+    EngineRoutedResolver, EngineTaskDefinitions, LaunchTarget, LaunchTargetResolver,
+};
 pub use get_bot_config::GetBotConfigUseCase;
 pub use get_bot_runtime::GetBotRuntimeUseCase;
 pub use list_bots::ListBotsUseCase;

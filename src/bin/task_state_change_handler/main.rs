@@ -6,12 +6,14 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn, tracing};
 use crate::config::TaskStateChangeConfig;
 use pbtb_rust::config::configs::load_config;
 use pbtb_rust::domain::bot::BotRepository;
+use pbtb_rust::domain::botconfig::BotConfigRepository;
 use pbtb_rust::domain::runtime::{BotRuntimeRepository, StartLockRepository};
-use pbtb_rust::infra::DynamoBotRepository;
-use pbtb_rust::infra::client::{create_dynamodb_client, create_ecs_client};
+use pbtb_rust::infra::client::{create_dynamodb_client, create_ecs_client, create_s3_client};
+use pbtb_rust::infra::{DynamoBotRepository, S3BotConfigRepository};
 use pbtb_rust::usecase::{
-    EcsTaskController, ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase,
-    TaskController, TaskRunner,
+    EcsTaskController, EngineRoutedResolver, EngineTaskDefinitions, LaunchTargetResolver,
+    ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase, TaskController,
+    TaskRunner,
 };
 
 mod config;
@@ -34,6 +36,21 @@ async fn main() -> Result<(), Error> {
 
     // ECS client for (re)starting tasks.
     let ecs_client = create_ecs_client(&configs.ecs).await;
+
+    // The engine -> task-definition table. Parsed at cold start so a bad table
+    // fails the function load, never a restart.
+    let engines = EngineTaskDefinitions::parse(&configs.ecs.td_passivbot_by_engine)
+        .map_err(|e| Error::from(format!("APP__ECS__TD_PASSIVBOT_BY_ENGINE: {e:#}")))?;
+
+    // The restart relaunches on the engine the bot's CURRENT config targets, read
+    // from the config bucket — the same routing the user's Run goes through.
+    let s3_client = create_s3_client(&configs.s3).await;
+    let bot_configs: Arc<dyn BotConfigRepository> = Arc::new(S3BotConfigRepository::new(
+        s3_client,
+        configs.s3.bucket_name.clone(),
+    ));
+    let launch_targets: Arc<dyn LaunchTargetResolver> =
+        Arc::new(EngineRoutedResolver::new(bot_configs, engines));
 
     // DynamoDB client + repo for reading desired state (Bot.enabled) and
     // recording observed runtime.
@@ -58,6 +75,7 @@ async fn main() -> Result<(), Error> {
         start_locks,
         run_task,
         stopper,
+        launch_targets,
     ));
     // Observed-running recorder for the RUNNING branch.
     let record_running = Arc::new(RecordRunningTaskUseCase::new(runtimes_for_record));

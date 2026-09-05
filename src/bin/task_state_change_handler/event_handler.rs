@@ -228,7 +228,6 @@ pub(crate) async fn function_handler(
                     bot_id,
                     stopped_task_id,
                     &cfg.ecs.cluster_arn,
-                    &cfg.ecs.td_passivbot_arn,
                     &cfg.ecs.td_passivbot_container_name,
                     stop,
                     observed_at,
