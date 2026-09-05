@@ -818,7 +818,7 @@ mod tests {
         v7.config_data = json!({ "bot": { "long": {}, "short": {} } });
         match v7.risk_level() {
             Err(DomainError::MissingConfigPath("bot.long.total_wallet_exposure_limit")) => {}
-            other => panic!("expected MissingConfigPath(flat), got {:?}", other),
+            other => panic!("expected MissingConfigPath(flat), got {other:?}"),
         }
 
         // v8 shape whose `risk` object lacks the key: the risk path is
@@ -832,7 +832,7 @@ mod tests {
         });
         match v8.risk_level() {
             Err(DomainError::MissingConfigPath("bot.long.risk.total_wallet_exposure_limit")) => {}
-            other => panic!("expected MissingConfigPath(risk), got {:?}", other),
+            other => panic!("expected MissingConfigPath(risk), got {other:?}"),
         }
 
         // missing side object
@@ -840,7 +840,7 @@ mod tests {
         no_short.config_data = json!({ "bot": { "long": { "total_wallet_exposure_limit": 1.0 } } });
         match no_short.set_risk_level(&RiskLevel::new(1.0, 1.0).unwrap()) {
             Err(DomainError::MissingConfigPath("bot.short")) => {}
-            other => panic!("expected MissingConfigPath(bot.short), got {:?}", other),
+            other => panic!("expected MissingConfigPath(bot.short), got {other:?}"),
         }
     }
 
