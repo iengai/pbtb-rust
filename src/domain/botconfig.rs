@@ -1,4 +1,5 @@
 use crate::domain::ConfigTemplate;
+use crate::domain::engine::EngineVersion;
 use crate::domain::error::DomainError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -503,6 +504,14 @@ pub trait BotConfigRepository: Send + Sync {
     async fn exists(&self, user_id: &str, bot_id: &str) -> Result<bool, DomainError>;
 }
 
+impl BotConfig {
+    /// The passivbot engine line this config must run on (see
+    /// [`EngineVersion::of_config`]).
+    pub fn engine_version(&self) -> Result<EngineVersion, DomainError> {
+        EngineVersion::of_config(&self.config_data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -833,5 +842,13 @@ mod tests {
             Err(DomainError::MissingConfigPath("bot.short")) => {}
             other => panic!("expected MissingConfigPath(bot.short), got {:?}", other),
         }
+    }
+
+    #[test]
+    fn engine_version_reads_the_config_stamp() {
+        let mut config = sample_config(0);
+        assert_eq!(config.engine_version().unwrap(), EngineVersion::new(7));
+        config.config_data["config_version"] = json!("v8.1.0");
+        assert_eq!(config.engine_version().unwrap(), EngineVersion::new(8));
     }
 }
