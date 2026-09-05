@@ -1,7 +1,12 @@
 # syntax=docker/dockerfile:1.7-labs
 ######## Build ########
 FROM rust:1.89-bullseye AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+# Only fresh CA certs. Every TLS stack in the tree is rustls (teloxide, reqwest,
+# the AWS SDK), so nothing links system OpenSSL; installing libssl-dev here only
+# upgraded the base image's libssl1.1 from bullseye-security, whose pool file
+# intermittently 404s from the CDN edge GitHub's runners use and broke the
+# lambda-deploy build three times in a row.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # Which binary to compile and ship. Must name a target in Cargo.toml (the
