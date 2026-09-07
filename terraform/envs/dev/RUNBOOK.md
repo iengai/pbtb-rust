@@ -69,7 +69,8 @@ Both launchers route this way, so they can never disagree:
 
 Source of truth: `var.passivbot_engines` in `terraform.tfvars` -> one task-def
 family per line (`…-passivbot` for the inherited "7" line, `…-passivbot-v8`, ...)
--> `local.td_passivbot_by_engine` = `7=<arn>,8=<arn>`.
+-> `local.td_passivbot_by_engine` = `7=<arn>,8=<arn>` (plus `8rs=<arn>` per
+"pb-runner runtime" below).
 
 Two consumers still resolve that table from **different** sources -- same
 sync rule as before, now per line:
@@ -120,6 +121,43 @@ still works once telebot-deploy is done).
 
 Memory: size each line from its own observed RSS. The v8 entry starts as a copy
 of v7's 400 MB -- measure after the first v8 bot start and adjust.
+
+### pb-runner runtime (`rs`): the pure-Rust image of a line
+
+A line can carry a second image: the pure-Rust runner (pb-runner repo), which
+embeds the same passivbot engine crate and speaks the same container contract
+(env `BUCKET`/`USER_ID`/`BOT_ID`, downloads `<user>/<bot>/<bot>.json` +
+`api-keys.json` from S3 itself, exit codes 10/20/21/22). Which image a bot
+launches on is a **per-bot attribute**, `runtime` on the bot row (`py`
+default, `rs`), set in Telegram with `/runtime <bot_id> rs` (back with
+`/runtime <bot_id> py`, shown by State and `/runtime <bot_id>`). The attribute
+is read at launch, so a change applies on the next Run; rollback is flipping it
+back and restarting. Both launchers (Run and the lambda auto-restart) route on
+`(config line, runtime)`, and a bot set to `rs` whose line has no `rs` entry
+gets a user-facing refusal (at `/runtime`, at "Choose config", and at Run)
+rather than silently launching the Python image.
+
+Table key syntax: `<major>[rs]` -- `8` is the Python image of line 8, `8rs`
+the pb-runner image of line 8. `var.passivbot_engines` keys are the table keys.
+
+1. Build + push the image from the **pb-runner repo**: its CodeBuild project
+   is the analogue of `deploy/passivbot-image/buildspec.yml` here
+   (`deploy/buildspec.yml` there; env `ENGINE=engine-v8`,
+   `IMAGE_TAG=8-v8.1.0-arm64`, `ECR_REPO=pb-runner`). The ECR repo is
+   `module.ecr` key `pb_runner` (name `pb-runner`), applied like the other
+   repos: `terraform apply -target='module.ecr'`.
+2. Uncomment the `"8rs"` entry in `passivbot_engines` (`terraform.tfvars`):
+   `image_repo = "pb_runner"`, `family_suffix = "-v8-rs"`, `command =
+   ["--live"]` -- pb-runner only trades with `--live`; without it it plans and
+   logs. Memory starts at a placeholder (96 MiB, target <= 64) -- measure after
+   the first `rs` bot start and adjust.
+3. Scoped apply, as for a new line:
+   `terraform apply -target='module.passivbot_task["8rs"]' -target=module.lambda_task_state_change_handler -target=aws_ssm_parameter.telebot_base_env`.
+4. `telebot-deploy` with `passivbot_revisions=latest` (pins accept the same
+   keys: `8rs=3`).
+5. Move one bot: `/runtime <bot_id> rs`, Stop, Run; watch
+   `/ecs/<project>-<env>/passivbot-v8-rs`. Roll back with `/runtime <bot_id> py`
+   + restart. Every other bot keeps `py` until moved.
 
 ### Retiring a line
 

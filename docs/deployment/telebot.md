@@ -34,7 +34,7 @@ TELEBOT_TOKEN_PARAM=/scalable-cluster/dev/telebot/teloxide-token
 TELEBOT_MEMORY=<memory-cap>
 ```
 
-The one value `telebot-deploy` appends at deploy time is `APP__ECS__TD_PASSIVBOT_BY_ENGINE` — the passivbot task-def per engine line as `7=<arn>,8=<arn>`, each family (from base-env `PBTB_PASSIVBOT_FAMILIES`) resolved to a revision. A bot launches on the entry matching its config's `config_version` major.
+The one value `telebot-deploy` appends at deploy time is `APP__ECS__TD_PASSIVBOT_BY_ENGINE` — the task-def per engine line and runtime as `7=<arn>,8=<arn>,8rs=<arn>`, each family (from base-env `PBTB_PASSIVBOT_FAMILIES`) resolved to a revision. A key is `<major>[rs]`: a bare major is the Python passivbot image of that line, `rs` the pb-runner image. A bot launches on the entry matching its config's `config_version` major and its own `runtime` attribute (`py` default; see RUNBOOK "pb-runner runtime").
 
 ## OIDC roles
 

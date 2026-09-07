@@ -13,5 +13,5 @@ pub use botconfig::RiskLevel;
 pub use clock::SystemClock;
 pub use configswitch::ConfigSwitchRepository;
 pub use configtemplate::ConfigTemplate;
-pub use engine::EngineVersion;
+pub use engine::{EngineVersion, Runtime};
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};

@@ -73,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     let config_switches: Arc<dyn domain::ConfigSwitchRepository> = bot_repository.clone();
     let apply_template_usecase = Arc::new(ApplyTemplateUseCase::new(
         template_repository.clone(),
+        bot_repository.clone(),
         bot_config_repository.clone(),
         config_switches,
         clock.clone(),
@@ -89,6 +90,14 @@ async fn main() -> anyhow::Result<()> {
     ));
     let set_strategy_side_usecase = Arc::new(SetStrategySideUseCase::new(
         bot_config_repository.clone(),
+        clock.clone(),
+    ));
+    // Per-bot image choice within the engine line (Python passivbot vs
+    // pb-runner); gated on the same table the launch resolves against.
+    let set_bot_runtime_usecase = Arc::new(SetBotRuntimeUseCase::new(
+        bot_repository.clone(),
+        bot_config_repository.clone(),
+        engines.clone(),
         clock.clone(),
     ));
 
@@ -143,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
         update_bot_config_usecase,
         update_risk_level_usecase,
         set_strategy_side_usecase,
+        set_bot_runtime_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
         // ECS actuation

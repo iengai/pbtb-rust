@@ -1,3 +1,4 @@
+use crate::domain::bot::BotRepository;
 use crate::domain::botconfig::{BotConfig, BotConfigRepository};
 use crate::domain::clock::Clock;
 use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchRepository};
@@ -8,6 +9,7 @@ use std::sync::Arc;
 
 pub struct ApplyTemplateUseCase {
     template_repository: Arc<dyn ConfigTemplateRepository>,
+    bot_repository: Arc<dyn BotRepository>,
     bot_config_repository: Arc<dyn BotConfigRepository>,
     config_switch_repository: Arc<dyn ConfigSwitchRepository>,
     clock: Arc<dyn Clock>,
@@ -17,6 +19,7 @@ pub struct ApplyTemplateUseCase {
 impl ApplyTemplateUseCase {
     pub fn new(
         template_repository: Arc<dyn ConfigTemplateRepository>,
+        bot_repository: Arc<dyn BotRepository>,
         bot_config_repository: Arc<dyn BotConfigRepository>,
         config_switch_repository: Arc<dyn ConfigSwitchRepository>,
         clock: Arc<dyn Clock>,
@@ -24,6 +27,7 @@ impl ApplyTemplateUseCase {
     ) -> Self {
         Self {
             template_repository,
+            bot_repository,
             bot_config_repository,
             config_switch_repository,
             clock,
@@ -82,10 +86,17 @@ impl ApplyTemplateUseCase {
         let now = self.clock.now();
         let config =
             BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)?;
-        // A config that targets an engine with no registered image could never
-        // launch; refuse it here, at the confirmation modal, rather than at the
-        // next Run. The preview is what the user confirms, so the gate sits on it.
-        self.engines.resolve(config.engine_version()?)?;
+        // A config that targets an engine with no registered image (on the
+        // runtime this bot is set to) could never launch; refuse it here, at the
+        // confirmation modal, rather than at the next Run. The preview is what
+        // the user confirms, so the gate sits on it.
+        let runtime = self
+            .bot_repository
+            .find(user_id, bot_id)
+            .await?
+            .map(|b| b.runtime)
+            .unwrap_or_default();
+        self.engines.resolve(config.engine_version()?, runtime)?;
         Ok(config)
     }
 }

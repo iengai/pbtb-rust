@@ -89,12 +89,21 @@ module "ecr" {
       scan_on_push         = false # matches the live repo (clean import)
       force_delete         = false # live trading image — never auto-delete
     }
+    # The pure-Rust runner image (pb-runner repo, deploy/buildspec.yml there),
+    # selected per bot via the `rs` runtime; see var.passivbot_engines.
+    pb_runner = {
+      name                 = "pb-runner"
+      image_tag_mutability = "MUTABLE"
+      scan_on_push         = false
+      force_delete         = false # live trading image — never auto-delete
+    }
   }
 }
 
-# One task definition per passivbot engine line (see var.passivbot_engines). A
-# bot is launched on the line its config targets; telebot and the restart lambda
-# both receive the whole table (local.td_passivbot_by_engine).
+# One task definition per passivbot engine line and runtime (see
+# var.passivbot_engines). A bot is launched on the line its config targets and
+# the runtime it is set to; telebot and the restart lambda both receive the
+# whole table (local.td_passivbot_by_engine).
 module "passivbot_task" {
   for_each = var.passivbot_engines
   source   = "../../modules/task-definitions/passivbot"
@@ -105,7 +114,8 @@ module "passivbot_task" {
   common_tags        = var.common_tags
   execution_role_arn = module.task_base.task_execution_role_arn
   task_role_arn      = module.task_base.task_role_arn
-  container_image    = "${module.ecr.repository_urls["passivbot_v741"]}:${each.value.image_tag}"
+  container_image    = "${module.ecr.repository_urls[each.value.image_repo]}:${each.value.image_tag}"
+  command            = each.value.command
   memory             = each.value.memory
   # coalesce() would skip an explicit "" (the original-family line), so test null.
   family_suffix      = each.value.family_suffix != null ? each.value.family_suffix : "-v${each.key}"
@@ -116,14 +126,16 @@ module "passivbot_task" {
 }
 
 locals {
-  # "7=<arn>,8=<arn>" -- what APP__ECS__TD_PASSIVBOT_BY_ENGINE carries. HCL iterates
-  # a map in key order, so the string is stable across applies.
+  # "7=<arn>,8=<arn>,8rs=<arn>" -- what APP__ECS__TD_PASSIVBOT_BY_ENGINE carries;
+  # the map key IS the table key (`<major>[rs]`). HCL iterates a map in key
+  # order, so the string is stable across applies.
   td_passivbot_by_engine = join(",", [
-    for major, td in module.passivbot_task : "${major}=${td.task_definition_arn}"
+    for key, td in module.passivbot_task : "${key}=${td.task_definition_arn}"
   ])
-  # "7=<family>,8=<family>" -- telebot-deploy resolves each family's revision from this.
+  # "7=<family>,8=<family>,8rs=<family>" -- telebot-deploy resolves each family's
+  # revision from this.
   passivbot_families = join(",", [
-    for major, td in module.passivbot_task : "${major}=${td.task_definition_family}"
+    for key, td in module.passivbot_task : "${key}=${td.task_definition_family}"
   ])
 }
 

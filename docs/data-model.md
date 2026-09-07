@@ -9,7 +9,7 @@ One table holds two row kinds under a shared partition key `pk = "user_id#<user_
 ```
 Bot row      pk = "user_id#<user_id>", sk = "<bot_id>"
              Attributes: name, exchange, api_key, secret_key, enabled,
-                         created_at, updated_at
+                         runtime, created_at, updated_at
              (enabled = desired state; there is no status attribute)
 
 Runtime row  pk = "user_id#<user_id>", sk = "ecs_task_metadata#<bot_id>"
@@ -29,6 +29,7 @@ The bot's configured identity and desired state.
 | `api_key` | Exchange API key |
 | `secret_key` | Exchange API secret |
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
+| `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run) |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 

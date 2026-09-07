@@ -1,6 +1,7 @@
 use crate::domain::error::DomainError;
 use serde_json::Value;
 use std::fmt;
+use std::str::FromStr;
 
 /// The passivbot engine major line a config targets.
 ///
@@ -52,6 +53,59 @@ impl EngineVersion {
                 "config_version {stamp:?} is not a semantic version like v8.1.0"
             ))
         })
+    }
+}
+
+/// Which binary runs a bot's engine line: the Python passivbot image (`py`) or
+/// the pure-Rust pb-runner image (`rs`).
+///
+/// The engine line is the strategy's contract (see [`EngineVersion`]); the
+/// runtime is only *which build* of that line executes it, so it is a per-bot
+/// attribute a user can flip without touching the config. `Py` is the default
+/// so every bot that predates the attribute keeps launching exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum Runtime {
+    #[default]
+    Py,
+    Rs,
+}
+
+impl Runtime {
+    pub const ALL: [Runtime; 2] = [Runtime::Py, Runtime::Rs];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Runtime::Py => "py",
+            Runtime::Rs => "rs",
+        }
+    }
+
+    /// The image the runtime stands for — for user-facing copy.
+    pub fn image_label(self) -> &'static str {
+        match self {
+            Runtime::Py => "passivbot (Python)",
+            Runtime::Rs => "pb-runner (Rust)",
+        }
+    }
+}
+
+impl FromStr for Runtime {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "py" => Ok(Runtime::Py),
+            "rs" => Ok(Runtime::Rs),
+            other => Err(DomainError::InvalidConfig(format!(
+                "runtime must be `py` or `rs`, got {other:?}"
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for Runtime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -127,5 +181,26 @@ mod tests {
     #[test]
     fn displays_as_major_line() {
         assert_eq!(EngineVersion::new(8).to_string(), "v8");
+    }
+
+    #[test]
+    fn runtime_defaults_to_python() {
+        assert_eq!(Runtime::default(), Runtime::Py);
+    }
+
+    #[test]
+    fn runtime_round_trips_and_rejects_unknown() {
+        for rt in Runtime::ALL {
+            assert_eq!(rt.as_str().parse::<Runtime>().unwrap(), rt);
+            assert_eq!(rt.to_string(), rt.as_str());
+        }
+        assert_eq!("RS".parse::<Runtime>().unwrap(), Runtime::Rs);
+        assert!(
+            " rs".parse::<Runtime>().is_err(),
+            "no trimming: a key is exact"
+        );
+        let err = "python".parse::<Runtime>().unwrap_err();
+        assert!(matches!(err, DomainError::InvalidConfig(_)), "{err}");
+        assert!(err.to_string().contains("py"), "{err}");
     }
 }

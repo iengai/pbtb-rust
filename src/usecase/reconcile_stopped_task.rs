@@ -131,7 +131,7 @@ impl ReconcileStoppedTaskUseCase {
         // The engine line the bot's CURRENT config targets, and its task
         // definition. Resolved before the lock is claimed: a config that cannot
         // launch is an error to surface, not a lock to churn.
-        let target = self.targets.resolve(user_id, bot_id).await?;
+        let target = self.targets.resolve(&bot).await?;
 
         // Claim the restart through the same exclusive lock the telebot uses,
         // keyed on the stopped task. Only the claim that finds this task still
@@ -248,7 +248,7 @@ impl ReconcileStoppedTaskUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::engine::EngineVersion;
+    use crate::domain::engine::{EngineVersion, Runtime};
     use crate::domain::runtime::RuntimePhase;
     use crate::usecase::engine_routing::LaunchTarget;
     use crate::usecase::run_task::RunTaskUseCase;
@@ -257,9 +257,10 @@ mod tests {
     struct FixedTarget;
     #[async_trait]
     impl LaunchTargetResolver for FixedTarget {
-        async fn resolve(&self, _u: &str, _b: &str) -> Result<LaunchTarget, DomainError> {
+        async fn resolve(&self, bot: &Bot) -> Result<LaunchTarget, DomainError> {
             Ok(LaunchTarget {
                 engine: EngineVersion::new(7),
+                runtime: bot.runtime,
                 td_arn: "td".to_string(),
             })
         }
@@ -476,6 +477,7 @@ mod tests {
             "ak".to_string(),
             "sk".to_string(),
             enabled,
+            Runtime::Py,
             1,
             1,
         )

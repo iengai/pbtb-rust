@@ -27,8 +27,10 @@ resource "aws_ecs_task_definition" "main" {
   execution_role_arn = var.execution_role_arn
   task_role_arn      = var.task_role_arn
 
+  # `command` is merged in only when set: a null value would still be emitted
+  # as `"command": null` and read as a diff against the registered definition.
   container_definitions = jsonencode([
-    {
+    merge({
       name      = var.container_name
       image     = var.container_image
       cpu       = 128
@@ -73,7 +75,7 @@ resource "aws_ecs_task_definition" "main" {
           value = var.s3_bucket_name
         },
       ])
-    }
+    }, var.command == null ? {} : { command = var.command })
   ])
 
   tags = merge(

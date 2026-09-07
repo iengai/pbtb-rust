@@ -84,6 +84,7 @@ impl AddBotUseCase {
                 api_key,
                 secret_key,
                 existing.enabled,
+                existing.runtime,
                 existing.created_at,
                 now,
             ),
@@ -110,6 +111,7 @@ impl AddBotUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::engine::Runtime;
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
@@ -268,6 +270,7 @@ mod tests {
             "ak".into(),
             "sk".into(),
             false,
+            Runtime::Py,
             1,
             1,
         );
@@ -304,6 +307,7 @@ mod tests {
             "old-ak".into(),
             "old-sk".into(),
             true,
+            Runtime::Rs,
             100,
             100,
         );
@@ -331,6 +335,7 @@ mod tests {
         let row = bots.get("user-1", "452425891").unwrap();
         assert_eq!(row.api_key, "new-ak", "keys rotated");
         assert!(row.enabled, "desired state preserved");
+        assert_eq!(row.runtime, Runtime::Rs, "runtime preserved");
         assert_eq!(row.created_at, 100, "created_at preserved");
         assert_eq!(row.updated_at, 1_700_000_000, "updated_at bumped to now");
     }
