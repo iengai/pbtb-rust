@@ -82,7 +82,7 @@ impl StartBotUseCase {
         // Resolved BEFORE desired state is flipped on: a config that cannot launch
         // (unparseable stamp, no image registered for its engine) is the user's to
         // fix, and must not leave intent ON for the auto-restart to chase.
-        let target = self.targets.resolve(user_id, bot_id).await?;
+        let target = self.targets.resolve(&bot).await?;
 
         // Desired state ON first: intent is recorded even if the launch fails,
         // and auto-restart keys off it.
@@ -180,7 +180,7 @@ impl StartBotUseCase {
 mod tests {
     use super::*;
     use crate::domain::bot::Bot;
-    use crate::domain::engine::EngineVersion;
+    use crate::domain::engine::{EngineVersion, Runtime};
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use crate::domain::runtime::BotRuntime;
@@ -398,10 +398,11 @@ mod tests {
     struct FixedTarget(Option<&'static str>);
     #[async_trait]
     impl LaunchTargetResolver for FixedTarget {
-        async fn resolve(&self, _u: &str, _b: &str) -> Result<LaunchTarget, DomainError> {
+        async fn resolve(&self, bot: &Bot) -> Result<LaunchTarget, DomainError> {
             match self.0 {
                 Some(arn) => Ok(LaunchTarget {
                     engine: EngineVersion::new(7),
+                    runtime: bot.runtime,
                     td_arn: arn.to_string(),
                 }),
                 None => Err(DomainError::InvalidConfig(
@@ -420,6 +421,7 @@ mod tests {
             "ak".to_string(),
             "sk".to_string(),
             enabled,
+            Runtime::Py,
             1,
             1,
         )

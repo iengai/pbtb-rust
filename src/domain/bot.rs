@@ -1,3 +1,4 @@
+use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::domain::exchange::Exchange;
 use async_trait::async_trait;
@@ -11,6 +12,9 @@ pub struct Bot {
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
+    /// Which image runs this bot's engine line (`py` passivbot, `rs` pb-runner).
+    /// Read at launch only; a change applies on the next start.
+    pub runtime: Runtime,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -25,6 +29,7 @@ impl Bot {
         api_key: String,
         secret_key: String,
         enabled: bool,
+        runtime: Runtime,
         created_at: i64,
         updated_at: i64,
     ) -> Self {
@@ -36,14 +41,15 @@ impl Bot {
             api_key,
             secret_key,
             enabled,
+            runtime,
             created_at,
             updated_at,
         }
     }
 
     /// Factory encapsulating the construction policy for a newly added bot.
-    /// id is derived from the name, exchange defaults to Bybit, and the bot
-    /// starts disabled (desired state off).
+    /// id is derived from the name, exchange defaults to Bybit, the bot starts
+    /// disabled (desired state off) and runs on the default (Python) runtime.
     pub fn create(
         user_id: String,
         name: String,
@@ -59,6 +65,7 @@ impl Bot {
             api_key,
             secret_key,
             enabled: false,
+            runtime: Runtime::default(),
             created_at: now,
             updated_at: now,
         }
@@ -73,6 +80,13 @@ impl Bot {
     /// Desired-state transition: user turned the bot off.
     pub fn disable(&mut self, now: i64) {
         self.enabled = false;
+        self.updated_at = now;
+    }
+
+    /// Move the bot to another runtime image. Takes effect on the next launch:
+    /// a running task keeps the binary it started with until it is restarted.
+    pub fn set_runtime(&mut self, runtime: Runtime, now: i64) {
+        self.runtime = runtime;
         self.updated_at = now;
     }
 }
@@ -125,6 +139,7 @@ mod tests {
         assert_eq!(bot.user_id, "user-1");
         assert_eq!(bot.exchange, Exchange::Bybit);
         assert!(!bot.enabled);
+        assert_eq!(bot.runtime, Runtime::Py);
         assert_eq!(bot.created_at, 42);
         assert_eq!(bot.updated_at, 42);
     }
@@ -138,5 +153,13 @@ mod tests {
         bot.disable(200);
         assert!(!bot.enabled);
         assert_eq!(bot.updated_at, 200);
+    }
+
+    #[test]
+    fn set_runtime_stamps_updated_at() {
+        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        bot.set_runtime(Runtime::Rs, 300);
+        assert_eq!(bot.runtime, Runtime::Rs);
+        assert_eq!(bot.updated_at, 300);
     }
 }

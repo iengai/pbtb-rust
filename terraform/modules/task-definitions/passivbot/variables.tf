@@ -72,6 +72,12 @@ variable "family_suffix" {
   default     = ""
 }
 
+variable "command" {
+  description = "Container command override (the `command` of the container definition). null keeps the image's own entrypoint/cmd, as the passivbot image needs; the pb-runner image takes [\"--live\"] to trade (without it it only plans and logs)."
+  type        = list(string)
+  default     = null
+}
+
 variable "memory" {
   description = "Task-level hard memory limit (MiB) for this engine line. Sized per engine: a newer passivbot can have a different RSS profile, so it must not inherit another line's number blindly."
   type        = number

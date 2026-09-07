@@ -1,5 +1,6 @@
 use crate::domain::bot::{Bot, BotRepository};
 use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchKind, ConfigSwitchRepository};
+use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::domain::exchange::Exchange;
 use crate::domain::runtime::{
@@ -80,6 +81,9 @@ pub struct BotItem {
     pub api_key: String,
     pub secret_key: String,
     pub enabled: bool,
+    /// `py` | `rs`. Absent on rows written before the attribute existed, which
+    /// read back as `py` — the image every bot ran on until then.
+    pub runtime: Option<String>,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -104,6 +108,10 @@ impl BotItem {
             api_key: item.get("api_key")?.as_s().ok()?.to_string(),
             secret_key: item.get("secret_key")?.as_s().ok()?.to_string(),
             enabled: item.get("enabled")?.as_bool().ok().copied()?,
+            runtime: match item.get("runtime") {
+                Some(v) => Some(v.as_s().ok()?.to_string()),
+                None => None,
+            },
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
@@ -127,6 +135,9 @@ impl BotItem {
             AttributeValue::S(self.secret_key.clone()),
         );
         map.insert("enabled".to_string(), AttributeValue::Bool(self.enabled));
+        if let Some(runtime) = &self.runtime {
+            map.insert("runtime".to_string(), AttributeValue::S(runtime.clone()));
+        }
         map.insert(
             "created_at".to_string(),
             AttributeValue::N(self.created_at.to_string()),
@@ -141,6 +152,10 @@ impl BotItem {
     fn to_domain(&self) -> Option<Bot> {
         let user_id = Self::extract_user_id_from_pk(&self.pk)?;
         let exchange = Exchange::from_str(self.exchange.as_str())?;
+        let runtime = match &self.runtime {
+            Some(s) => s.parse::<Runtime>().ok()?,
+            None => Runtime::default(),
+        };
         Some(Bot {
             id: self.sk.clone(), // bot_id from SK
             user_id,
@@ -149,6 +164,7 @@ impl BotItem {
             api_key: self.api_key.clone(),
             secret_key: self.secret_key.clone(),
             enabled: self.enabled,
+            runtime,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -163,6 +179,7 @@ impl BotItem {
             api_key: bot.api_key.clone(),
             secret_key: bot.secret_key.clone(),
             enabled: bot.enabled,
+            runtime: Some(bot.runtime.as_str().to_string()),
             created_at: bot.created_at,
             updated_at: bot.updated_at,
         }
@@ -885,5 +902,54 @@ impl ConfigSwitchRepository for DynamoBotRepository {
 
         events.sort_by_key(|e| e.applied_at);
         Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod bot_item_tests {
+    use super::*;
+
+    fn legacy_item() -> HashMap<String, AttributeValue> {
+        HashMap::from([
+            ("pk".to_string(), AttributeValue::S("user_id#u1".into())),
+            ("sk".to_string(), AttributeValue::S("b1".into())),
+            ("exchange".to_string(), AttributeValue::S("bybit".into())),
+            ("name".to_string(), AttributeValue::S("b1".into())),
+            ("api_key".to_string(), AttributeValue::S("ak".into())),
+            ("secret_key".to_string(), AttributeValue::S("sk".into())),
+            ("enabled".to_string(), AttributeValue::Bool(true)),
+            ("created_at".to_string(), AttributeValue::N("1".into())),
+            ("updated_at".to_string(), AttributeValue::N("2".into())),
+        ])
+    }
+
+    #[test]
+    fn row_without_runtime_reads_as_python() {
+        let bot = parse_bot_row(&legacy_item(), "u1").unwrap();
+        assert_eq!(bot.runtime, Runtime::Py);
+        assert_eq!(bot.user_id, "u1");
+        assert!(bot.enabled);
+    }
+
+    #[test]
+    fn runtime_attribute_round_trips() {
+        let mut item = legacy_item();
+        item.insert("runtime".to_string(), AttributeValue::S("rs".into()));
+        let bot = parse_bot_row(&item, "u1").unwrap();
+        assert_eq!(bot.runtime, Runtime::Rs);
+
+        let written = BotItem::from_domain(&bot).to_item();
+        assert_eq!(
+            written.get("runtime"),
+            Some(&AttributeValue::S("rs".into()))
+        );
+    }
+
+    #[test]
+    fn unknown_runtime_value_is_a_corrupt_record() {
+        let mut item = legacy_item();
+        item.insert("runtime".to_string(), AttributeValue::S("go".into()));
+        let err = parse_bot_row(&item, "u1").unwrap_err();
+        assert!(matches!(err, DomainError::CorruptRecord(_)), "{err}");
     }
 }

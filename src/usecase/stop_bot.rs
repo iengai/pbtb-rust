@@ -148,6 +148,7 @@ impl StopBotUseCase {
 mod tests {
     use super::*;
     use crate::domain::bot::Bot;
+    use crate::domain::engine::Runtime;
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use crate::domain::runtime::BotRuntime;
@@ -281,6 +282,7 @@ mod tests {
             "ak".to_string(),
             "sk".to_string(),
             enabled,
+            Runtime::Py,
             1,
             1,
         )

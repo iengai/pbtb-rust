@@ -15,6 +15,17 @@ Current tag: **`v8.1.0-arm64`**.
 | `entrypoint.sh` | runtime contract: ECS injects `BUCKET`/`USER_ID`/`BOT_ID`; pulls config + api-keys from S3, runs `python src/main.py configs/$BOT_ID.json` (launches passivbot live; user comes from `live.user`) |
 | `buildspec.yml` | CodeBuild spec: ECR login → `docker build` → push |
 
+## The pb-runner image
+
+The pure-Rust runner image (ECR repo `pb-runner`, module.ecr key `pb_runner`)
+is built by an analogous CodeBuild project from the **pb-runner repo**
+(`deploy/buildspec.yml` there; env `ENGINE=engine-v8`,
+`IMAGE_TAG=8-v8.1.0-arm64`, `ECR_REPO=pb-runner`). It needs no entrypoint
+script: the binary reads `BUCKET`/`USER_ID`/`BOT_ID`, downloads the config and
+api-keys from S3 itself (same paths, same exit codes) and trades only with
+`--live`. Bots opt into it per bot via the `runtime` attribute; see
+`terraform/envs/dev/RUNBOOK.md` → "pb-runner runtime".
+
 ## Why CodeBuild (not local)
 
 The cluster is `t4g` (Graviton), so the image must be `arm64`. Building arm64 on

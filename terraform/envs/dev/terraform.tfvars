@@ -42,6 +42,14 @@ max_size    = 3
 passivbot_engines = {
   "7" = { image_tag = "v7.12.0-arm64", memory = 400, family_suffix = "" }
   "8" = { image_tag = "v8.1.0-arm64", memory = 400 }
+  # pb-runner (pure-Rust) image of line 8, used only by bots whose runtime is
+  # `rs` (/runtime <bot_id> rs). Uncomment once the image is pushed to the
+  # pb-runner ECR repo (built by the pb-runner repo's CodeBuild project,
+  # ENGINE=engine-v8 IMAGE_TAG=8-v8.1.0-arm64), then scoped-apply
+  # module.passivbot_task["8rs"] + the lambda + telebot base-env, and
+  # telebot-deploy (RUNBOOK "pb-runner runtime"). Memory is a placeholder
+  # until measured; the target is <= 64 MB.
+  # "8rs" = { image_tag = "8-v8.1.0-arm64", memory = 96, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
 }
 
 log_retention_days = 30

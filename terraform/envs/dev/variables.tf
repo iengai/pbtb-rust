@@ -69,11 +69,13 @@ variable "max_size" {
 }
 
 variable "passivbot_engines" {
-  description = "One passivbot task definition per ENGINE LINE a bot config may target, keyed by the config's config_version major (\"7\", \"8\", ...). A bot launches on the entry matching its config, so a strategy validated on v7 keeps running the v7 image after v8 is rolled out. image_tag: tag in the passivbot-live ECR repo. memory: the task's hard limit in MiB, sized per engine. family_suffix: defaults to \"-v<major>\"; the line that inherited the original, unsuffixed family sets \"\" so its running tasks and log group are untouched."
+  description = "One task definition per ENGINE LINE (and runtime) a bot may launch on, keyed by the config's config_version major plus an optional runtime suffix: \"7\", \"8\" are the Python passivbot image of that line, \"8rs\" the pb-runner (Rust) image of line 8. A bot launches on the entry matching its config's line and its own runtime attribute (py default / rs), so a strategy validated on v7 keeps running the v7 image after v8 is rolled out, and only bots explicitly moved to rs use pb-runner. image_tag: tag in the image_repo ECR repo. image_repo: module.ecr key of the repo the image lives in (default the passivbot-live repo; \"pb_runner\" for rs entries). command: container command override (pb-runner takes \"--live\" to trade; without it it only plans and logs); null leaves the image's own entrypoint. memory: the task's hard limit in MiB, sized per entry. family_suffix: defaults to \"-v<key>\"; the line that inherited the original, unsuffixed family sets \"\" so its running tasks and log group are untouched."
   type = map(object({
     image_tag     = string
     memory        = optional(number, 400)
     family_suffix = optional(string)
+    image_repo    = optional(string, "passivbot_v741")
+    command       = optional(list(string))
   }))
 }
 

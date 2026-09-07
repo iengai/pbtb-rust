@@ -23,6 +23,7 @@ use pbtb_rust::domain::bot::{Bot, BotRepository};
 use pbtb_rust::domain::configswitch::{
     ConfigSwitchEvent, ConfigSwitchKind, ConfigSwitchRepository,
 };
+use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
@@ -188,6 +189,7 @@ async fn dynamo_bot_repository_roundtrip() {
     assert_eq!(found.api_key, "ak-123");
     assert_eq!(found.secret_key, "sk-456");
     assert!(!found.enabled, "Bot::create starts disabled");
+    assert_eq!(found.runtime, Runtime::Py, "Bot::create defaults to py");
     assert_eq!(found.created_at, 1_700_000_000);
 
     // --- find for non-existent id returns None ---
@@ -199,6 +201,7 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- mutate (enable) then save then find reflects the update ---
     let mut updated = found.clone();
     updated.enable(1_700_000_100);
+    updated.set_runtime(Runtime::Rs, 1_700_000_100);
     repo.save(&updated)
         .await
         .expect("update save should succeed");
@@ -208,6 +211,7 @@ async fn dynamo_bot_repository_roundtrip() {
         .expect("find should not error")
         .expect("updated bot should be found");
     assert!(refound.enabled, "enable() should persist");
+    assert_eq!(refound.runtime, Runtime::Rs, "set_runtime() should persist");
     assert_eq!(refound.updated_at, 1_700_000_100);
 
     // --- find_by_user_id returns all bots and excludes runtime rows ---

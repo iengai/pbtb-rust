@@ -1,5 +1,6 @@
 // Rust
 use crate::domain::botconfig::{BotConfig, StrategyRef};
+use crate::domain::engine::Runtime;
 use crate::domain::runtime::RuntimePhase;
 
 pub fn welcome_text() -> String {
@@ -16,6 +17,11 @@ pub fn format_runtime_phase(phase: Option<&RuntimePhase>) -> &'static str {
         Some(RuntimePhase::Stopped) => "⏸️ Stopped",
         None => "❔ Unknown",
     }
+}
+
+/// Render which image a bot launches on: `py — passivbot (Python)`.
+pub fn format_bot_runtime(runtime: Runtime) -> String {
+    format!("{runtime} — {}", runtime.image_label())
 }
 
 /// Compact observed-state glyph for list buttons.
