@@ -18,12 +18,14 @@
 //! to give one bot two live trading tasks.
 
 pub mod auth;
+pub mod http;
 pub mod server;
 
 use crate::usecase::*;
 use std::sync::Arc;
 
-pub use auth::{Authenticator, LocalOperator, Principal, SCOPE_READ, SCOPE_WRITE};
+pub use auth::{Authenticator, LocalOperator, Principal, SCOPE_READ, SCOPE_WRITE, StaticToken};
+pub use http::HttpMcp;
 pub use server::BotTools;
 
 /// The use cases the tools drive.

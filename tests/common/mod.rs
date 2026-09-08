@@ -151,6 +151,18 @@ impl Harness {
     /// drives, so a tool call and a button press meet the same start lock and the
     /// same rows.
     pub fn mcp_tools(&self, auth: Arc<dyn mcp::Authenticator>) -> mcp::BotTools {
+        mcp::BotTools::new(self.mcp_deps(), auth)
+    }
+
+    /// The same surface behind the HTTP edge, reached only with `token`.
+    pub fn http_mcp(&self, token: &str) -> mcp::HttpMcp {
+        mcp::HttpMcp::new(
+            self.mcp_deps(),
+            mcp::StaticToken::new(token, telegram::USER_ID.to_string()),
+        )
+    }
+
+    fn mcp_deps(&self) -> mcp::Deps {
         let engines = engines();
         let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
         let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = self.bots.clone();
@@ -163,7 +175,7 @@ impl Harness {
             engines.clone(),
         ));
 
-        let deps = mcp::Deps {
+        mcp::Deps {
             list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
             delete_bot_usecase: Arc::new(DeleteBotUseCase::new(
                 bots_dyn.clone(),
@@ -212,8 +224,7 @@ impl Harness {
                 clock,
                 CLUSTER_ARN.to_string(),
             )),
-        };
-        mcp::BotTools::new(deps, auth)
+        }
     }
 }
 

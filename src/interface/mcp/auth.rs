@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use subtle::ConstantTimeEq;
+
 /// Who is calling, resolved from the transport's credentials before any tool
 /// runs.
 ///
@@ -66,6 +68,55 @@ impl Authenticator for LocalOperator {
     }
 }
 
+/// Serves a principal the transport has already established.
+///
+/// The HTTP edge verifies a credential per request and then builds the tool
+/// surface around the principal it resolved, so by the time a tool runs the
+/// identity is settled and this only carries it. Keeping the check at the edge
+/// is what lets tools stay ignorant of how anyone authenticated.
+pub struct Verified(pub Principal);
+
+impl Authenticator for Verified {
+    fn authenticate(&self) -> Option<Principal> {
+        Some(self.0.clone())
+    }
+}
+
+/// One shared bearer token standing for one tenant.
+///
+/// The stopgap before per-user OAuth: possession of the token is the whole
+/// claim, so it identifies a deployment rather than a person and cannot express
+/// more than one caller. Rotating it is revocation for everybody at once.
+pub struct StaticToken {
+    token: String,
+    principal: Principal,
+}
+
+impl StaticToken {
+    pub fn new(token: impl Into<String>, user_id: impl Into<String>) -> Self {
+        Self {
+            token: token.into(),
+            principal: Principal::full(user_id),
+        }
+    }
+
+    /// The presented bearer, or `None` when it does not match.
+    ///
+    /// Compared in constant time: a byte-wise early return leaks the length of
+    /// the matching prefix, and a caller who can measure that can find the token
+    /// one byte at a time instead of guessing all of it.
+    ///
+    /// A deployment that never had its token set refuses everyone, rather than
+    /// admitting whoever sends the empty bearer.
+    pub fn verify(&self, presented: &str) -> Option<Principal> {
+        if self.token.is_empty() {
+            return None;
+        }
+        bool::from(presented.as_bytes().ct_eq(self.token.as_bytes()))
+            .then(|| self.principal.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +137,24 @@ mod tests {
         };
         assert!(p.has(SCOPE_READ));
         assert!(!p.has(SCOPE_WRITE));
+    }
+
+    #[test]
+    fn a_static_token_admits_only_its_own_value() {
+        let t = StaticToken::new("s3cret", "5351347639");
+        assert_eq!(t.verify("s3cret"), Some(Principal::full("5351347639")));
+        assert!(t.verify("s3cre").is_none(), "a prefix is not the token");
+        assert!(
+            t.verify("s3crets").is_none(),
+            "an extension is not the token"
+        );
+        assert!(t.verify("").is_none());
+    }
+
+    #[test]
+    fn an_empty_configured_token_admits_nobody() {
+        // A misconfigured deployment must refuse everyone rather than accept the
+        // empty bearer any client can send.
+        assert!(StaticToken::new("", "u").verify("").is_none());
     }
 }

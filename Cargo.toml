@@ -36,8 +36,29 @@ hex = "0.4"
 # the schema types, protocol-version negotiation and the stdio transport. The
 # alternative is hand-rolling protocol framing, which is exactly the kind of
 # code a vetted implementation should own.
-rmcp = { version = "3", features = ["server", "macros", "schemars", "transport-io"] }
+rmcp = { version = "3", features = [
+    "server",
+    "macros",
+    "schemars",
+    "transport-io",
+    "transport-streamable-http-server",
+] }
 schemars = "1"
+# Turns a Function URL's API-Gateway-shaped event into an `http::Request` and a
+# response back again, which is the whole of what the mcp_http bin needs on top
+# of rmcp: rmcp's streamable-HTTP transport is already an `http::Request`
+# handler, so the two meet without a hand-written payload parser.
+lambda_http = "0.13"
+# The http type vocabulary the rmcp transport and lambda_http meet in.
+http = "1"
+bytes = "1"
+http-body-util = "0.1"
+# Constant-time byte comparison for the MCP bearer. Already in the tree under
+# the TLS stack; named directly rather than hand-rolling the compare.
+subtle = "2"
+# Reads the MCP bearer at cold start. The token stays a SecureString that
+# Terraform never holds the value of, the way the telegram token does.
+aws-sdk-ssm = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -57,6 +78,10 @@ strip = "symbols"
 [[bin]]
 name = "mcp_stdio"
 path = "src/bin/mcp_stdio/main.rs"
+
+[[bin]]
+name = "mcp_http"
+path = "src/bin/mcp_http/main.rs"
 
 [[bin]]
 name = "task_state_change_handler"
