@@ -3,7 +3,9 @@ use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchKind, ConfigSwi
 use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::domain::exchange::Exchange;
-use crate::domain::identity::{IdentityRepository, LinkedIdentity};
+use crate::domain::identity::{
+    IdentityRepository, LinkOutcome, LinkTicket, LinkTicketRepository, LinkedIdentity,
+};
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
@@ -71,6 +73,20 @@ fn is_config_switch_row(item: &HashMap<String, AttributeValue>) -> bool {
     item.get("sk")
         .and_then(|v| v.as_s().ok())
         .is_some_and(|sk| sk.starts_with(CONFIG_SWITCH_SK_PREFIX))
+}
+
+/// A tenant's partition also holds the identities linked to them
+/// (`sk = identity#<provider>#<subject>`). Like the runtime and config-switch
+/// rows they are not bots, so a `find_by_user_id` query must skip them.
+///
+/// 🔴 Every new row shape that lands under a `user_id#` partition has to be
+/// added here. The query carries no sort-key condition, so a shape this does not
+/// name is not skipped — it reaches `parse_bot_row`, fails, and takes the whole
+/// list with it for that tenant.
+fn is_identity_row(item: &HashMap<String, AttributeValue>) -> bool {
+    item.get("sk")
+        .and_then(|v| v.as_s().ok())
+        .is_some_and(|sk| sk.starts_with(IDENTITY_PK_PREFIX))
 }
 
 /// Storage model for the infra layer
@@ -419,14 +435,21 @@ impl DynamoBotRepository {
                 .map_err(|e| sdk_err("DynamoDB scan failed", e))?;
 
             for item in output.items() {
-                if is_runtime_row(item) || is_config_switch_row(item) {
-                    continue;
-                }
-                let user_id = item
+                // A whole-table scan meets every row shape in the table,
+                // including ones added long after this was written. Taking only
+                // what parses as a tenant partition, rather than excluding the
+                // shapes known today, is what keeps a new shape from failing the
+                // scan for every tenant at once.
+                let Some(user_id) = item
                     .get("pk")
                     .and_then(|v| v.as_s().ok())
                     .and_then(|pk| BotItem::extract_user_id_from_pk(pk))
-                    .unwrap_or_default();
+                else {
+                    continue;
+                };
+                if is_runtime_row(item) || is_config_switch_row(item) || is_identity_row(item) {
+                    continue;
+                }
                 bots.push(parse_bot_row(item, &user_id)?);
             }
 
@@ -825,7 +848,9 @@ impl BotRepository for DynamoBotRepository {
         output
             .items()
             .iter()
-            .filter(|item| !is_runtime_row(item) && !is_config_switch_row(item))
+            .filter(|item| {
+                !is_runtime_row(item) && !is_config_switch_row(item) && !is_identity_row(item)
+            })
             .map(|item| parse_bot_row(item, user_id))
             .collect()
     }
@@ -919,6 +944,114 @@ fn identity_pk(provider: &str, subject: &str) -> String {
     format!("{IDENTITY_PK_PREFIX}{provider}#{subject}")
 }
 
+/// Item shape: pk = link_ticket#<purpose>#<sha256(token)>, sk = ticket.
+///
+/// `expires_at` is also the table's TTL attribute, so a ticket nobody redeems
+/// disappears on its own. TTL deletion is best-effort and can lag by hours,
+/// which is why redemption checks the expiry itself rather than trusting the row
+/// to be gone.
+const LINK_TICKET_PK_PREFIX: &str = "link_ticket#";
+const LINK_TICKET_SK: &str = "ticket";
+
+fn link_ticket_pk(purpose: &str, token_hash: &str) -> String {
+    format!("{LINK_TICKET_PK_PREFIX}{purpose}#{token_hash}")
+}
+
+#[async_trait]
+impl LinkTicketRepository for DynamoBotRepository {
+    async fn issue(
+        &self,
+        purpose: &str,
+        token_hash: &str,
+        ticket: &LinkTicket,
+        now: i64,
+        expires_at: i64,
+    ) -> Result<(), DomainError> {
+        let mut request = self
+            .client
+            .put_item()
+            .table_name(&self.table_name)
+            .item("pk", AttributeValue::S(link_ticket_pk(purpose, token_hash)))
+            .item("sk", AttributeValue::S(LINK_TICKET_SK.to_string()))
+            .item("user_id", AttributeValue::S(ticket.user_id.clone()))
+            .item("chat_id", AttributeValue::N(ticket.chat_id.to_string()))
+            .item("created_at", AttributeValue::N(now.to_string()))
+            .item("expires_at", AttributeValue::N(expires_at.to_string()))
+            // Two tickets hashing alike would mean the same token was minted
+            // twice; refusing is the only safe reading of that.
+            .condition_expression("attribute_not_exists(pk)");
+
+        if let Some(verifier) = &ticket.code_verifier {
+            request = request.item("code_verifier", AttributeValue::S(verifier.clone()));
+        }
+
+        request
+            .send()
+            .await
+            .map(|_| ())
+            .map_err(|e| sdk_err("DynamoDB put_item failed", e))
+    }
+
+    async fn redeem(
+        &self,
+        purpose: &str,
+        token_hash: &str,
+        now: i64,
+    ) -> Result<Option<LinkTicket>, DomainError> {
+        // Delete and read in one step. A read-then-delete would let two arrivals
+        // both see an unredeemed ticket; DynamoDB serializes conditional writes
+        // per item, so exactly one of them gets the row back.
+        let deleted = self
+            .client
+            .delete_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(link_ticket_pk(purpose, token_hash)))
+            .key("sk", AttributeValue::S(LINK_TICKET_SK.to_string()))
+            .condition_expression("attribute_exists(pk) AND expires_at > :now")
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld)
+            .send()
+            .await;
+
+        let item = match deleted {
+            Ok(output) => output.attributes,
+            // Missing, already redeemed, or expired. All three are the same
+            // answer to the caller, and distinguishing them would tell whoever
+            // guessed the hash which guess was close.
+            Err(SdkError::ServiceError(err))
+                if err.err().is_conditional_check_failed_exception() =>
+            {
+                return Ok(None);
+            }
+            Err(e) => return Err(sdk_err("DynamoDB delete_item failed", e)),
+        };
+
+        let Some(item) = item else {
+            return Ok(None);
+        };
+
+        let user_id = item
+            .get("user_id")
+            .and_then(|v| v.as_s().ok())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| DomainError::CorruptRecord("link ticket has no user_id".into()))?
+            .to_string();
+
+        Ok(Some(LinkTicket {
+            user_id,
+            chat_id: item
+                .get("chat_id")
+                .and_then(|v| v.as_n().ok())
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_default(),
+            code_verifier: item
+                .get("code_verifier")
+                .and_then(|v| v.as_s().ok())
+                .map(String::from),
+        }))
+    }
+}
+
 #[async_trait]
 impl IdentityRepository for DynamoBotRepository {
     async fn find_link(
@@ -967,6 +1100,76 @@ impl IdentityRepository for DynamoBotRepository {
                 .and_then(|n| n.parse().ok())
                 .unwrap_or_default(),
         }))
+    }
+
+    async fn link(
+        &self,
+        provider: &str,
+        subject: &str,
+        identity: &LinkedIdentity,
+    ) -> Result<LinkOutcome, DomainError> {
+        let mut request = self
+            .client
+            .put_item()
+            .table_name(&self.table_name)
+            .item("pk", AttributeValue::S(identity_pk(provider, subject)))
+            .item("sk", AttributeValue::S(IDENTITY_SK.to_string()))
+            .item("user_id", AttributeValue::S(identity.user_id.clone()))
+            .item(
+                "linked_at",
+                AttributeValue::N(identity.linked_at.to_string()),
+            )
+            // An identity names exactly one tenant. Re-linking to the same one is
+            // how someone recovers from a flow that died after this write, so it
+            // succeeds; a second tenant claiming it does not, because that would
+            // be a takeover of the first tenant's bots.
+            .condition_expression("attribute_not_exists(pk) OR user_id = :user_id")
+            .expression_attribute_values(":user_id", AttributeValue::S(identity.user_id.clone()))
+            // The row it replaced, so a repeat of a link that already succeeded
+            // can be reported as such instead of as a fresh one.
+            .return_values(aws_sdk_dynamodb::types::ReturnValue::AllOld);
+
+        if let Some(email) = &identity.email {
+            request = request.item("email", AttributeValue::S(email.clone()));
+        }
+
+        let outcome = match request.send().await {
+            Ok(output) if output.attributes.is_some() => LinkOutcome::AlreadyLinked,
+            Ok(_) => LinkOutcome::Linked,
+            Err(SdkError::ServiceError(err))
+                if err.err().is_conditional_check_failed_exception() =>
+            {
+                // Refused, and nothing was written. The tenant's own listing is
+                // only reached below, so a claim that lost leaves no trace
+                // asserting a link it does not have.
+                return Ok(LinkOutcome::ClaimedByAnother);
+            }
+            Err(e) => return Err(sdk_err("DynamoDB put_item failed", e)),
+        };
+
+        // The tenant's own listing, written second. A fault between the two
+        // leaves a link that works but is not listed; re-linking is idempotent,
+        // so a retry finishes the job.
+        self.client
+            .put_item()
+            .table_name(&self.table_name)
+            .item(
+                "pk",
+                AttributeValue::S(BotItem::construct_pk(&identity.user_id)),
+            )
+            .item(
+                "sk",
+                AttributeValue::S(format!("{IDENTITY_PK_PREFIX}{provider}#{subject}")),
+            )
+            .item(
+                "linked_at",
+                AttributeValue::N(identity.linked_at.to_string()),
+            )
+            .send()
+            .await
+            .map_err(|e| sdk_err("DynamoDB put_item failed", e))?;
+
+        Ok(outcome)
     }
 }
 

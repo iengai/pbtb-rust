@@ -57,6 +57,12 @@ http-body-util = "0.1"
 # hand-rolled: signature checks, algorithm confusion and base64url framing are
 # exactly where a bespoke implementation goes quietly wrong.
 jsonwebtoken = "9"
+# base64url for the PKCE challenge, whose encoding RFC 7636 fixes; hex will not
+# do there. Percent-encoding for the authorization URL and its callback's query.
+base64 = "0.22"
+form_urlencoded = "1"
+# The OS random source, for link tokens and the PKCE verifier.
+getrandom = "0.4"
 # Constant-time byte comparison for the MCP bearer. Already in the tree under
 # the TLS stack; named directly rather than hand-rolling the compare.
 subtle = "2"

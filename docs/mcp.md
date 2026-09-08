@@ -114,6 +114,9 @@ none.
 |----------|-------------|
 | `APP__MCP__USER_ID` | The Telegram user id this server acts as. Required; must be on `APP__TELEGRAM__ALLOWED_USER_IDS`, so removing someone from the bot's allowlist takes their MCP access with it. |
 
+telebot reads one variable of its own, `APP__LINK__URL`: where the **Link
+account** button points. Empty hides the flow behind a message saying so.
+
 Nothing is written to stdout — that is the protocol stream. Logs go to stderr,
 filtered by `RUST_LOG`.
 
@@ -149,6 +152,8 @@ recycled — so every request carries its own protocol version and capabilities 
 | `APP__MCP__RESOURCE_URL_PARAM` | SSM parameter holding this server's own public URL. Indirected through SSM because a function cannot name the URL of the function it belongs to — Terraform would have to build the environment from a resource that depends on it. |
 | `APP__MCP__TOKEN_PARAM` | SSM parameter holding the shared bearer, read once at cold start. The name, not the value: the secret is never in the function's environment or in Terraform state. Unused once an issuer is set. |
 | `APP__MCP__ISSUER` | OAuth issuer to accept tokens from. Empty selects the shared bearer. |
+| `APP__LINK__CLIENT_ID` | OAuth client id for the account-linking flow. Empty leaves its routes unserved. |
+| `APP__LINK__CLIENT_SECRET_PARAM` | SSM parameter holding the client secret. |
 
 ### Discovery
 
@@ -198,8 +203,8 @@ change:
 - The endpoint starts requiring a token audienced for `mcp_http_url`. Register
   that URL as a resource with the authorization server, and register the two
   scopes, or every token arrives read-only.
-- Nobody can reach it until their identity is linked. Until an automated link
-  flow exists, the row is written by hand:
+- Nobody can reach it until their identity is linked. That is what the bot's
+  **Link account** button is for; see below. The row can also be written by hand:
 
 ```bash
 aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{
@@ -213,8 +218,89 @@ aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{
 Note the row is read with a strongly consistent get: deleting it revokes access
 on the next request, not eventually.
 
-🔴 The `user_id` in that row is taken at face value — it is the tenant, and the
-only further check is that it is on the allowlist. So whatever eventually writes
-these rows must never let the authenticated subject choose the `user_id`, or
-linking becomes a way to take over another operator's bots, start and stop
-included.
+## Linking an account
+
+`src/interface/link/` is the only place this crate is an OAuth *client* rather
+than a resource server. The two roles share an authorization server and nothing
+else — one project, so the subject a link records is the subject a token later
+presents.
+
+🔴 **The browser never gets to say which account it is linking.** The tenant is
+established before the browser is involved and travels server-side the whole way:
+
+1. **Link account** in the bot mints a one-time token for the user Telegram
+   already authenticated, stores only its SHA-256 next to that `user_id` and
+   `chat_id`, and hands back a URL behind an inline button. Ten-minute expiry.
+2. `GET /link?t=…` redeems that token — once, ever — mints `state` and a PKCE
+   verifier, carries the ticket onto a second row keyed by `state`, and redirects.
+   **The bot's token stops here**: it is not carried into the browser's history
+   or into whatever `Referer` the authorization server sees.
+3. `GET /link/callback?code&state` redeems the `state` row, exchanges the code
+   with the verifier, asks the issuer's `userinfo` endpoint who it was, and
+   writes the identity row — with the `user_id` from the ticket. Nothing in the
+   request is read for it.
+
+A callback carrying a `state` nobody issued is refused *before* the code is
+spent. A `state` is single-use, so a replayed callback is refused too. The
+callback row is keyed by the `state` and a cookie the redirect set together, so a
+`state` read out of a Referer header, a proxy log or a browser history addresses
+nothing on its own.
+
+**The button only answers in a private chat.** The URL behind it is a bearer
+credential for one account, and an inline button renders for everyone in the
+chat: in a group the first member to tap it would link their own identity to the
+sender's tenant. The allowlist filters who may drive the bot, not who can read
+what it posts.
+
+Binding is asymmetric: one Telegram account may hold several identities, but an
+identity names exactly one Telegram account. The conditional write refuses a
+second tenant claiming an identity, and re-linking to the same one succeeds so a
+flow that died after the write can be retried.
+
+The two ticket rows carry `expires_at`, the table's TTL attribute. TTL deletion
+lags by up to 48 hours, so it is a sweeper: redemption checks the expiry itself.
+
+🔴 Both new row shapes share the bots table, and two readers walk it without a
+sort-key condition — `find_by_user_id` and `find_all`. A shape they do not
+recognise is not skipped; it is parsed as a bot, fails, and takes the whole read
+with it. Adding a row shape under a `user_id#` partition means teaching
+`find_by_user_id` about it (see `is_identity_row`), and `find_all` takes only
+partitions it can name rather than excluding the shapes known today.
+`tests/identity_link_test.rs` holds both.
+
+### Turning it on
+
+Register the redirect URI (`terraform output link_redirect_uri`) with the
+authorization server, then:
+
+```bash
+# terraform.tfvars — requires mcp_issuer
+#   link_client_id = "<the client id>"
+terraform -chdir=terraform/envs/dev apply \
+  -target=aws_ssm_parameter.link_client_secret \
+  -target=module.lambda_mcp_http \
+  -target=aws_iam_role_policy.mcp_http_app \
+  -target=aws_ssm_parameter.telebot_base_env
+aws ssm put-parameter --overwrite --type SecureString \
+  --name /scalable-cluster/dev/mcp/link-client-secret --value "<the client secret>"
+```
+
+Then `telebot-deploy`, which is what puts `APP__LINK__URL` on the bot. Until it
+has one, the button says linking is not set up rather than producing a dead end.
+
+### Unlinking
+
+There is no unlink path yet, and `ClaimedByAnother` is terminal: an identity
+bound to the wrong tenant stays there. Until there is one, the remedy is to
+delete both rows by hand — the identity row, and the tenant's own listing of it:
+
+```bash
+aws dynamodb delete-item --table-name scalable-cluster-dev-bots \
+  --key '{"pk":{"S":"identity#workos#<subject>"},"sk":{"S":"profile"}}'
+aws dynamodb delete-item --table-name scalable-cluster-dev-bots \
+  --key '{"pk":{"S":"user_id#<telegram id>"},"sk":{"S":"identity#workos#<subject>"}}'
+```
+
+Note that enabling the table's TTL is part of this and touches the live bots
+table. It is safe by inspection — no other row shape carries `expires_at` — but
+it is a change to that table, so apply it deliberately.

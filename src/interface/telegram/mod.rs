@@ -121,6 +121,9 @@ pub struct Deps {
     // Runtime / desired-state management
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
 
+    // Account linking (the browser leg lives in `interface::link`)
+    pub issue_link_ticket_usecase: Arc<IssueLinkTicketUseCase>,
+
     // ECS actuation (desired state -> real RunTask/StopTask)
     pub start_bot_usecase: Arc<StartBotUseCase>,
     pub stop_bot_usecase: Arc<StopBotUseCase>,

@@ -214,3 +214,14 @@ variable "mcp_issuer" {
     error_message = "mcp_issuer must be an https URL; tokens are only as trustworthy as the channel their keys arrive over."
   }
 }
+
+variable "link_client_id" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    OAuth client id for the account-linking flow. Empty hides the bot's "Link
+    account" button and leaves the link routes unserved, so nobody is offered a
+    dead end. Requires mcp_issuer: linking sends people there to authenticate,
+    and the subject it records is the subject a token later presents.
+  EOT
+}

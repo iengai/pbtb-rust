@@ -4,6 +4,7 @@ mod delete_bot;
 mod engine_routing;
 mod get_bot_config;
 mod get_bot_runtime;
+mod issue_link_ticket;
 mod list_bots;
 mod list_templates;
 mod reconcile_stopped_task;
@@ -25,6 +26,7 @@ pub use engine_routing::{
 };
 pub use get_bot_config::GetBotConfigUseCase;
 pub use get_bot_runtime::GetBotRuntimeUseCase;
+pub use issue_link_ticket::{IssueLinkTicketUseCase, PURPOSE_START};
 pub use list_bots::ListBotsUseCase;
 pub use list_templates::ListTemplatesUseCase;
 pub use reconcile_stopped_task::{ReconcileOutcome, ReconcileStoppedTaskUseCase, StopInfo};
