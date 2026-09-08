@@ -197,3 +197,20 @@ variable "mcp_user_id" {
     error_message = "mcp_user_id must be the numeric Telegram user id when mcp_http_enabled is true."
   }
 }
+
+variable "mcp_issuer" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    OAuth issuer whose tokens the MCP endpoint accepts, e.g.
+    https://<project>.authkit.app. Empty keeps the shared-bearer transport, where
+    one token stands for the whole deployment. Set, each caller is a person: the
+    token's subject is resolved through the identity table and an unlinked
+    subject is refused rather than given an account.
+  EOT
+
+  validation {
+    condition     = var.mcp_issuer == "" || startswith(var.mcp_issuer, "https://")
+    error_message = "mcp_issuer must be an https URL; tokens are only as trustworthy as the channel their keys arrive over."
+  }
+}

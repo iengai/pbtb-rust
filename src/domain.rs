@@ -6,6 +6,7 @@ pub mod configtemplate;
 pub mod engine;
 pub mod error;
 pub mod exchange;
+pub mod identity;
 pub mod runtime;
 
 pub use bot::{ApiKeyRepository, Bot, BotRepository};
@@ -14,4 +15,5 @@ pub use clock::SystemClock;
 pub use configswitch::ConfigSwitchRepository;
 pub use configtemplate::ConfigTemplate;
 pub use engine::{EngineVersion, Runtime};
+pub use identity::{IdentityRepository, LinkedIdentity};
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};

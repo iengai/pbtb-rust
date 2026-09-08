@@ -12,6 +12,7 @@
 
 pub mod dynamo;
 pub mod fakes;
+pub mod oauth;
 pub mod telegram;
 
 use std::collections::HashSet;
@@ -36,6 +37,9 @@ pub const TD_V7: &str = "arn:aws:ecs:us-east-1:000000000000:task-definition/pb-v
 pub const TD_V8: &str = "arn:aws:ecs:us-east-1:000000000000:task-definition/pb-v8:1";
 /// The instant `FixedClock` reports, so timestamp assertions are exact.
 pub const NOW: i64 = 1_700_000_000;
+/// The URL the HTTP edge answers as. Only its shape matters here — it is what a
+/// refusal points a client at, and what a token has to be audienced for.
+pub const RESOURCE: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/";
 
 pub struct Harness {
     /// Holds the fixture's table (and its container, when it started one).
@@ -156,10 +160,53 @@ impl Harness {
 
     /// The same surface behind the HTTP edge, reached only with `token`.
     pub fn http_mcp(&self, token: &str) -> mcp::HttpMcp {
-        mcp::HttpMcp::new(
-            self.mcp_deps(),
-            mcp::StaticToken::new(token, telegram::USER_ID.to_string()),
+        self.http_mcp_with(
+            Arc::new(mcp::StaticToken::new(token, telegram::USER_ID.to_string())),
+            mcp::http::Metadata::unissued(RESOURCE),
         )
+    }
+
+    /// The HTTP edge with a caller-supplied verifier, for the OAuth path.
+    pub fn http_mcp_with(
+        &self,
+        tokens: Arc<dyn mcp::TokenVerifier>,
+        metadata: mcp::http::Metadata,
+    ) -> mcp::HttpMcp {
+        mcp::HttpMcp::new(self.mcp_deps(), tokens, metadata)
+    }
+
+    /// Link an external identity to a tenant, the way a link flow would.
+    ///
+    /// Written through the client rather than a repository method: reading the
+    /// link is a port, creating one is not — that belongs to a link flow that
+    /// does not exist yet, and inventing a write port now would be a guess at
+    /// its shape.
+    pub async fn given_link(&self, provider: &str, subject: &str, user_id: &str) {
+        self._db
+            .client
+            .put_item()
+            .table_name(&self._db.table)
+            .item(
+                "pk",
+                aws_sdk_dynamodb::types::AttributeValue::S(format!(
+                    "identity#{provider}#{subject}"
+                )),
+            )
+            .item(
+                "sk",
+                aws_sdk_dynamodb::types::AttributeValue::S("profile".to_string()),
+            )
+            .item(
+                "user_id",
+                aws_sdk_dynamodb::types::AttributeValue::S(user_id.to_string()),
+            )
+            .item(
+                "linked_at",
+                aws_sdk_dynamodb::types::AttributeValue::N(NOW.to_string()),
+            )
+            .send()
+            .await
+            .expect("link the identity");
     }
 
     fn mcp_deps(&self) -> mcp::Deps {

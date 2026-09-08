@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use async_trait::async_trait;
 use subtle::ConstantTimeEq;
 
 /// Who is calling, resolved from the transport's credentials before any tool
@@ -82,6 +83,39 @@ impl Authenticator for Verified {
     }
 }
 
+/// Why a request was refused, and with it which status the caller sees.
+///
+/// The two are kept apart because they mean different things to a client: a 401
+/// invites it to get a better token, a 403 tells it the token is fine and the
+/// answer is still no. Collapsing them would send clients into a refresh loop
+/// over an authorization decision no new token can change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthError {
+    /// No credential, or one that does not verify. The client should
+    /// authenticate and try again.
+    Unauthenticated(String),
+    /// A credential that verifies, belonging to nobody this server serves.
+    Forbidden(String),
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unauthenticated(why) | Self::Forbidden(why) => f.write_str(why),
+        }
+    }
+}
+
+/// Turns a presented bearer token into a [`Principal`].
+///
+/// The seam between "how a caller proves who they are" and everything that acts
+/// on who they are. Async because a real implementation reaches a key set and a
+/// mapping table to answer.
+#[async_trait]
+pub trait TokenVerifier: Send + Sync {
+    async fn verify(&self, bearer: &str) -> Result<Principal, AuthError>;
+}
+
 /// One shared bearer token standing for one tenant.
 ///
 /// The stopgap before per-user OAuth: possession of the token is the whole
@@ -99,21 +133,25 @@ impl StaticToken {
             principal: Principal::full(user_id),
         }
     }
+}
 
-    /// The presented bearer, or `None` when it does not match.
-    ///
+#[async_trait]
+impl TokenVerifier for StaticToken {
     /// Compared in constant time: a byte-wise early return leaks the length of
     /// the matching prefix, and a caller who can measure that can find the token
     /// one byte at a time instead of guessing all of it.
     ///
     /// A deployment that never had its token set refuses everyone, rather than
     /// admitting whoever sends the empty bearer.
-    pub fn verify(&self, presented: &str) -> Option<Principal> {
+    async fn verify(&self, bearer: &str) -> Result<Principal, AuthError> {
         if self.token.is_empty() {
-            return None;
+            return Err(AuthError::Unauthenticated("no token is configured".into()));
         }
-        bool::from(presented.as_bytes().ct_eq(self.token.as_bytes()))
-            .then(|| self.principal.clone())
+        if bool::from(bearer.as_bytes().ct_eq(self.token.as_bytes())) {
+            Ok(self.principal.clone())
+        } else {
+            Err(AuthError::Unauthenticated("bearer does not match".into()))
+        }
     }
 }
 
@@ -139,22 +177,25 @@ mod tests {
         assert!(!p.has(SCOPE_WRITE));
     }
 
-    #[test]
-    fn a_static_token_admits_only_its_own_value() {
+    #[tokio::test]
+    async fn a_static_token_admits_only_its_own_value() {
         let t = StaticToken::new("s3cret", "5351347639");
-        assert_eq!(t.verify("s3cret"), Some(Principal::full("5351347639")));
-        assert!(t.verify("s3cre").is_none(), "a prefix is not the token");
+        assert_eq!(t.verify("s3cret").await, Ok(Principal::full("5351347639")));
         assert!(
-            t.verify("s3crets").is_none(),
+            t.verify("s3cre").await.is_err(),
+            "a prefix is not the token"
+        );
+        assert!(
+            t.verify("s3crets").await.is_err(),
             "an extension is not the token"
         );
-        assert!(t.verify("").is_none());
+        assert!(t.verify("").await.is_err());
     }
 
-    #[test]
-    fn an_empty_configured_token_admits_nobody() {
+    #[tokio::test]
+    async fn an_empty_configured_token_admits_nobody() {
         // A misconfigured deployment must refuse everyone rather than accept the
         // empty bearer any client can send.
-        assert!(StaticToken::new("", "u").verify("").is_none());
+        assert!(StaticToken::new("", "u").verify("").await.is_err());
     }
 }

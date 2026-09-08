@@ -8,7 +8,7 @@
 mod common;
 
 use bytes::Bytes;
-use common::Harness;
+use common::{Harness, RESOURCE};
 use http::{Request, Response, StatusCode, header};
 use serde_json::{Value, json};
 
@@ -31,7 +31,7 @@ fn post(auth: Option<&str>, body: Value) -> Request<Bytes> {
     let method = body["method"].as_str().unwrap_or_default().to_string();
     let mut request = Request::builder()
         .method("POST")
-        .uri("https://abc123.lambda-url.ap-northeast-1.on.aws/")
+        .uri(RESOURCE)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::ACCEPT, "application/json, text/event-stream")
         .header("mcp-protocol-version", "2026-07-28")
@@ -173,11 +173,62 @@ async fn an_unauthenticated_get_never_reaches_the_protocol() {
         .handle(
             Request::builder()
                 .method("GET")
-                .uri("https://abc123.lambda-url.ap-northeast-1.on.aws/")
+                .uri(RESOURCE)
                 .body(Bytes::new())
                 .expect("a valid request"),
         )
         .await;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn discovery_answers_without_a_token() {
+    let h = harness!();
+
+    let response = h
+        .http_mcp(TOKEN)
+        .handle(
+            Request::builder()
+                .method("GET")
+                .uri(format!("{RESOURCE}.well-known/oauth-protected-resource"))
+                .body(Bytes::new())
+                .expect("a valid request"),
+        )
+        .await;
+
+    // A caller with no token is exactly who needs this answer, so requiring one
+    // would make the document unreachable to everyone it is for.
+    assert_eq!(response.status(), StatusCode::OK);
+    let document = json_body(&response);
+    assert_eq!(document["resource"], json!(RESOURCE));
+    assert_eq!(document["bearer_methods_supported"], json!(["header"]));
+    let scopes = document["scopes_supported"]
+        .as_array()
+        .expect("scopes")
+        .clone();
+    assert!(scopes.contains(&json!("bots:read")));
+    assert!(scopes.contains(&json!("bots:write")));
+}
+
+#[tokio::test]
+async fn a_refusal_points_at_the_discovery_document() {
+    let h = harness!();
+
+    let response = h.http_mcp(TOKEN).handle(post(None, list_tools())).await;
+
+    let challenge = response
+        .headers()
+        .get(header::WWW_AUTHENTICATE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        challenge.contains("resource_metadata=\""),
+        "a client should be able to find the issuer from the failure alone: {challenge}"
+    );
+    assert!(
+        challenge.contains("/.well-known/oauth-protected-resource"),
+        "got: {challenge}"
+    );
 }

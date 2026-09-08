@@ -15,10 +15,20 @@ locals {
   mcp_http_enabled = var.mcp_http_enabled ? 1 : 0
   mcp_http_name    = "${var.project}-${var.env}-mcp-http"
   mcp_token_param  = "/${var.project}/${var.env}/mcp/bearer-token"
+
+  # This server's own public URL, which it needs to know as the audience tokens
+  # must be minted for. It cannot arrive as an environment variable: the URL is a
+  # resource that depends on the function, so building the function's env from it
+  # is a cycle. Terraform writes it here and the function reads it at cold start.
+  mcp_resource_param = "/${var.project}/${var.env}/mcp/resource-url"
+
+  # With an issuer, each caller is a person and the shared bearer is not created
+  # at all — a door that does not exist cannot be left unlocked.
+  mcp_shared_bearer = var.mcp_http_enabled && var.mcp_issuer == "" ? 1 : 0
 }
 
 resource "aws_ssm_parameter" "mcp_bearer_token" {
-  count = local.mcp_http_enabled
+  count = local.mcp_shared_bearer
 
   name        = local.mcp_token_param
   description = "Bearer token for the pbtb-rust MCP HTTP endpoint"
@@ -28,6 +38,17 @@ resource "aws_ssm_parameter" "mcp_bearer_token" {
   lifecycle {
     ignore_changes = [value] # real value is managed out-of-band, not by Terraform
   }
+
+  tags = var.common_tags
+}
+
+resource "aws_ssm_parameter" "mcp_resource_url" {
+  count = local.mcp_http_enabled
+
+  name        = local.mcp_resource_param
+  description = "Public URL of the pbtb-rust MCP endpoint (the OAuth resource identifier)"
+  type        = "String"
+  value       = aws_lambda_function_url.mcp_http[0].function_url
 
   tags = var.common_tags
 }
@@ -70,6 +91,8 @@ module "lambda_mcp_http" {
     # their MCP access with it.
     APP__MCP__USER_ID               = var.mcp_user_id
     APP__MCP__TOKEN_PARAM           = local.mcp_token_param
+    APP__MCP__RESOURCE_URL_PARAM    = local.mcp_resource_param
+    APP__MCP__ISSUER                = var.mcp_issuer
     APP__TELEGRAM__ALLOWED_USER_IDS = join(",", var.telegram_allowed_user_ids)
   }
 }
@@ -137,10 +160,13 @@ resource "aws_iam_role_policy" "mcp_http_app" {
         }
       },
       {
-        Sid      = "ReadToken"
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameter"]
-        Resource = aws_ssm_parameter.mcp_bearer_token[0].arn
+        Sid    = "ReadOwnParameters"
+        Effect = "Allow"
+        Action = ["ssm:GetParameter"]
+        Resource = concat(
+          [aws_ssm_parameter.mcp_resource_url[0].arn],
+          aws_ssm_parameter.mcp_bearer_token[*].arn,
+        )
       },
       {
         Sid      = "DecryptToken"
@@ -161,6 +187,6 @@ output "mcp_http_url" {
 }
 
 output "mcp_token_ssm_parameter" {
-  description = "Set the real bearer token here (SecureString)"
-  value       = var.mcp_http_enabled ? aws_ssm_parameter.mcp_bearer_token[0].name : null
+  description = "Set the real bearer token here (SecureString). Null once an issuer is configured — there is no shared bearer then."
+  value       = one(aws_ssm_parameter.mcp_bearer_token[*].name)
 }

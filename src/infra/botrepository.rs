@@ -3,6 +3,7 @@ use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchKind, ConfigSwi
 use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::domain::exchange::Exchange;
+use crate::domain::identity::{IdentityRepository, LinkedIdentity};
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
@@ -902,6 +903,70 @@ impl ConfigSwitchRepository for DynamoBotRepository {
 
         events.sort_by_key(|e| e.applied_at);
         Ok(events)
+    }
+}
+
+/// Item shape: pk = identity#<provider>#<subject>, sk = profile.
+///
+/// Keyed by the identity rather than by the tenant, because that is the
+/// direction a request arrives from: a token carries a subject and the tenant is
+/// what has to be looked up. The reverse row a tenant lists its own links
+/// through is a separate write.
+const IDENTITY_PK_PREFIX: &str = "identity#";
+const IDENTITY_SK: &str = "profile";
+
+fn identity_pk(provider: &str, subject: &str) -> String {
+    format!("{IDENTITY_PK_PREFIX}{provider}#{subject}")
+}
+
+#[async_trait]
+impl IdentityRepository for DynamoBotRepository {
+    async fn find_link(
+        &self,
+        provider: &str,
+        subject: &str,
+    ) -> Result<Option<LinkedIdentity>, DomainError> {
+        let result = self
+            .client
+            .get_item()
+            .table_name(&self.table_name)
+            // Strongly consistent: an unlink has to take effect immediately.
+            // Serving a revoked link from a stale replica would keep a removed
+            // identity trading for as long as the replica lagged.
+            .consistent_read(true)
+            .key("pk", AttributeValue::S(identity_pk(provider, subject)))
+            .key("sk", AttributeValue::S(IDENTITY_SK.to_string()))
+            .send()
+            .await
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
+
+        let Some(item) = result.item() else {
+            return Ok(None);
+        };
+
+        let user_id = item
+            .get("user_id")
+            .and_then(|v| v.as_s().ok())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                DomainError::CorruptRecord(format!(
+                    "identity row for {provider} subject has no user_id"
+                ))
+            })?
+            .to_string();
+
+        Ok(Some(LinkedIdentity {
+            user_id,
+            email: item
+                .get("email")
+                .and_then(|v| v.as_s().ok())
+                .map(String::from),
+            linked_at: item
+                .get("linked_at")
+                .and_then(|v| v.as_n().ok())
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_default(),
+        }))
     }
 }
 

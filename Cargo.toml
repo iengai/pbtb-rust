@@ -53,6 +53,10 @@ lambda_http = "0.13"
 http = "1"
 bytes = "1"
 http-body-util = "0.1"
+# JWT signature verification and JWKS parsing for the OAuth transport. Not
+# hand-rolled: signature checks, algorithm confusion and base64url framing are
+# exactly where a bespoke implementation goes quietly wrong.
+jsonwebtoken = "9"
 # Constant-time byte comparison for the MCP bearer. Already in the tree under
 # the TLS stack; named directly rather than hand-rolling the compare.
 subtle = "2"
@@ -67,6 +71,9 @@ tokio-test = "0.4"
 # assert on instead of reaching api.telegram.org.
 wiremock = "0.6"
 testcontainers = "0.24"
+# Mints the tokens the OAuth tests present, with the same crate that verifies
+# them — a bespoke signer would be testing the test, not the verifier.
+jsonwebtoken = "9"
 aws-credential-types = "1"
 
 [profile.release]

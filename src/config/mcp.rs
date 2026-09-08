@@ -23,4 +23,26 @@ pub struct McpConfig {
     /// Env: APP__MCP__TOKEN_PARAM.
     #[serde(default)]
     pub token_param: String,
+
+    /// SSM parameter holding this server's own public URL, written by Terraform
+    /// after the Function URL exists.
+    ///
+    /// Indirected through SSM rather than passed as an environment variable
+    /// because a function cannot name the URL of the function it belongs to —
+    /// Terraform would have to build the environment from a resource that
+    /// depends on it.
+    ///
+    /// Env: APP__MCP__RESOURCE_URL_PARAM.
+    #[serde(default)]
+    pub resource_url_param: String,
+
+    /// OAuth issuer to accept tokens from, e.g. `https://<project>.authkit.app`.
+    ///
+    /// Empty selects the shared-bearer transport instead. Set, it selects
+    /// per-user OAuth: tokens are verified against the issuer's published keys
+    /// and the subject is resolved through the identity table.
+    ///
+    /// Env: APP__MCP__ISSUER.
+    #[serde(default)]
+    pub issuer: String,
 }

@@ -59,10 +59,52 @@ controls. Over a network that reasoning does not hold, so the HTTP edge resolves
 a credential per request and builds the tool surface around the principal it
 got — a tool is never constructed for an unauthenticated caller.
 
-`StaticToken` is what the HTTP edge verifies against today: one shared bearer
-standing for one tenant. Possession of the token is the whole claim, so it
-identifies a deployment rather than a person, and rotating it revokes everyone at
-once. Per-user identity is what OAuth is for, and is the next stage.
+`trait TokenVerifier` is the HTTP side of that seam: a presented bearer in, a
+`Principal` out. Two implementations, chosen by whether an issuer is configured.
+
+`StaticToken` is one shared bearer standing for one tenant. Possession of the
+token is the whole claim, so it identifies a deployment rather than a person, and
+rotating it revokes everyone at once.
+
+`OAuthTokens` makes each caller a person. Three checks stand between a token and
+a tenant, and all three have to pass:
+
+1. **The token verifies** against the issuer's published keys — signature,
+   issuer, audience and expiry. The algorithm is taken from the published key,
+   never from the token's own header, so the token cannot choose how it is
+   checked. The audience must be this server's own URL: a token the same user
+   holds for some other API is a valid token, just not one for here. All four
+   claims are required to be *present* — naming an expected value only rejects a
+   claim that is there and wrong, so without that a token minted with no `aud`
+   would sail through whoever it was minted for.
+2. **The subject has been linked.** `pk = identity#workos#<subject>` maps a
+   provider subject onto a `user_id`. Authenticating with the provider is not an
+   application for an account — an unlinked subject is refused, and nothing is
+   provisioned for it.
+3. **The linked account is still on the allowlist.** This is what makes removing
+   someone from telebot remove them from here, rather than leaving a second door
+   they still hold a key to.
+
+Two things about the key set are worth naming, because they are what makes step 1
+mean anything. The discovery document has to agree that it belongs to the
+configured issuer and has to keep its `jwks_uri` on the issuer's own origin —
+whoever serves that document otherwise chooses which signatures are genuine. And
+a symmetric algorithm is refused outright: a key set is public, so an `oct` entry
+would publish the very secret that signs tokens, and anyone who could read the
+document could mint one for any subject.
+
+Scopes come from the token's `scope` claim, and only the two this server defines
+survive it. A token that asked for nothing gets nothing and is refused by the
+first tool it reaches. A floor of read access would make the claim decorative:
+this surface lists every bot in the tenant and hands over its full trading
+config.
+
+A refusal distinguishes the two cases, because they mean different things to a
+client: **401** says get a better token, **403** says the token is fine and the
+answer is still no. Both carry `WWW-Authenticate` with `resource_metadata`, so a
+client can find the authorization server from the failure alone. The 403 carries
+no `error=` code — RFC 6750's codes are about token problems, and this token has
+none.
 
 ## Running it over stdio
 
@@ -104,7 +146,16 @@ recycled — so every request carries its own protocol version and capabilities 
 | Variable | Description |
 |----------|-------------|
 | `APP__MCP__USER_ID` | As above. |
-| `APP__MCP__TOKEN_PARAM` | SSM parameter holding the bearer, read once at cold start. The name, not the value: the secret is never in the function's environment or in Terraform state. |
+| `APP__MCP__RESOURCE_URL_PARAM` | SSM parameter holding this server's own public URL. Indirected through SSM because a function cannot name the URL of the function it belongs to — Terraform would have to build the environment from a resource that depends on it. |
+| `APP__MCP__TOKEN_PARAM` | SSM parameter holding the shared bearer, read once at cold start. The name, not the value: the secret is never in the function's environment or in Terraform state. Unused once an issuer is set. |
+| `APP__MCP__ISSUER` | OAuth issuer to accept tokens from. Empty selects the shared bearer. |
+
+### Discovery
+
+`GET /.well-known/oauth-protected-resource` answers **without a token** — a
+caller with no token is exactly who needs it — and returns the RFC 9728 document:
+the resource identifier, the authorization servers, and the scopes this server
+defines.
 
 ### Standing it up
 
@@ -136,3 +187,34 @@ Then `terraform output mcp_http_url`. Code updates after that go through
 the function ignores `source_code_hash` drift.
 
 To take it down, set `mcp_http_enabled = false` and apply the same targets.
+
+### Turning on per-user OAuth
+
+Set `mcp_issuer` in `terraform.tfvars` and apply the same targets. Three things
+change:
+
+- The shared bearer parameter is **destroyed**. With an issuer there is no shared
+  door, so it is not left standing unlocked.
+- The endpoint starts requiring a token audienced for `mcp_http_url`. Register
+  that URL as a resource with the authorization server, and register the two
+  scopes, or every token arrives read-only.
+- Nobody can reach it until their identity is linked. Until an automated link
+  flow exists, the row is written by hand:
+
+```bash
+aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{
+  "pk":        {"S": "identity#workos#<workos user id>"},
+  "sk":        {"S": "profile"},
+  "user_id":   {"S": "<the telegram user id>"},
+  "linked_at": {"N": "0"}
+}'
+```
+
+Note the row is read with a strongly consistent get: deleting it revokes access
+on the next request, not eventually.
+
+🔴 The `user_id` in that row is taken at face value — it is the tenant, and the
+only further check is that it is on the allowlist. So whatever eventually writes
+these rows must never let the authenticated subject choose the `user_id`, or
+linking becomes a way to take over another operator's bots, start and stop
+included.
