@@ -105,6 +105,14 @@ module "ecr" {
       image_tag_mutability = "MUTABLE"
       scan_on_push         = false
       force_delete         = false # live trading image — never auto-delete
+      # Every build here pushes two immutable tags (`src-<hash>` + `<git-sha>`,
+      # pb-runner's image-build workflow), so the repo would grow without a
+      # bound. 20 images is well above the handful of builds between rollouts
+      # and still leaves plenty of rollback targets; a task definition pins a
+      # tag explicitly, so check what `passivbot_engines["8rs"].image_tag`
+      # points at before ever lowering this.
+      keep_last_images           = 20
+      expire_untagged_after_days = 7
     }
   }
 }
