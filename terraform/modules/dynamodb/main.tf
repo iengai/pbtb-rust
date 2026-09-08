@@ -19,6 +19,15 @@ resource "aws_dynamodb_table" "bots" {
     enabled = true
   }
 
+  # Only the link flow's short-lived tickets carry `expires_at`; no other row
+  # shape has the attribute, so enabling this cannot reach a bot, a config or a
+  # runtime record. Deletion lags by up to 48 hours, so it is a sweeper, not the
+  # expiry check — that is enforced on read.
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
   point_in_time_recovery {
     enabled = true
   }

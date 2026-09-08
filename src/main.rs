@@ -114,6 +114,15 @@ async fn main() -> anyhow::Result<()> {
     let start_locks: Arc<dyn domain::StartLockRepository> = bot_repository.clone();
     let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone()));
 
+    let link_tickets: Arc<dyn domain::identity::LinkTicketRepository> = bot_repository.clone();
+    let issue_link_ticket_usecase = Arc::new(IssueLinkTicketUseCase::new(
+        link_tickets,
+        clock.clone(),
+        configs.link.url.trim(),
+    ));
+    let identities: Arc<dyn domain::IdentityRepository> = bot_repository.clone();
+    let unlink_identities_usecase = Arc::new(UnlinkIdentitiesUseCase::new(identities));
+
     // Create use cases - ECS actuation (Run/Stop buttons -> RunTask/StopTask)
     // A launch is routed to the task definition registered for the engine line the
     // bot's stored config targets (config_version), so a proven v7 strategy is
@@ -160,6 +169,9 @@ async fn main() -> anyhow::Result<()> {
         set_bot_runtime_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
+        // Account linking
+        issue_link_ticket_usecase,
+        unlink_identities_usecase,
         // ECS actuation
         start_bot_usecase,
         stop_bot_usecase,

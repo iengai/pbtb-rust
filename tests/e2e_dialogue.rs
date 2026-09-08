@@ -7,13 +7,16 @@
 
 mod common;
 
-use common::telegram::{USER_ID, callback, text_message};
+use common::telegram::{USER_ID, callback, group_message, text_message};
 use common::{Harness, NOW};
+use pbtb_rust::domain::IdentityRepository;
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
+use pbtb_rust::domain::identity::LinkTicketRepository;
+use pbtb_rust::domain::secret::token_digest;
 use serde_json::json;
 
 const BOT_ID: &str = "alpha";
@@ -284,5 +287,92 @@ async fn the_runtime_command_moves_a_bot_between_images() {
     assert!(
         transcript.contains("rs"),
         "the reply should name the new runtime: {transcript}"
+    );
+}
+
+#[tokio::test]
+async fn the_link_button_hands_out_a_single_use_url_bound_to_the_caller() {
+    let h = harness!();
+
+    assert!(h.send(text_message(USER_ID, "Link account")).await);
+
+    // The URL lives in an inline button, not in the message text.
+    let wire = h.telegram.wire().await;
+    let token = wire
+        .split("?t=")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_hexdigit()).next())
+        .map(str::to_owned)
+        .unwrap_or_else(|| panic!("no link token in: {wire}"));
+    assert_eq!(token.len(), 64, "32 bytes of entropy, hex encoded");
+
+    // Redeemed under the caller's own id, which the browser never gets to name.
+    let tickets: &dyn LinkTicketRepository = h.bots.as_ref();
+    let ticket = tickets
+        .redeem("start", &token_digest(&token), NOW)
+        .await
+        .expect("redeem")
+        .expect("the button issued a ticket");
+    assert_eq!(ticket.user_id, USER_ID.to_string());
+
+    assert!(
+        tickets
+            .redeem("start", &token_digest(&token), NOW)
+            .await
+            .expect("redeem")
+            .is_none(),
+        "and it is spent"
+    );
+}
+
+#[tokio::test]
+async fn the_link_button_refuses_to_post_a_personal_url_into_a_group() {
+    let h = harness!();
+
+    assert!(h.send(group_message(USER_ID, "Link account")).await);
+
+    // An inline button renders for everyone in the chat, and the URL behind it
+    // is a bearer credential for one account: the first member to tap it would
+    // link their own identity to the sender's tenant.
+    let wire = h.telegram.wire().await;
+    assert!(
+        !wire.contains("?t="),
+        "no link token may reach a group: {wire}"
+    );
+    assert!(
+        wire.contains("private"),
+        "and the reply should say where to ask instead: {wire}"
+    );
+}
+
+#[tokio::test]
+async fn unlink_releases_the_callers_own_links_and_nobody_elses() {
+    let h = harness!();
+    h.given_link("workos", "sub-mine", &USER_ID.to_string())
+        .await;
+    h.given_link("workos", "sub-theirs", "999888777").await;
+
+    assert!(h.send(text_message(USER_ID, "/unlink")).await);
+
+    assert!(
+        h.transcript().await.contains("Released 1"),
+        "got: {}",
+        h.transcript().await
+    );
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    assert!(
+        identities
+            .find_link("workos", "sub-mine")
+            .await
+            .expect("find")
+            .is_none()
+    );
+    assert!(
+        identities
+            .find_link("workos", "sub-theirs")
+            .await
+            .expect("find")
+            .is_some(),
+        "another tenant's link is not the caller's to release"
     );
 }

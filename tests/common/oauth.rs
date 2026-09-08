@@ -58,6 +58,11 @@ impl FakeIssuer {
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "issuer": issuer,
                 "jwks_uri": format!("{issuer}/oauth2/jwks"),
+                // The client half of the flow reads these three; the resource
+                // server half reads only the key set.
+                "authorization_endpoint": format!("{issuer}/oauth2/authorize"),
+                "token_endpoint": format!("{issuer}/oauth2/token"),
+                "userinfo_endpoint": format!("{issuer}/oauth2/userinfo"),
             })))
             .mount(&server)
             .await;
@@ -68,7 +73,47 @@ impl FakeIssuer {
             .mount(&server)
             .await;
 
+        // The authorization-code leg. `/oauth2/authorize` is never called from
+        // this process — the browser would go there — so only the two
+        // back-channel endpoints are served.
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "an-access-token",
+                "token_type": "Bearer",
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/oauth2/userinfo"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sub": SUBJECT,
+                "email": "someone@example.com",
+            })))
+            .mount(&server)
+            .await;
+
         Self { server }
+    }
+
+    /// The form fields of every code exchange this issuer was asked for.
+    ///
+    /// Lets a test assert that a code was never spent, which is the difference
+    /// between refusing a forged callback and refusing it too late.
+    pub async fn exchanges(&self) -> Vec<std::collections::HashMap<String, String>> {
+        self.server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path() == "/oauth2/token")
+            .map(|r| {
+                form_urlencoded::parse(&r.body)
+                    .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                    .collect()
+            })
+            .collect()
     }
 
     pub fn issuer(&self) -> String {

@@ -21,12 +21,17 @@ use composition::mcp_deps;
 use anyhow::{Context, bail};
 use lambda_http::{Body, Error, Request, Response, http, run, service_fn};
 use pbtb_rust::config::configs::{Configs, load_config};
-use pbtb_rust::domain::IdentityRepository;
+use pbtb_rust::domain::identity::LinkTicketRepository;
+use pbtb_rust::domain::{IdentityRepository, SystemClock};
 use pbtb_rust::infra::DynamoBotRepository;
 use pbtb_rust::infra::client::setup_dynamodb_with_configs;
+use pbtb_rust::interface::link::{LinkFlow, OAuthClient, PATH_CALLBACK};
 use pbtb_rust::interface::mcp::http::Metadata;
 use pbtb_rust::interface::mcp::{HttpMcp, OAuthTokens, StaticToken, TokenVerifier};
 use std::sync::Arc;
+
+/// The provider half of an identity key. One authorization server, so one name.
+const PROVIDER: &str = "workos";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -37,15 +42,24 @@ async fn main() -> Result<(), Error> {
         )
         .init();
 
-    let mcp = Arc::new(build().await?);
+    let server = Arc::new(build().await?);
     run(service_fn(move |request: Request| {
-        let mcp = mcp.clone();
-        async move { serve(&mcp, request).await }
+        let server = server.clone();
+        async move { serve(&server, request).await }
     }))
     .await
 }
 
-async fn build() -> anyhow::Result<HttpMcp> {
+/// The two surfaces this function serves. They share a host so that the resource
+/// a token is minted for and the redirect that mints the link are the same
+/// origin, which is one fewer thing to register and one fewer thing to get
+/// wrong.
+struct Server {
+    mcp: HttpMcp,
+    link: Option<LinkFlow>,
+}
+
+async fn build() -> anyhow::Result<Server> {
     let configs: Configs = load_config().context("Failed to load config")?;
 
     let user_id = configs.mcp.user_id.trim().to_string();
@@ -91,12 +105,55 @@ async fn build() -> anyhow::Result<HttpMcp> {
             Arc::new(verifier),
             Metadata {
                 resource: resource.clone(),
-                authorization_servers: vec![issuer],
+                authorization_servers: vec![issuer.clone()],
             },
         )
     };
 
-    Ok(HttpMcp::new(mcp_deps(&configs).await?, tokens, metadata))
+    let link = build_link(&configs, &ssm, &issuer, &resource).await?;
+
+    Ok(Server {
+        mcp: HttpMcp::new(mcp_deps(&configs).await?, tokens, metadata),
+        link,
+    })
+}
+
+/// Wire the link flow, or leave it off.
+///
+/// Off is the default and off means unreachable: without an issuer to send
+/// people to, or a client registered with it, the routes are not served at all
+/// rather than served and failing.
+async fn build_link(
+    configs: &Configs,
+    ssm: &aws_sdk_ssm::Client,
+    issuer: &str,
+    resource: &str,
+) -> anyhow::Result<Option<LinkFlow>> {
+    let client_id = configs.link.client_id.trim();
+    if issuer.is_empty() || client_id.is_empty() {
+        return Ok(None);
+    }
+
+    let secret = read_param(
+        ssm,
+        &configs.link.client_secret_param,
+        "APP__LINK__CLIENT_SECRET_PARAM",
+    )
+    .await?;
+    let redirect_uri = format!("{}{}", resource.trim_end_matches('/'), PATH_CALLBACK);
+
+    let (client, table) = setup_dynamodb_with_configs(configs).await;
+    let repository = Arc::new(DynamoBotRepository::new(client, table));
+    let tickets: Arc<dyn LinkTicketRepository> = repository.clone();
+    let identities: Arc<dyn IdentityRepository> = repository;
+
+    Ok(Some(LinkFlow::new(
+        tickets,
+        identities,
+        Arc::new(SystemClock),
+        OAuthClient::discover(issuer, client_id, secret, redirect_uri).await?,
+        PROVIDER,
+    )))
 }
 
 /// Read one parameter from SSM. A failure here aborts the cold start rather than
@@ -127,13 +184,21 @@ async fn read_param(
     Ok(value.trim().to_string())
 }
 
-async fn serve(mcp: &HttpMcp, request: Request) -> Result<Response<Body>, Error> {
+async fn serve(server: &Server, request: Request) -> Result<Response<Body>, Error> {
     let (parts, body) = request.into_parts();
     let bytes = match body {
         Body::Empty => Default::default(),
         Body::Text(text) => text.into(),
         Body::Binary(bytes) => bytes.into(),
     };
-    let response = mcp.handle(http::Request::from_parts(parts, bytes)).await;
+    let request = http::Request::from_parts(parts, bytes);
+
+    let response = match &server.link {
+        Some(link) => match link.handle(&request).await {
+            Some(response) => response,
+            None => server.mcp.handle(request).await,
+        },
+        None => server.mcp.handle(request).await,
+    };
     Ok(response.map(|bytes| Body::from(bytes.to_vec())))
 }

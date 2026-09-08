@@ -219,6 +219,58 @@ async fn handle_start_state(
                     }
                 }
             }
+            "Link account" => {
+                // 🔴 The URL is a bearer credential for one person's account, and
+                // an inline button renders for everyone in the chat. The
+                // allowlist filters who may drive the bot, not who can see what
+                // it posts — so in a group the first member to tap would link
+                // their own identity to the operator's tenant.
+                if !msg.chat.is_private() {
+                    bot.send_message(
+                        msg.chat.id,
+                        "🔗 Send me 'Link account' in a private chat — the sign-in \
+                         link is personal.",
+                    )
+                    .await?;
+                    return Ok(());
+                }
+
+                if !deps.issue_link_ticket_usecase.is_configured() {
+                    bot.send_message(msg.chat.id, "🔗 Account linking is not set up yet.")
+                        .reply_markup(super::keyboards::main_menu_keyboard())
+                        .await?;
+                    return Ok(());
+                }
+
+                let user_id = msg
+                    .from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                match deps
+                    .issue_link_ticket_usecase
+                    .execute(&user_id, msg.chat.id.0)
+                    .await
+                {
+                    // A URL button rather than the link as text: the token is
+                    // single-use and short-lived, and a tappable button is far
+                    // less likely to be copied, forwarded, or left in a chat.
+                    Ok(url) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "🔗 Sign in to link an account.\n\nThis link works once and \
+                             expires in 10 minutes.",
+                        )
+                        .reply_markup(super::keyboards::link_account_keyboard(&url))
+                        .await?;
+                    }
+                    Err(e) => {
+                        bot.send_message(msg.chat.id, redact("preparing the link", &e))
+                            .reply_markup(super::keyboards::main_menu_keyboard())
+                            .await?;
+                    }
+                }
+            }
             "Balance" => {
                 bot.send_message(msg.chat.id, "💰 Balance: $0.00")
                     .reply_markup(super::keyboards::main_menu_keyboard())

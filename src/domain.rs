@@ -8,6 +8,7 @@ pub mod error;
 pub mod exchange;
 pub mod identity;
 pub mod runtime;
+pub mod secret;
 
 pub use bot::{ApiKeyRepository, Bot, BotRepository};
 pub use botconfig::RiskLevel;
@@ -15,5 +16,8 @@ pub use clock::SystemClock;
 pub use configswitch::ConfigSwitchRepository;
 pub use configtemplate::ConfigTemplate;
 pub use engine::{EngineVersion, Runtime};
-pub use identity::{IdentityRepository, LinkedIdentity};
+pub use identity::{
+    IdentityRepository, LinkOutcome, LinkTicket, LinkTicketRepository, LinkedIdentity,
+};
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};
+pub use secret::{random_token, token_digest};

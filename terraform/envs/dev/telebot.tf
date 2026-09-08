@@ -69,6 +69,9 @@ locals {
     "TELEBOT_IMAGE=${local.telebot_image}",
     "TELEBOT_TOKEN_PARAM=${local.telebot_token_param}",
     "TELEBOT_MEMORY=${var.telebot_memory}",
+    # Where the "Link account" button points. Empty until the endpoint exists,
+    # which is what hides the button.
+    "APP__LINK__URL=${local.link_enabled == 1 ? "${trimsuffix(aws_lambda_function_url.mcp_http[0].function_url, "/")}/link" : ""}",
   ])
 }
 

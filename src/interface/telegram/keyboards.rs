@@ -25,6 +25,7 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
             KeyboardButton::new("Sides"),
             KeyboardButton::new("Runtime"),
         ],
+        vec![KeyboardButton::new("Link account")],
     ])
     .resize_keyboard(true)
     .one_time_keyboard(false)
@@ -126,4 +127,21 @@ pub(crate) fn template_list_keyboard(templates: &[String]) -> InlineKeyboardMark
     )]);
 
     InlineKeyboardMarkup::new(keyboard)
+}
+
+/// The one-time sign-in link, as a button rather than text.
+///
+/// The URL carries a single-use token that expires in minutes; a button is far
+/// less likely than a bare link to be copied, forwarded, or left sitting in a
+/// chat where someone else can tap it first.
+pub(crate) fn link_account_keyboard(url: &str) -> InlineKeyboardMarkup {
+    match reqwest::Url::parse(url) {
+        Ok(url) => InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::url(
+            "Sign in to link".to_string(),
+            url,
+        )]]),
+        // Telegram refuses a malformed URL button and the whole message would
+        // fail to send; an empty keyboard still delivers the text.
+        Err(_) => InlineKeyboardMarkup::new(Vec::<Vec<InlineKeyboardButton>>::new()),
+    }
 }

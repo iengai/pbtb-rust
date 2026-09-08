@@ -25,6 +25,11 @@ locals {
   # With an issuer, each caller is a person and the shared bearer is not created
   # at all — a door that does not exist cannot be left unlocked.
   mcp_shared_bearer = var.mcp_http_enabled && var.mcp_issuer == "" ? 1 : 0
+
+  # Account linking needs somewhere to send people and a client registered there,
+  # so it turns on only once both exist.
+  link_client_secret_param = "/${var.project}/${var.env}/mcp/link-client-secret"
+  link_enabled             = var.mcp_http_enabled && var.mcp_issuer != "" && var.link_client_id != "" ? 1 : 0
 }
 
 resource "aws_ssm_parameter" "mcp_bearer_token" {
@@ -32,6 +37,21 @@ resource "aws_ssm_parameter" "mcp_bearer_token" {
 
   name        = local.mcp_token_param
   description = "Bearer token for the pbtb-rust MCP HTTP endpoint"
+  type        = "SecureString"
+  value       = "REPLACE_ME" # placeholder; set with: aws ssm put-parameter --overwrite ...
+
+  lifecycle {
+    ignore_changes = [value] # real value is managed out-of-band, not by Terraform
+  }
+
+  tags = var.common_tags
+}
+
+resource "aws_ssm_parameter" "link_client_secret" {
+  count = local.link_enabled
+
+  name        = local.link_client_secret_param
+  description = "OAuth client secret for the pbtb-rust account-linking flow"
   type        = "SecureString"
   value       = "REPLACE_ME" # placeholder; set with: aws ssm put-parameter --overwrite ...
 
@@ -89,10 +109,14 @@ module "lambda_mcp_http" {
     # The tenant every row is keyed under, and the allowlist it must appear on —
     # the same list telebot enforces, so removing someone from the bot takes
     # their MCP access with it.
-    APP__MCP__USER_ID               = var.mcp_user_id
-    APP__MCP__TOKEN_PARAM           = local.mcp_token_param
-    APP__MCP__RESOURCE_URL_PARAM    = local.mcp_resource_param
-    APP__MCP__ISSUER                = var.mcp_issuer
+    APP__MCP__USER_ID            = var.mcp_user_id
+    APP__MCP__TOKEN_PARAM        = local.mcp_token_param
+    APP__MCP__RESOURCE_URL_PARAM = local.mcp_resource_param
+    APP__MCP__ISSUER             = var.mcp_issuer
+
+    # Empty leaves the link routes unserved rather than served and failing.
+    APP__LINK__CLIENT_ID            = var.link_client_id
+    APP__LINK__CLIENT_SECRET_PARAM  = local.link_client_secret_param
     APP__TELEGRAM__ALLOWED_USER_IDS = join(",", var.telegram_allowed_user_ids)
   }
 }
@@ -166,6 +190,7 @@ resource "aws_iam_role_policy" "mcp_http_app" {
         Resource = concat(
           [aws_ssm_parameter.mcp_resource_url[0].arn],
           aws_ssm_parameter.mcp_bearer_token[*].arn,
+          aws_ssm_parameter.link_client_secret[*].arn,
         )
       },
       {
@@ -189,4 +214,14 @@ output "mcp_http_url" {
 output "mcp_token_ssm_parameter" {
   description = "Set the real bearer token here (SecureString). Null once an issuer is configured — there is no shared bearer then."
   value       = one(aws_ssm_parameter.mcp_bearer_token[*].name)
+}
+
+output "link_redirect_uri" {
+  description = "Register this with the authorization server as the link flow's redirect URI"
+  value       = var.mcp_http_enabled ? "${trimsuffix(aws_lambda_function_url.mcp_http[0].function_url, "/")}/link/callback" : null
+}
+
+output "link_client_secret_ssm_parameter" {
+  description = "Set the OAuth client secret here (SecureString)"
+  value       = one(aws_ssm_parameter.link_client_secret[*].name)
 }

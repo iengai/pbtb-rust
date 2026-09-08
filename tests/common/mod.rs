@@ -40,6 +40,7 @@ pub const NOW: i64 = 1_700_000_000;
 /// The URL the HTTP edge answers as. Only its shape matters here — it is what a
 /// refusal points a client at, and what a token has to be audienced for.
 pub const RESOURCE: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/";
+pub const LINK_URL: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/link";
 
 pub struct Harness {
     /// Holds the fixture's table (and its container, when it started one).
@@ -175,36 +176,55 @@ impl Harness {
         mcp::HttpMcp::new(self.mcp_deps(), tokens, metadata)
     }
 
-    /// Link an external identity to a tenant, the way a link flow would.
+    /// The account-linking flow over the same repositories, pointed at a
+    /// stand-in authorization server.
+    pub async fn link_flow(&self, issuer: &str) -> pbtb_rust::interface::link::LinkFlow {
+        let tickets: Arc<dyn domain::identity::LinkTicketRepository> = self.bots.clone();
+        let identities: Arc<dyn domain::IdentityRepository> = self.bots.clone();
+        let client = pbtb_rust::interface::link::OAuthClient::discover(
+            issuer,
+            "a-client-id",
+            "a-client-secret",
+            format!("{RESOURCE}link/callback"),
+        )
+        .await
+        .expect("the issuer publishes its endpoints");
+
+        pbtb_rust::interface::link::LinkFlow::new(
+            tickets,
+            identities,
+            Arc::new(FixedClock(NOW)),
+            client,
+            "workos",
+        )
+    }
+
+    /// A one-time link URL for `user_id`, as the bot's button would hand out.
+    pub async fn given_link_ticket(&self, user_id: &str, chat_id: i64) -> String {
+        let tickets: Arc<dyn domain::identity::LinkTicketRepository> = self.bots.clone();
+        IssueLinkTicketUseCase::new(tickets, Arc::new(FixedClock(NOW)), LINK_URL)
+            .execute(user_id, chat_id)
+            .await
+            .expect("issue a ticket")
+    }
+
+    /// Link an external identity to a tenant, the way the flow does.
     ///
-    /// Written through the client rather than a repository method: reading the
-    /// link is a port, creating one is not — that belongs to a link flow that
-    /// does not exist yet, and inventing a write port now would be a guess at
-    /// its shape.
+    /// Through the repository rather than the client, so the fixture leaves both
+    /// rows a real link leaves — a test that set up only the identity row would
+    /// be exercising a state the flow never produces.
     pub async fn given_link(&self, provider: &str, subject: &str, user_id: &str) {
-        self._db
-            .client
-            .put_item()
-            .table_name(&self._db.table)
-            .item(
-                "pk",
-                aws_sdk_dynamodb::types::AttributeValue::S(format!(
-                    "identity#{provider}#{subject}"
-                )),
+        let identities: &dyn domain::IdentityRepository = self.bots.as_ref();
+        identities
+            .link(
+                provider,
+                subject,
+                &domain::LinkedIdentity {
+                    user_id: user_id.to_string(),
+                    email: None,
+                    linked_at: NOW,
+                },
             )
-            .item(
-                "sk",
-                aws_sdk_dynamodb::types::AttributeValue::S("profile".to_string()),
-            )
-            .item(
-                "user_id",
-                aws_sdk_dynamodb::types::AttributeValue::S(user_id.to_string()),
-            )
-            .item(
-                "linked_at",
-                aws_sdk_dynamodb::types::AttributeValue::N(NOW.to_string()),
-            )
-            .send()
             .await
             .expect("link the identity");
     }
@@ -296,7 +316,16 @@ fn build_deps(
         engines.clone(),
     ));
 
+    let link_tickets: Arc<dyn domain::identity::LinkTicketRepository> = bots.clone();
+    let identities: Arc<dyn domain::IdentityRepository> = bots.clone();
+
     Deps {
+        issue_link_ticket_usecase: Arc::new(IssueLinkTicketUseCase::new(
+            link_tickets,
+            clock.clone(),
+            LINK_URL,
+        )),
+        unlink_identities_usecase: Arc::new(UnlinkIdentitiesUseCase::new(identities)),
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
         add_bot_usecase: Arc::new(AddBotUseCase::new(
             bots_dyn.clone(),

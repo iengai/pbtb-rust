@@ -141,6 +141,7 @@ fn sent_message_stub() -> Value {
 }
 
 pub const CHAT_ID: i64 = 4242;
+pub const GROUP_ID: i64 = -1_001_234_567_890;
 /// The Telegram id the harness treats as the allowlisted operator.
 pub const USER_ID: u64 = 5_351_347_639;
 /// A Telegram id that is never on the allowlist.
@@ -154,6 +155,23 @@ pub fn text_message(user_id: u64, text: &str) -> Value {
             "message_id": 100,
             "date": 0,
             "chat": { "id": CHAT_ID, "type": "private", "first_name": "test" },
+            "from": { "id": user_id, "is_bot": false, "first_name": "test" },
+            "text": text,
+        }
+    })
+}
+
+/// The same message sent in a group the bot is in.
+///
+/// The allowlist filters who may drive the bot, not who can read what it posts,
+/// so anything the bot replies with here is visible to every member.
+pub fn group_message(user_id: u64, text: &str) -> Value {
+    json!({
+        "update_id": 3,
+        "message": {
+            "message_id": 102,
+            "date": 0,
+            "chat": { "id": GROUP_ID, "type": "supergroup", "title": "ops" },
             "from": { "id": user_id, "is_bot": false, "first_name": "test" },
             "text": text,
         }
