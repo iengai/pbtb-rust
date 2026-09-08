@@ -13,6 +13,10 @@ pub enum SetRuntimeOutcome {
         previous: Runtime,
         runtime: Runtime,
     },
+    /// The bot already had this runtime; nothing was written.
+    Unchanged {
+        runtime: Runtime,
+    },
     BotNotFound,
 }
 
@@ -62,10 +66,11 @@ impl SetBotRuntimeUseCase {
         }
 
         let previous = bot.runtime;
-        if previous != runtime {
-            bot.set_runtime(runtime, self.clock.now());
-            self.bots.save(&bot).await?;
+        if previous == runtime {
+            return Ok(SetRuntimeOutcome::Unchanged { runtime });
         }
+        bot.set_runtime(runtime, self.clock.now());
+        self.bots.save(&bot).await?;
         Ok(SetRuntimeOutcome::Updated { previous, runtime })
     }
 }
@@ -186,7 +191,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn same_runtime_is_a_no_op_write() {
+    async fn same_runtime_is_unchanged_without_a_write() {
         let bots = bots_with(Bot::create(
             "u".into(),
             "b".into(),
@@ -204,12 +209,15 @@ mod tests {
         let out = uc.execute("u", "b", Runtime::Py).await.unwrap();
         assert_eq!(
             out,
-            SetRuntimeOutcome::Updated {
-                previous: Runtime::Py,
+            SetRuntimeOutcome::Unchanged {
                 runtime: Runtime::Py
             }
         );
-        assert_eq!(bots.find("u", "b").await.unwrap().unwrap().updated_at, 1);
+        assert_eq!(
+            bots.find("u", "b").await.unwrap().unwrap().updated_at,
+            1,
+            "no write: updated_at keeps its original stamp"
+        );
     }
 
     #[tokio::test]

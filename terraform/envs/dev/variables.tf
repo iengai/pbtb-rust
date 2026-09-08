@@ -77,6 +77,20 @@ variable "passivbot_engines" {
     image_repo    = optional(string, "passivbot_v741")
     command       = optional(list(string))
   }))
+
+  # The keys are parsed verbatim by the telebot and the lambda
+  # (`EngineTaskDefinitions::parse`); a key outside `<major>[rs]` would pass
+  # `terraform validate` and only fail at their config load, taking the
+  # auto-restart lambda down. Reject it at plan time instead.
+  validation {
+    condition     = alltrue([for k in keys(var.passivbot_engines) : can(regex("^[0-9]+(rs)?$", k))])
+    error_message = "passivbot_engines keys must be <major>[rs] (e.g. \"7\", \"8\", \"8rs\"); the telebot and lambda parse the table with exactly that syntax."
+  }
+
+  validation {
+    condition     = alltrue([for e in values(var.passivbot_engines) : contains(["passivbot_v741", "pb_runner"], e.image_repo)])
+    error_message = "passivbot_engines[*].image_repo must be a module.ecr key: \"passivbot_v741\" or \"pb_runner\"."
+  }
 }
 
 variable "passivbot_container_name" {
