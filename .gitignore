@@ -10,11 +10,20 @@
 /terraform/envs/dev/.terraform/
 /terraform/envs/dev/terraform.tfstate
 /terraform/envs/dev/terraform.tfstate.backup
+# Saved plan files, including the gated ones nat_rebuild.py writes per step.
+/terraform/envs/dev/*.tfplan
 /terraform/modules/lambda/.build/
 .devcontainer/docker/dynamodb/
 .claude/settings.local.json
 .claude/worktrees/
 .claude/workflows/
+
+# Python bytecode from scripts/ops.
+__pycache__/
+
+# Local agent-tool state (reasonix), machine-specific and not shared.
+/.reasonix/
+/reasonix.toml
 
 # Chart data is published by CI (pages-publish), never committed — it holds
 # live account performance and would otherwise ship stale/sample numbers.
