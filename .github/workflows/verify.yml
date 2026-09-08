@@ -1,0 +1,58 @@
+name: verify
+
+# The project verification gate, run on every PR by something the author does
+# not control. Until this existed a red gate could merge: no workflow had a
+# `pull_request` trigger, so nothing checked a branch before it reached main.
+#
+# It runs the same script as the local gate (`.claude/skills/verify/scripts/gate.sh`)
+# rather than a parallel list of cargo commands, so CI and a local run cannot
+# drift apart.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push supersedes the run in flight for the same PR.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate diffs against origin/main to decide whether the terraform
+          # and workflow checks apply; a shallow clone has no main to diff.
+          fetch-depth: 0
+
+      # The toolchain the images build with (.devcontainer/Dockerfile:
+      # rust:1.89-bookworm), so a lint that only fires on one version cannot
+      # pass here and fail there.
+      - uses: dtolnay/rust-toolchain@1.89
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # aws-lc-sys builds assembly from source on x86_64.
+      - run: sudo apt-get update && sudo apt-get install -y nasm
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      # Providers only: no backend, no credentials, so `validate` needs neither
+      # AWS access nor the state bucket.
+      - run: terraform -chdir=terraform/envs/dev init -backend=false -input=false
+
+      # The runner's own Docker daemon serves the testcontainers suites
+      # (DynamoDB Local). Without it those tests self-skip and the CAS coverage
+      # silently disappears, so the daemon is asserted before the gate runs.
+      - run: docker info > /dev/null
+
+      - run: bash .claude/skills/verify/scripts/gate.sh --host
