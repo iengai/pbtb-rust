@@ -22,6 +22,40 @@ Telegram replied `❌ Something went wrong while <action>. (ref: 8-hex)`.
    with; compare with what the binary version expects (`APP__ECS__TD_PASSIVBOT_BY_ENGINE`
    since #34).
 
+## telegram-no-reply
+
+The bot answers nothing, or answers some presses and not others. Three of the
+four boundaries involved are outside this codebase, so work outward from the
+client rather than starting at the server.
+
+1. **Was the message ever delivered?** A 🕐 beside the user's message in their
+   screenshot means their Telegram *client* never got it to the server: no
+   update exists, the bot cannot have seen it, and nothing arrives later — which
+   is why this failure produces no backlog. Only ✓✓ messages are the bot's
+   responsibility. Ask which icon the unanswered ones carry **before** opening
+   anything server-side.
+2. **Is the container still polling?** Measure the socket, not the log:
+   ```
+   PID=$(docker inspect -f '{{.State.Pid}}' telebot)
+   nsenter -t $PID -n ss -tani | grep -A1 149.154
+   ```
+   A healthy 10s cycle adds exactly ~131 to `bytes_sent` and ~325 to
+   `bytes_received` every 10 seconds; a larger receive means a real update
+   arrived. **Never infer polling from `409 TerminatedByOtherGetUpdates`** — a
+   host-side `getUpdates` against a provably healthy bot produced zero conflicts
+   in three tries, so its absence proves nothing, and its presence is often your
+   own probe's doing.
+3. **Did an update reach a handler?** `docker logs telebot` — application logs
+   are NOT in journald, and `pbtb_ops.py telebot-logs` reads only journald, so
+   it will look convincingly empty. Every received update is one INFO line from
+   the `middlewares::install` inspector; compare that count against the number
+   of ✓✓ messages the user sent.
+4. **Did a handler wedge?** `with_deadline` logs
+   `handler <name> exceeded 30s and was abandoned`. teloxide processes one
+   chat's updates strictly in order, so a single stuck handler silences the
+   whole bot and looks exactly like a dead process.
+5. Only now suspect the deployment: `deploy-audit`, the image tag, the env.
+
 ## bot-not-running
 
 1. `python scripts/ops/pbtb_ops.py bot-status <bot_id> --memory` — read

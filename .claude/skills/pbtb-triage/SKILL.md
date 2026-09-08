@@ -47,6 +47,7 @@ both so you spend your time on the actual cause.
 | Symptom | Start here |
 |---|---|
 | Telegram shows `❌ … (ref: xxxxxxxx)` | [playbook: telegram-ref](references/symptom-playbooks.md#telegram-ref) |
+| The bot answers nothing, or answers some presses and not others | [playbook: telegram-no-reply](references/symptom-playbooks.md#telegram-no-reply) |
 | A bot is not running / keeps restarting / "Run" does nothing | [playbook: bot-not-running](references/symptom-playbooks.md#bot-not-running) |
 | A bot stopped (OOM) and was not restarted | [playbook: no-auto-restart](references/symptom-playbooks.md#no-auto-restart) |
 | GitHub Actions or CodeBuild is red | [playbook: ci-red](references/symptom-playbooks.md#ci-red) |
@@ -68,6 +69,12 @@ both so you spend your time on the actual cause.
 - **Read-only until you have the cause.** Every script here is read-only except
   `smoke-lambda`, whose event the handler discards by design. Do not restart,
   redeploy, or delete anything as a diagnostic step.
+- **Calibrate a probe before believing it, and keep its side effects out of
+  the evidence.** A `409` this project's own `getUpdates` probe provoked was
+  read as proof the bot was polling; a healthy bot turned out to emit none, so
+  the criterion was worthless in both directions. The general rules for this
+  are in the `debugging-evidence` skill — load it when an investigation gets
+  past its second hypothesis.
 - **Two failures with the same message are still two hypotheses.** The lambda
   build 404 looked like "Debian EOL"; a curl from another network showed the file
   served fine — the fix was removing an unneeded package, not switching mirrors.
