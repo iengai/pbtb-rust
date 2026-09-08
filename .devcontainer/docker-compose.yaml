@@ -43,6 +43,8 @@ services:
       APP__ECS__CLUSTER_ARN: 'arn:aws:ecs:us-east-1:000000000000:cluster/local-dev'
       APP__ECS__TD_PASSIVBOT_BY_ENGINE: '7=arn:aws:ecs:us-east-1:000000000000:task-definition/local-dev:1'
       APP__ECS__TD_PASSIVBOT_CONTAINER_NAME: 'passivbot-container'
+      # Placeholder id: local runs answer nobody until this is your own Telegram id.
+      APP__TELEGRAM__ALLOWED_USER_IDS: '0'
     # The devcontainer will overrideCommand and run as the vscode user
     # You can add init: true here to avoid orphan processes
     init: true
