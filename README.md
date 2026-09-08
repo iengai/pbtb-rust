@@ -30,6 +30,7 @@ Detailed docs live under [`docs/`](docs/). Start here:
 | DynamoDB single-table + S3 layout | [docs/data-model.md](docs/data-model.md) |
 | Dev Container, build / test, configuration | [docs/development.md](docs/development.md) |
 | Code style, comment & git conventions | [docs/conventions.md](docs/conventions.md) |
+| MCP tool surface | [docs/mcp.md](docs/mcp.md) |
 | **Deployment** — map + safety rules (read first) | [docs/deployment/overview.md](docs/deployment/overview.md) |
 | ↳ Terraform infra + the NAT maintenance window | [docs/deployment/infra.md](docs/deployment/infra.md) |
 | ↳ Lambda (`task_state_change_handler`) | [docs/deployment/lambda.md](docs/deployment/lambda.md) |

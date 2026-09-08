@@ -21,6 +21,9 @@ lambda_runtime = "1.0.1"
 aws_lambda_events = "1.0.1"
 aws-sdk-ecs = "1.108.0"
 tracing = "0.1.41"
+# Already in the tree via lambda_runtime; named directly because mcp_stdio needs
+# a subscriber on stderr — stdout is the MCP protocol stream.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 thiserror = "1"
 # Bybit V5 REST client for the return-curve collector bin. rustls (not OpenSSL)
 # keeps the lambda-export build free of system TLS deps; reqwest is already in
@@ -29,6 +32,12 @@ reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+# Official MCP SDK, targeting the 2026-07-28 revision: the JSON-RPC envelope,
+# the schema types, protocol-version negotiation and the stdio transport. The
+# alternative is hand-rolling protocol framing, which is exactly the kind of
+# code a vetted implementation should own.
+rmcp = { version = "3", features = ["server", "macros", "schemars", "transport-io"] }
+schemars = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -44,6 +53,10 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+[[bin]]
+name = "mcp_stdio"
+path = "src/bin/mcp_stdio/main.rs"
 
 [[bin]]
 name = "task_state_change_handler"
