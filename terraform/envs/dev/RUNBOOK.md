@@ -94,11 +94,18 @@ same apply is busy destroying — the exact outage this is meant to avoid.
 2. **Verify the standby actually forwards before trusting it with the bots.**
    It is in the public subnet with a public IP, so SSM reaches it directly:
    ```bash
-   STANDBY=$(terraform output -json network | jq -r .nat_standby_instance_id)
+   STANDBY=$(AWS_PROFILE=dev aws ec2 describe-instances --region ap-northeast-1 \
+     --filters "Name=tag:Name,Values=scalable-cluster-dev-nat-standby" \
+               "Name=instance-state-name,Values=running" \
+     --query 'Reservations[].Instances[].InstanceId' --output text)
    AWS_PROFILE=dev aws ssm send-command --region ap-northeast-1 \
      --instance-ids "$STANDBY" --document-name AWS-RunShellScript \
      --parameters 'commands=["cloud-init status --wait","sysctl net.ipv4.ip_forward","iptables -t nat -S POSTROUTING"]'
    ```
+   The id comes from the tag, not from `terraform output`: every apply in this
+   procedure is `-target`ed, and a targeted apply does not evaluate the module's
+   outputs, so `nat_standby_instance_id` stays absent from state for the whole
+   window. Same reason the EIP checks below use `describe-addresses`.
    Read the result with `aws ssm get-command-invocation --command-id <id>
    --instance-id "$STANDBY"`.
    **Do not proceed** unless `cloud-init status` is `done`, `ip_forward = 1`,
@@ -113,9 +120,15 @@ same apply is busy destroying — the exact outage this is meant to avoid.
    Expected: the route is an **in-place** update (one atomic `ReplaceRoute`) and
    the EIP association is replaced. This is the few-second gap.
 
-4. **Confirm the bots are out through the standby**, on the standby host:
-   `curl -s https://checkip.amazonaws.com` must return the EIP
-   (`terraform output -json network | jq -r .nat_eip_public_ip`), and
+4. **Confirm the bots are out through the standby.** First, that the EIP
+   actually landed on it:
+   ```bash
+   AWS_PROFILE=dev aws ec2 describe-addresses --region ap-northeast-1 \
+     --filters "Name=tag:Name,Values=scalable-cluster-dev-nat-eip" \
+     --query 'Addresses[0].{ip:PublicIp,instance:InstanceId}' --output table
+   ```
+   `instance` must be `$STANDBY`. Then, on the standby host itself:
+   `curl -s https://checkip.amazonaws.com` must return that same address, and
    `iptables -t nat -L POSTROUTING -n -v` must show climbing counters — that is
    the private subnet's traffic actually traversing it.
 
@@ -132,8 +145,14 @@ same apply is busy destroying — the exact outage this is meant to avoid.
    Verify telebot responds in Telegram.
 
 7. **Flip back.** Set `nat_egress_active = "primary"` and re-run the step-3
-   apply. Same few-second gap; confirm the EIP is back on the primary
-   (`terraform output -json network`).
+   apply. Same few-second gap; confirm with the step-4 `describe-addresses` that
+   `instance` is the primary NAT again, and that the private route table's
+   `0.0.0.0/0` points at its ENI:
+   ```bash
+   AWS_PROFILE=dev aws ec2 describe-route-tables --region ap-northeast-1 \
+     --route-table-ids rtb-025d0f9c32fa2562b \
+     --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0`]' --output table
+   ```
 
 8. **Destroy the standby — do not skip this.** Set
    `nat_standby_enabled = false`:
@@ -168,6 +187,10 @@ in-region -- every task's image pull.
 What still needs the NAT: the exchange traffic, and the ECR / SSM / CloudWatch
 Logs **APIs**. Those are only available as interface endpoints, which are billed
 per hour per AZ, so they stay on the NAT.
+
+Live since 2026-09-08: `vpce-0d24d23bf675f9383` (S3, `pl-61a54008`) and
+`vpce-0a9d864e72f78a498` (DynamoDB, `pl-78a54011`), both `active` in
+`rtb-025d0f9c32fa2562b`. The six running bots did not restart when they landed.
 
 Two things to know before touching them:
 
