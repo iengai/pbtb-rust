@@ -80,8 +80,8 @@ scripts/ops/pbtb_ops.py   bot-status, deploy-audit, telebot-logs, lambda-logs, c
 1. Copy `.claude/skills/` and `scripts/ops/pbtb_ops.py` into your repo.
 2. Replace the placeholders in the skill files (`grep -rn '<[A-Z_]*>' .claude/skills`).
 3. The CLI needs no edits: set `PBTB_PROJECT`, `PBTB_ENV`, `PBTB_REGION`,
-   `PBTB_AWS_PROFILE`, `PBTB_NAT_TAG`, `PBTB_PASSIVBOT_ECR_REPO` (its defaults are
-   the placeholders and fail loudly).
+   `PBTB_AWS_PROFILE`, `PBTB_NAT_TAG` (its defaults are the placeholders and
+   fail loudly).
 4. Read `pbtb-triage/references/component-map.md` first and rewrite any row that
    does not match your topology; the *shape* of the table is the reusable part.
 

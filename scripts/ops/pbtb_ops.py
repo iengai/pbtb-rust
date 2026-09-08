@@ -37,13 +37,12 @@ from datetime import datetime, timedelta, timezone
 
 # Everything deployment-specific is overridable by env so the same CLI serves a
 # fork of this setup: PBTB_PROJECT, PBTB_ENV, PBTB_REGION, PBTB_AWS_PROFILE,
-# PBTB_NAT_TAG (Name tag of the NAT/telebot host), PBTB_PASSIVBOT_ECR_REPO.
+# PBTB_NAT_TAG (Name tag of the NAT/telebot host).
 PROJECT = os.environ.get("PBTB_PROJECT", "scalable-cluster")
 DEFAULT_ENV = os.environ.get("PBTB_ENV", "dev")
 DEFAULT_REGION = os.environ.get("PBTB_REGION", "ap-northeast-1")
 DEFAULT_PROFILE = os.environ.get("PBTB_AWS_PROFILE", "dev")
 NAT_TAG = os.environ.get("PBTB_NAT_TAG", "nat-instance")
-PASSIVBOT_ECR_REPO = os.environ.get("PBTB_PASSIVBOT_ECR_REPO", "passivbot-live")
 
 # ---------------------------------------------------------------- plumbing
 
@@ -57,7 +56,6 @@ def cfg(env: str) -> dict:
         "config_bucket": f"{p}-bot-configs",
         "chart_bucket": f"{p}-return-charts",
         "passivbot_family_prefix": f"{p}-passivbot",
-        "passivbot_repo": PASSIVBOT_ECR_REPO,
         "telebot_repo": f"{p}-telebot",
         "base_env_param": f"/{PROJECT}/{env}/telebot/base-env",
         "nat_tag_name": NAT_TAG,
@@ -140,11 +138,26 @@ def engine_line(config: dict):
 
 
 def family_engine(family: str, prefix: str):
-    """'…-passivbot' -> 7 (the inherited line), '…-passivbot-v8' -> 8."""
+    """The engine-table key a family serves.
+
+    '…-passivbot' -> '7' (the line that inherited the unsuffixed family),
+    '…-passivbot-v8' -> '8', '…-passivbot-v8-rs' -> '8rs'.
+
+    Returned as the key string rather than a number because that string is the
+    contract: it is what var.passivbot_engines is keyed by and what the telebot
+    and the lambda parse out of APP__ECS__TD_PASSIVBOT_BY_ENGINE. A family whose
+    key does not round-trip is precisely the drift this audit exists to catch.
+    """
     suffix = family[len(prefix):]
     if suffix == "":
-        return 7
-    m = re.fullmatch(r"-v(\d+)", suffix)
+        return "7"
+    m = re.fullmatch(r"-v(\d+)(-rs)?", suffix)
+    return f"{m.group(1)}{'rs' if m.group(2) else ''}" if m else None
+
+
+def engine_key_line(key) -> int | None:
+    """The passivbot line a key runs, dropping the runtime half: '8rs' -> 8."""
+    m = re.fullmatch(r"(\d+)(rs)?", str(key or ""))
     return int(m.group(1)) if m else None
 
 
@@ -235,7 +248,10 @@ def cmd_bot_status(a):
         sw = switches.get(bid)
         last_switch = f"{ts(dyn_val(sw, 'applied_at'))} -> {dyn_val(sw, 'template_name')}" if sw else "-"
 
-        if t and cfg_engine and running_engine and cfg_engine != running_engine:
+        # Only the line is comparable: the `rs` half of the key comes from the
+        # bot's own runtime attribute, which the config does not select.
+        running_line = engine_key_line(running_engine)
+        if t and cfg_engine and running_line and cfg_engine != running_line:
             warnings.append(f"{name} ({bid}): config targets v{cfg_engine} but the running task is on v{running_engine} "
                             f"-> takes effect on the next Stop/Run (or auto-restart)")
         if enabled and not t and rt_status != "stopped":
@@ -354,7 +370,10 @@ def cmd_deploy_audit(a):
         td = aws(["ecs", "describe-task-definition", "--task-definition", fam], a.profile, a.region)["taskDefinition"]
         latest_by_family[fam] = td
         eng = family_engine(fam, c["passivbot_family_prefix"])
-        print(f"v{eng}: {fam}:{td['revision']}  image={td['containerDefinitions'][0]['image'].split(':')[-1]}  memory={td.get('memory')}")
+        print(f"{eng or '?'}: {fam}:{td['revision']}  image={td['containerDefinitions'][0]['image'].split(':')[-1]}  memory={td.get('memory')}")
+        if eng is None:
+            findings.append(f"family {fam} maps to no engine-table key -> nothing can launch on it "
+                            f"(the family suffix and var.passivbot_engines key have diverged)")
     running = aws(["ecs", "list-tasks", "--cluster", c["cluster"], "--desired-status", "RUNNING"], a.profile, a.region)["taskArns"]
     if running:
         for t in aws(["ecs", "describe-tasks", "--cluster", c["cluster"], "--tasks", *running], a.profile, a.region)["tasks"]:
@@ -366,8 +385,8 @@ def cmd_deploy_audit(a):
                                 f"{fam}:{cur['revision']} (picks up the new one on its next restart)")
 
     # --- the engine table each launcher holds vs the latest revisions
-    expected = {f"{family_engine(f, c['passivbot_family_prefix'])}": td["taskDefinitionArn"]
-                for f, td in latest_by_family.items()}
+    expected = {key: td["taskDefinitionArn"] for f, td in latest_by_family.items()
+                if (key := family_engine(f, c["passivbot_family_prefix"]))}
     print("\n== engine table: lambda vs telebot vs latest revisions ==")
     fn = c["lambdas"]["task-state"]
     lam = aws(["lambda", "get-function-configuration", "--function-name", fn], a.profile, a.region)
@@ -381,12 +400,12 @@ def cmd_deploy_audit(a):
         got = dict(e.split("=", 1) for e in tbl.split(",") if "=" in e)
         for eng, arn in expected.items():
             if got.get(eng) != arn:
-                findings.append(f"{label} engine v{eng} -> {got.get(eng, 'MISSING').split('/')[-1]} "
+                findings.append(f"{label} engine {eng} -> {got.get(eng, 'MISSING').split('/')[-1]} "
                                 f"but latest is {arn.split('/')[-1]} -> re-run "
                                 f"{'terraform apply (lambda target)' if label == 'lambda' else 'telebot-deploy'}")
         for eng in got:
             if eng not in expected:
-                findings.append(f"{label} registers engine v{eng} which has no task-definition family")
+                findings.append(f"{label} registers engine {eng} which has no task-definition family")
     for k in ("APP__ECS__TD_PASSIVBOT_ARN",):
         if k in lam_env:
             findings.append(f"lambda still carries {k} (pre-#34 key / leftover mitigation) -> apply lambda target")
@@ -398,16 +417,27 @@ def cmd_deploy_audit(a):
         l2 = aws(["lambda", "get-function-configuration", "--function-name", fname], a.profile, a.region)
         print(f"lambda {fname}: sha={l2['CodeSha256'][:12]} modified={l2['LastModified'][:16]}")
 
-    # --- passivbot images
-    print("\n== passivbot-live images ==")
-    tags = aws(["ecr", "describe-images", "--repository-name", c["passivbot_repo"],
-                "--query", "sort_by(imageDetails,&imagePushedAt)[?imageTags].[imagePushedAt,imageTags]"], a.profile, a.region)
-    for pushed, itags in tags or []:
-        print(f"  {pushed[:10]}  {', '.join(itags)}")
+    # --- the image each line launches from
+    #
+    # A line names its own repo -- the rs line runs the pb-runner image, not
+    # passivbot-live -- so each tag is looked up in the repo its own image URI
+    # names. Checking one hard-coded repo reported a tag that was present as
+    # missing, which reads exactly like a broken line.
+    by_repo = {}
     for fam, td in latest_by_family.items():
-        tag = td["containerDefinitions"][0]["image"].split(":")[-1]
-        if not any(tag in itags for _, itags in (tags or [])):
-            findings.append(f"{fam} points at image tag {tag} which is NOT in ECR -> a launch on this line will fail at pull")
+        image = td["containerDefinitions"][0]["image"]
+        repo, _, tag = image.split("/", 1)[-1].rpartition(":")
+        by_repo.setdefault(repo, []).append((fam, tag))
+    for repo in sorted(by_repo):
+        print(f"\n== {repo} images ==")
+        tags = aws(["ecr", "describe-images", "--repository-name", repo,
+                    "--query", "sort_by(imageDetails,&imagePushedAt)[?imageTags].[imagePushedAt,imageTags]"],
+                   a.profile, a.region) or []
+        for pushed, itags in tags:
+            print(f"  {pushed[:10]}  {', '.join(itags)}")
+        for fam, tag in by_repo[repo]:
+            if not any(tag in itags for _, itags in tags):
+                findings.append(f"{fam} points at {repo}:{tag} which is NOT in ECR -> a launch on this line will fail at pull")
 
     print("\n== findings ==")
     if findings:
