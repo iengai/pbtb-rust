@@ -1,6 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
-use crate::domain::error::DomainError;
+use crate::domain::error::{DomainError, Retryability};
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use crate::usecase::engine_routing::LaunchTargetResolver;
 use crate::usecase::run_task::TaskRunner;
@@ -108,6 +108,10 @@ impl StartBotUseCase {
                                 format!("could not verify the in-flight task is stopped: {e:#}");
                             return Err(DomainError::Repository {
                                 context,
+                                // The adapter hands this back as an anyhow chain, so the
+                                // SDK's error code is gone and retryability cannot be read
+                                // off it; the conservative class never over-promises.
+                                retry: Retryability::Permanent,
                                 source: e.into(),
                             });
                         }
@@ -169,6 +173,7 @@ impl StartBotUseCase {
                 let context = format!("failed to launch task for bot {bot_id}: {e:#}");
                 Err(DomainError::Repository {
                     context,
+                    retry: Retryability::Permanent,
                     source: e.into(),
                 })
             }

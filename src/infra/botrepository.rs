@@ -6,7 +6,7 @@ use crate::domain::exchange::Exchange;
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
-use crate::infra::aws_error::repo_err;
+use crate::infra::aws_error::sdk_err;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
 use aws_sdk_dynamodb::error::SdkError;
@@ -31,7 +31,7 @@ fn cas_result<T>(
         {
             Ok(contended)
         }
-        Err(e) => Err(repo_err("DynamoDB update_item failed", e)),
+        Err(e) => Err(sdk_err("DynamoDB update_item failed", e)),
     }
 }
 
@@ -415,7 +415,7 @@ impl DynamoBotRepository {
             let output = req
                 .send()
                 .await
-                .map_err(|e| repo_err("DynamoDB scan failed", e))?;
+                .map_err(|e| sdk_err("DynamoDB scan failed", e))?;
 
             for item in output.items() {
                 if is_runtime_row(item) || is_config_switch_row(item) {
@@ -453,7 +453,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             )
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -478,7 +478,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
 
         match result.item() {
             Some(item) => Ok(BotECSTaskMetadata::from_item(item).map(|m| m.to_domain())),
@@ -570,7 +570,7 @@ impl BotRuntimeRepository for DynamoBotRepository {
                     );
                     Ok(())
                 } else {
-                    Err(repo_err("DynamoDB put_item failed", e))
+                    Err(sdk_err("DynamoDB put_item failed", e))
                 }
             }
         }
@@ -603,7 +603,7 @@ impl StartLockRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
 
         if let Some(meta) = existing.item().and_then(BotECSTaskMetadata::from_item) {
             match meta.status.as_str() {
@@ -753,7 +753,7 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
 
         // Absent row -> Ok(None); a present-but-unparseable row is a CorruptRecord
         // fault, never collapsed into None, so "bot does not exist" stays distinct
@@ -778,7 +778,7 @@ impl BotRepository for DynamoBotRepository {
             .consistent_read(true)
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB get_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
 
         match result.item() {
             None => Ok(None),
@@ -796,7 +796,7 @@ impl BotRepository for DynamoBotRepository {
             .set_item(Some(item))
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB put_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB put_item failed", e))?;
 
         Ok(())
     }
@@ -812,7 +812,7 @@ impl BotRepository for DynamoBotRepository {
             .expression_attribute_values(":pk", AttributeValue::S(pk_value))
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB query failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB query failed", e))?;
 
         // The query returns the whole partition, which mixes bot rows with each
         // bot's `ecs_task_metadata#` runtime row and its `config_switch#` timeline
@@ -839,7 +839,7 @@ impl BotRepository for DynamoBotRepository {
             .key("sk", AttributeValue::S(bot_id.to_string()))
             .send()
             .await
-            .map_err(|e| repo_err("Failed to delete bot", e))?;
+            .map_err(|e| sdk_err("Failed to delete bot", e))?;
 
         Ok(())
     }
@@ -858,7 +858,7 @@ impl ConfigSwitchRepository for DynamoBotRepository {
             .set_item(Some(item))
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB put_item failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB put_item failed", e))?;
 
         Ok(())
     }
@@ -880,7 +880,7 @@ impl ConfigSwitchRepository for DynamoBotRepository {
             )
             .send()
             .await
-            .map_err(|e| repo_err("DynamoDB query failed", e))?;
+            .map_err(|e| sdk_err("DynamoDB query failed", e))?;
 
         // Every row under this prefix is a switch event; an unparseable one is a
         // CorruptRecord fault, never dropped, so a broken timeline fails loud

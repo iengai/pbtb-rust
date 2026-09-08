@@ -1,6 +1,6 @@
 use crate::domain::botconfig::{BotConfig, BotConfigRepository, BotType};
 use crate::domain::error::DomainError;
-use crate::infra::aws_error::repo_err;
+use crate::infra::aws_error::{repo_err, sdk_err};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
@@ -36,7 +36,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| repo_err("Failed to get bot config from S3", e))?;
+            .map_err(|e| sdk_err("Failed to get bot config from S3", e))?;
 
         let bytes = result
             .body
@@ -98,7 +98,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             .content_type("application/json")
             .send()
             .await
-            .map_err(|e| repo_err("Failed to save bot config to S3", e))?;
+            .map_err(|e| sdk_err("Failed to save bot config to S3", e))?;
 
         Ok(())
     }
@@ -112,7 +112,7 @@ impl BotConfigRepository for S3BotConfigRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| repo_err("Failed to delete bot config from S3", e))?;
+            .map_err(|e| sdk_err("Failed to delete bot config from S3", e))?;
 
         Ok(())
     }
@@ -137,7 +137,7 @@ impl BotConfigRepository for S3BotConfigRepository {
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
-                    Err(repo_err("Failed to check bot config existence", e))
+                    Err(sdk_err("Failed to check bot config existence", e))
                 }
             }
         }

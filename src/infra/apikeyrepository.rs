@@ -1,7 +1,7 @@
 use crate::domain::Bot;
 use crate::domain::bot::ApiKeyRepository;
 use crate::domain::error::DomainError;
-use crate::infra::aws_error::repo_err;
+use crate::infra::aws_error::{repo_err, sdk_err};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
@@ -50,7 +50,7 @@ impl S3ApiKeyRepository {
             .content_type("application/json")
             .send()
             .await
-            .map_err(|e| repo_err("Failed to save api-keys.json to S3", e))?;
+            .map_err(|e| sdk_err("Failed to save api-keys.json to S3", e))?;
 
         Ok(())
     }
@@ -65,7 +65,7 @@ impl S3ApiKeyRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| repo_err("Failed to delete api-keys.json from S3", e))?;
+            .map_err(|e| sdk_err("Failed to delete api-keys.json from S3", e))?;
 
         Ok(())
     }
@@ -94,7 +94,7 @@ impl S3ApiKeyRepository {
                 if e.as_service_error().is_some_and(|se| se.is_no_such_key()) {
                     return Ok(None);
                 }
-                return Err(repo_err("Failed to read api-keys.json from S3", e));
+                return Err(sdk_err("Failed to read api-keys.json from S3", e));
             }
         };
 

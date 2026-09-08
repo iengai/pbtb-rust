@@ -1,6 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
-use crate::domain::error::DomainError;
+use crate::domain::error::{DomainError, Retryability};
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, RuntimePhase};
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
 use std::sync::Arc;
@@ -128,6 +128,7 @@ impl StopBotUseCase {
                                         );
                                         Err(DomainError::Repository {
                                             context,
+                                            retry: Retryability::Permanent,
                                             source: stop_err.into(),
                                         })
                                     }

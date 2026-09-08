@@ -1,6 +1,6 @@
 use crate::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
 use crate::domain::error::DomainError;
-use crate::infra::aws_error::repo_err;
+use crate::infra::aws_error::{repo_err, sdk_err};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 
@@ -35,7 +35,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .key(&key)
             .send()
             .await
-            .map_err(|e| repo_err("Failed to get template from S3", e))?;
+            .map_err(|e| sdk_err("Failed to get template from S3", e))?;
 
         let bytes = result
             .body
@@ -63,7 +63,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
             .prefix("predefined/")
             .send()
             .await
-            .map_err(|e| repo_err("Failed to list templates from S3", e))?;
+            .map_err(|e| sdk_err("Failed to list templates from S3", e))?;
 
         let templates = result
             .contents()
@@ -99,7 +99,7 @@ impl ConfigTemplateRepository for S3TemplateRepository {
                 if error_msg.contains("NotFound") || error_msg.contains("404") {
                     Ok(false)
                 } else {
-                    Err(repo_err("Failed to check template existence", e))
+                    Err(sdk_err("Failed to check template existence", e))
                 }
             }
         }
