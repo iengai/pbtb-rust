@@ -30,6 +30,7 @@ module "network" {
   source               = "../../modules/network"
   project              = var.project
   env                  = var.env
+  region               = var.region
   vpc_cidr_block       = var.vpc_cidr_block
   azs                  = var.azs
   public_subnet_cidrs  = var.public_subnet_cidrs
@@ -41,6 +42,11 @@ module "network" {
   nat_instance_type        = var.nat_instance_type
   nat_iam_instance_profile = aws_iam_instance_profile.telebot.name
   nat_user_data            = local.telebot_user_data
+
+  # Maintenance-window egress. Off by default; see RUNBOOK.md.
+  nat_standby_enabled       = var.nat_standby_enabled
+  nat_standby_instance_type = var.nat_standby_instance_type
+  nat_egress_active         = var.nat_egress_active
 }
 
 module "ecs" {

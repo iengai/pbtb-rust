@@ -1,6 +1,6 @@
 ---
 name: pbtb-deploy
-description: How to roll anything out in this trading system — telebot, the restart lambda, the collector lambda, passivbot task definitions / engine lines, passivbot images, the return-curve site — and in which order. Use it whenever the user says 部署 / 上线 / deploy / roll out / apply / "把这个改动推上去", when a merged change touches terraform, a workflow, an env variable, or a Dockerfile, and when adding a new passivbot engine line. Rolling these in the wrong order has taken the auto-restart lambda offline before; this skill encodes the order and the checks.
+description: How to roll anything out in this trading system — telebot, the restart lambda, the collector lambda, passivbot task definitions / engine lines, passivbot images, the return-curve site — and in which order. Use it whenever the user says 部署 / 上线 / deploy / roll out / apply / "把这个改动推上去", when a merged change touches terraform, a workflow, an env variable, or a Dockerfile, when adding a new passivbot engine line, and when a change forces the NAT/egress host to be rebuilt. Rolling these in the wrong order has taken the auto-restart lambda offline before; this skill encodes the order and the checks.
 ---
 
 # pbtb deploy
@@ -62,6 +62,38 @@ to remove the key again. Verify after each step with `smoke-lambda task-state`.
   `restarts=0`, env has the table, log shows `Starting Telegram bot...`.
 - Running bots: `bot-status all --memory` — the count of RUNNING tasks did not
   change, and no task is above 85% of its limit.
+
+## Rebuilding the NAT (sole egress + telebot host)
+
+Any change to the NAT `user_data` or AMI replaces `module.network.aws_instance.nat`
+— the one host all trading egress leaves through. Never let that land in a
+blanket apply.
+
+Since the standby NAT exists, the outage is optional. Set
+`nat_standby_enabled = true` in `terraform.tfvars` (**edit the file — never pass
+these with `-var`**, or a later scoped apply in the window routes egress back
+onto the instance it is destroying), then:
+
+```
+apply -target=module.network.aws_instance.nat_standby     # 1 to add; live path untouched
+  → verify cloud-init done + ip_forward=1 + MASQUERADE present, over SSM
+  → nat_egress_active = "standby"; apply -target=…aws_route.private_nat -target=…aws_eip_association.nat
+  → apply -target=module.network.aws_instance.nat -target=aws_ssm_parameter.telebot_base_env
+  → telebot-deploy                                        # telebot is DOWN until this runs
+  → nat_egress_active = "primary"; re-apply the route + EIP pair
+  → nat_standby_enabled = false; apply -target=…aws_instance.nat_standby   # 1 to destroy
+```
+
+The exchange API keys are IP-whitelisted and the EIP has to move with the route,
+so each flip has a **few-second** window where egress leaves via a
+non-whitelisted address and the exchange **rejects** (does not time out) — twice
+per window. That is the cost; the alternative is minutes of blackholed egress.
+
+Do not skip the teardown: leaving the standby up bills a `t4g.nano` forever, and
+leaving `nat_egress_active = "standby"` in a merged tfvars points the default
+route at an instance the next clean apply will not create. Full step-by-step,
+with the expected plan at each step: RUNBOOK, "Rebuilding the NAT without an
+egress outage".
 
 ## Adding a passivbot engine line (e.g. v9)
 

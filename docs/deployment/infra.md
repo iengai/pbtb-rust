@@ -94,11 +94,39 @@ During the relaunch + cloud-init window:
 Because the NAT is the single egress for all trading traffic, treat any
 NAT-touching apply as a service interruption.
 
-### NAT `user_data` maintenance-window procedure
+### What the NAT no longer carries
 
-Run this whenever a planned change alters the NAT `user_data` or AMI (for example,
-the config-decoupling refactor's first application changes `user_data` and
-triggers exactly one NAT rebuild):
+S3 and DynamoDB gateway endpoints are attached to the private route table, so
+those two services are reached without the NAT — bot config I/O, and every ECR
+image pull (ECR serves layers from S3 in-region). Gateway endpoints are free and
+have no ENI. The exchange traffic and the ECR/SSM/CloudWatch **APIs** still go
+through the NAT; those are interface endpoints, billed per hour per AZ.
+
+The endpoints carry no policy, which is deliberate — see
+[`RUNBOOK.md`](../../terraform/envs/dev/RUNBOOK.md), "Gateway endpoints".
+
+### Carrying egress across the rebuild: the standby NAT
+
+Two `terraform.tfvars` switches — `nat_standby_enabled` and `nat_egress_active` —
+put a throwaway `t4g.nano` NAT in front of the rebuild, so the bots keep trading
+through it while the primary is replaced. The default route change is one atomic
+`ReplaceRoute`; the whitelisted EIP moves with it. That turns the several-minute
+black hole into a few seconds of rejected API calls, twice. telebot is still down
+from the rebuild until the next `telebot-deploy` — the standby carries egress,
+not the bot.
+
+The switches default to off and the standby costs nothing while it does not
+exist. The full step order — including why they must be edited in `tfvars` rather
+than passed with `-var` — is in
+[`RUNBOOK.md`](../../terraform/envs/dev/RUNBOOK.md), "Rebuilding the NAT without
+an egress outage".
+
+### NAT `user_data` maintenance-window procedure (no standby)
+
+This is the fallback for when you accept the outage. Run it whenever a planned
+change alters the NAT `user_data` or AMI (for example, the config-decoupling
+refactor's first application changes `user_data` and triggers exactly one NAT
+rebuild):
 
 1. **Quiesce trading.** Stop the bots; nothing should need egress during the
    window.

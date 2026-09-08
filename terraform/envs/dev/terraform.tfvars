@@ -30,6 +30,14 @@ ecs_instance_type = "t4g.medium"
 
 # NAT instance is upsized to micro and also hosts the telebot container.
 nat_instance_type = "t4g.micro"
+
+# Temporary standby NAT. Steady state is false / "primary": no standby instance
+# exists and nothing is billed for it. Flip these -- here, in this file, not with
+# -var -- to carry trading egress across a NAT rebuild.
+# Full procedure: RUNBOOK.md, "Rebuilding the NAT without an egress outage".
+nat_standby_enabled = false
+nat_egress_active   = "primary"
+
 telebot_image_tag = "latest"
 
 # GitHub repo allowed to assume the CI (build/deploy) roles via OIDC.
