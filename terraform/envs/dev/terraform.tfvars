@@ -59,7 +59,7 @@ passivbot_engines = {
   # runtime", follow the step order).
   # 64 MB measured, not guessed: both rs bots sit at 16 MB RSS against the
   # 96 MB placeholder this line launched with, so 64 keeps 4x headroom.
-  "8rs" = { image_tag = "8-v8.1.0-arm64", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
+  "8rs" = { image_tag = "ca832b69b11314b7eda0565073b540e8a5543686", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
 }
 
 log_retention_days = 30
