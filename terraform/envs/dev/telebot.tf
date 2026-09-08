@@ -60,6 +60,7 @@ locals {
     "APP__ECS__REGION=${var.region}",
     "APP__ECS__CLUSTER_ARN=${local.ecs_cluster_arn}",
     "APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=${var.passivbot_container_name}",
+    "APP__TELEGRAM__ALLOWED_USER_IDS=${join(",", var.telegram_allowed_user_ids)}",
     # Not APP__-prefixed: the binary never reads it. telebot-deploy resolves each
     # family's revision into APP__ECS__TD_PASSIVBOT_BY_ENGINE at deploy time.
     "PBTB_PASSIVBOT_FAMILIES=${local.passivbot_families}",

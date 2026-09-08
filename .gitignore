@@ -12,6 +12,9 @@
 /terraform/envs/dev/terraform.tfstate.backup
 # Saved plan files, including the gated ones nat_rebuild.py writes per step.
 /terraform/envs/dev/*.tfplan
+# Telegram user ids of the people allowed to drive the bot. This repo is public;
+# the ids identify real accounts, so they stay out of it. See the .example file.
+/terraform/envs/dev/telebot-allowlist.auto.tfvars
 /terraform/modules/lambda/.build/
 .devcontainer/docker/dynamodb/
 .claude/settings.local.json

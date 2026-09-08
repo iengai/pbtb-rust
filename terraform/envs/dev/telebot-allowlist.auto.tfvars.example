@@ -1,0 +1,7 @@
+# Copy to telebot-allowlist.auto.tfvars (gitignored) before the first apply that
+# touches aws_ssm_parameter.telebot_base_env. Terraform loads *.auto.tfvars on
+# every apply, including -target-scoped ones, so no extra flag is needed.
+#
+# These are Telegram user ids, not usernames: message the bot and read the id
+# off the "update N Message" log line, or ask @userinfobot.
+telegram_allowed_user_ids = ["000000000"]
