@@ -145,11 +145,13 @@ resource "aws_autoscaling_group" "ecs" {
     propagate_at_launch = true
   }
 
-  tag {
-    key                 = "aws:ecs:clusterName"
-    value               = aws_ecs_cluster.main.name
-    propagate_at_launch = true
-  }
+  # No `aws:ecs:clusterName` tag here. It has been requested since the original
+  # module migration and has never once been applied: AWS reserves the `aws:`
+  # prefix, so the API refuses to set it, while ECS adds its own managed tags
+  # to the instances it places. The live ASG has never carried it and the
+  # cluster has never needed it -- all it produced was a `+ tag {...}` block in
+  # every single plan, which is exactly the kind of standing noise that let a
+  # real pending NAT change sit unnoticed for a day.
 
   dynamic "tag" {
     for_each = var.common_tags
