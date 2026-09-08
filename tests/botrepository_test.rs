@@ -1,23 +1,12 @@
 //! Integration tests for `DynamoBotRepository` against a real DynamoDB Local
-//! instance spun up via testcontainers.
+//! instance.
 //!
-//! The whole suite is gated on Docker being available: if the container fails
-//! to start (no Docker daemon, CI without docker-in-docker, etc.) the test
-//! prints a skip message and returns successfully so `cargo test` stays green
-//! in environments without Docker.
-//!
-//! testcontainers 0.24 API used (see report):
-//!   - `GenericImage::new("amazon/dynamodb-local", "latest")`
-//!   - `.with_exposed_port(8000.tcp())` (requires `IntoContainerPort` in scope)
-//!   - `.with_wait_for(WaitFor::message_on_stdout("..."))`
-//!   - `.start().await` (requires `AsyncRunner` in scope)
-//!   - `container.get_host_port_ipv4(8000.tcp()).await`
+//! The fixture lives in `common::dynamo`, which prefers the Dev Container's
+//! compose service and falls back to `testcontainers`. Each test gets a table of
+//! its own; a suite that finds neither server prints a skip message and returns
+//! successfully so `cargo test` stays green without Docker.
 
-use aws_sdk_dynamodb::Client;
-use aws_sdk_dynamodb::config::{BehaviorVersion, Credentials, Region};
-use aws_sdk_dynamodb::types::{
-    AttributeDefinition, BillingMode, KeySchemaElement, KeyType, ScalarAttributeType,
-};
+mod common;
 
 use pbtb_rust::domain::bot::{Bot, BotRepository};
 use pbtb_rust::domain::configswitch::{
@@ -29,145 +18,13 @@ use pbtb_rust::domain::runtime::{
 };
 use pbtb_rust::infra::botrepository::DynamoBotRepository;
 
-use testcontainers::core::{IntoContainerPort, WaitFor};
-use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage};
-
-const TABLE_NAME: &str = "pbtb-test-table";
-
-/// Build a DynamoDB client pointed at a local endpoint with static dummy
-/// credentials (mirrors `src/infra/client.rs` but supplies fixed credentials
-/// so no AWS credential provider chain is required offline).
-fn local_client(port: u16) -> Client {
-    let creds = Credentials::new("test", "test", None, None, "pbtb-tests");
-    let conf = aws_sdk_dynamodb::config::Builder::new()
-        .behavior_version(BehaviorVersion::latest())
-        .region(Region::new("us-east-1"))
-        .endpoint_url(format!("http://127.0.0.1:{port}"))
-        .credentials_provider(creds)
-        .build();
-    Client::from_conf(conf)
-}
-
-/// Create the single-table schema: pk (HASH, S) + sk (RANGE, S), PAY_PER_REQUEST.
-/// Waits until the table reports ACTIVE.
-async fn create_table(client: &Client) -> Result<(), String> {
-    if let Err(e) = client
-        .create_table()
-        .table_name(TABLE_NAME)
-        .billing_mode(BillingMode::PayPerRequest)
-        .attribute_definitions(
-            AttributeDefinition::builder()
-                .attribute_name("pk")
-                .attribute_type(ScalarAttributeType::S)
-                .build()
-                .map_err(|e| e.to_string())?,
-        )
-        .attribute_definitions(
-            AttributeDefinition::builder()
-                .attribute_name("sk")
-                .attribute_type(ScalarAttributeType::S)
-                .build()
-                .map_err(|e| e.to_string())?,
-        )
-        .key_schema(
-            KeySchemaElement::builder()
-                .attribute_name("pk")
-                .key_type(KeyType::Hash)
-                .build()
-                .map_err(|e| e.to_string())?,
-        )
-        .key_schema(
-            KeySchemaElement::builder()
-                .attribute_name("sk")
-                .key_type(KeyType::Range)
-                .build()
-                .map_err(|e| e.to_string())?,
-        )
-        .send()
-        .await
-    {
-        // A prior attempt in the retry loop may have already created the table;
-        // treat that as success and fall through to the ACTIVE poll. Any other
-        // error (incl. the dispatch failure while the listener is still coming
-        // up) propagates so the caller can retry.
-        let msg = format!("{e:?}");
-        if !msg.contains("ResourceInUseException") {
-            return Err(format!("create_table failed: {e}"));
-        }
-    }
-
-    // Poll until ACTIVE.
-    for _ in 0..30 {
-        let desc = client
-            .describe_table()
-            .table_name(TABLE_NAME)
-            .send()
-            .await
-            .map_err(|e| format!("describe_table failed: {e}"))?;
-        if let Some(table) = desc.table() {
-            if let Some(status) = table.table_status() {
-                if status.as_str() == "ACTIVE" {
-                    return Ok(());
-                }
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    }
-    Err("table did not become ACTIVE in time".to_string())
-}
-
-/// Spin up DynamoDB Local. Returns `None` (with a printed skip message) if the
-/// container cannot be started — keeping the suite green without Docker.
-async fn start_dynamodb() -> Option<(ContainerAsync<GenericImage>, Client)> {
-    let image = GenericImage::new("amazon/dynamodb-local", "latest")
-        .with_exposed_port(8000.tcp())
-        .with_wait_for(WaitFor::message_on_stdout(
-            "Initializing DynamoDB Local with the following configuration",
-        ));
-
-    let container = match image.start().await {
-        Ok(c) => c,
-        Err(e) => {
-            println!("Skipping DynamoDB integration tests: failed to start container ({e}).");
-            return None;
-        }
-    };
-
-    let port = match container.get_host_port_ipv4(8000.tcp()).await {
-        Ok(p) => p,
-        Err(e) => {
-            println!("Skipping DynamoDB integration tests: failed to map port ({e}).");
-            return None;
-        }
-    };
-
-    let client = local_client(port);
-
-    // DynamoDB Local prints its startup banner (the wait-for message) before its
-    // TCP listener is actually accepting connections, so the first request can
-    // fail with a dispatch error. Retry table setup briefly before giving up.
-    let mut last_err = String::new();
-    for _ in 0..30 {
-        match create_table(&client).await {
-            Ok(()) => return Some((container, client)),
-            Err(e) => {
-                last_err = e;
-                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-            }
-        }
-    }
-    println!("Skipping DynamoDB integration tests: table setup failed ({last_err}).");
-    None
-}
-
 #[tokio::test]
 async fn dynamo_bot_repository_roundtrip() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
 
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
 
     // --- save then find returns the bot with matching fields ---
     let bot = Bot::create(
@@ -296,10 +153,10 @@ async fn dynamo_bot_repository_roundtrip() {
 /// DynamoDB Local. Skips gracefully without Docker.
 #[tokio::test]
 async fn start_lock_cas_and_lifecycle() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
     let (u, b) = ("user-1", "lock-bot");
 
     // Absent row -> claim succeeds; row is `starting` with no task id yet.
@@ -389,10 +246,10 @@ async fn start_lock_cas_and_lifecycle() {
 /// at most once, so a duplicate or late STOPPED event never double-launches.
 #[tokio::test]
 async fn start_lock_restart_is_idempotent_per_stopped_task() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
     let (u, b) = ("user-1", "restart-bot");
 
     // A task is observed running at version 5.
@@ -472,10 +329,10 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
 /// and break the runtime-row mirror the no-double-run invariant depends on.
 #[tokio::test]
 async fn stopping_write_is_identity_guarded() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
     let (u, b) = ("user-1", "stop-bot");
 
     // task-1 is running.
@@ -549,10 +406,10 @@ async fn stopping_write_is_identity_guarded() {
 /// must NOT let a stale STOPPED clobber a genuinely newer `running` row.
 #[tokio::test]
 async fn terminal_stopped_settles_future_stamped_stopping() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
     let (u, b) = ("user-1", "settle-bot");
 
     // Running task-1 at ua=4000, then a Stopping stamped in the FUTURE (ua=5000).
@@ -622,10 +479,10 @@ async fn terminal_stopped_settles_future_stamped_stopping() {
 /// bot listing.
 #[tokio::test]
 async fn config_switch_record_and_list() {
-    let Some((_container, client)) = start_dynamodb().await else {
+    let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.
     };
-    let repo = DynamoBotRepository::new(client, TABLE_NAME.to_string());
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
 
     // Two switches for alpha-bot, recorded out of chronological order …
     ConfigSwitchRepository::record(

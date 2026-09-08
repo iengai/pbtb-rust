@@ -50,7 +50,14 @@ if echo "$OUT" | grep -qE "FAILED|panicked"; then RC=1; fi
 gate tests $RC
 echo "$OUT" | grep -E "test result:" | sed 's/^/  /'
 [ $RC -ne 0 ] && echo "$OUT" | grep -E "FAILED|panicked" -B3 | head -40
-if [ "$MODE" = host ]; then echo "  (host: dynamodb-local integration tests may have self-skipped)"; fi
+# The dynamodb-local suites skip themselves when no server is reachable, and a
+# skip reads as a pass. app-node has no docker socket, so in the container they
+# depend on APP__DYNAMODB__ENDPOINT_URL pointing at the compose service.
+if [ "$MODE" = container ]; then
+  docker exec app-node bash -lc '[ -n "${APP__DYNAMODB__ENDPOINT_URL:-}" ]' >/dev/null 2>&1     || echo "  (app-node has no APP__DYNAMODB__ENDPOINT_URL: the dynamodb-local suites just self-skipped)"
+else
+  echo "  (host: dynamodb-local suites self-skip unless Docker or APP__DYNAMODB__ENDPOINT_URL is available)"
+fi
 
 # 5. terraform, only when touched
 CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null; git diff --name-only; git diff --name-only --cached)
