@@ -1,5 +1,6 @@
 use super::dynamodb::DynamoDBConfig;
 use super::ecs::EcsConfig;
+use super::mcp::McpConfig;
 use super::s3::S3Config;
 use super::telegram::TelegramConfig;
 use anyhow::Context;
@@ -12,6 +13,9 @@ pub struct Configs {
     pub s3: S3Config,
     pub ecs: EcsConfig,
     pub telegram: TelegramConfig,
+    /// Only `mcp_stdio` reads this; telebot tolerates it being absent.
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 /// Build the config from `APP__*` environment variables, the single config

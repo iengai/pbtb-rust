@@ -126,6 +126,7 @@ How those variables reach the process is environment-specific and external to th
 | `RUST_LOG` | Log level (e.g., `info`, `debug`) |
 | `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override (local dev) |
 | `APP__S3__ENDPOINT_URL` | S3 endpoint override (local dev) |
+| `APP__MCP__USER_ID` | The Telegram user id `mcp_stdio` acts as; must be on the allowlist. Only that binary reads it. See [docs/mcp.md](mcp.md). |
 | `APP__TELEGRAM__ALLOWED_USER_IDS` | Comma-separated Telegram user ids allowed to use the bot. The bot refuses to start without it, and answers everyone else with a refusal. The Dev Container ships a placeholder `0`; set it to your own id to drive the bot locally. |
 
 Do not commit `.env` files, secrets, or hardcoded credentials.

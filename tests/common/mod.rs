@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use pbtb_rust::domain;
 use pbtb_rust::infra::DynamoBotRepository;
+use pbtb_rust::interface::mcp;
 use pbtb_rust::interface::telegram::{Deps, router};
 use pbtb_rust::usecase::*;
 use serde_json::Value;
@@ -44,6 +45,7 @@ pub struct Harness {
     pub configs: Arc<InMemoryBotConfigs>,
     pub api_keys: Arc<InMemoryApiKeys>,
     pub ecs: Arc<RecordingEcs>,
+    pub templates: Arc<InMemoryTemplates>,
     schema: teloxide::dispatching::UpdateHandler<DependencyMap>,
     deps_map: DependencyMap,
     bot: Bot,
@@ -75,7 +77,7 @@ impl Harness {
             configs.clone(),
             api_keys.clone(),
             ecs.clone(),
-            templates,
+            templates.clone(),
             clock,
         );
 
@@ -89,6 +91,7 @@ impl Harness {
             configs,
             api_keys,
             ecs,
+            templates,
             schema: router::schema(allowed),
             deps_map: router::deps_map(deps),
             bot,
@@ -138,6 +141,82 @@ impl Harness {
     }
 }
 
+/// The engine line -> task definition table the launch path routes against.
+fn engines() -> EngineTaskDefinitions {
+    EngineTaskDefinitions::parse(&format!("7={TD_V7},8={TD_V8}")).expect("engine table")
+}
+
+impl Harness {
+    /// The MCP tool surface over the same repositories the telegram adapter
+    /// drives, so a tool call and a button press meet the same start lock and the
+    /// same rows.
+    pub fn mcp_tools(&self, auth: Arc<dyn mcp::Authenticator>) -> mcp::BotTools {
+        let engines = engines();
+        let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
+        let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = self.bots.clone();
+        let locks: Arc<dyn domain::StartLockRepository> = self.bots.clone();
+        let switches: Arc<dyn domain::ConfigSwitchRepository> = self.bots.clone();
+        let configs_dyn: Arc<dyn domain::botconfig::BotConfigRepository> = self.configs.clone();
+        let clock = Arc::new(FixedClock(NOW));
+        let targets: Arc<dyn LaunchTargetResolver> = Arc::new(EngineRoutedResolver::new(
+            configs_dyn.clone(),
+            engines.clone(),
+        ));
+
+        let deps = mcp::Deps {
+            list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
+            delete_bot_usecase: Arc::new(DeleteBotUseCase::new(
+                bots_dyn.clone(),
+                self.api_keys.clone(),
+            )),
+            list_templates_usecase: Arc::new(ListTemplatesUseCase::new(self.templates.clone())),
+            apply_template_usecase: Arc::new(ApplyTemplateUseCase::new(
+                self.templates.clone(),
+                bots_dyn.clone(),
+                configs_dyn.clone(),
+                switches,
+                clock.clone(),
+                engines.clone(),
+            )),
+            get_bot_config_usecase: Arc::new(GetBotConfigUseCase::new(configs_dyn.clone())),
+            update_risk_level_usecase: Arc::new(UpdateRiskLevelUseCase::new(
+                configs_dyn.clone(),
+                clock.clone(),
+            )),
+            set_strategy_side_usecase: Arc::new(SetStrategySideUseCase::new(
+                configs_dyn.clone(),
+                clock.clone(),
+            )),
+            set_bot_runtime_usecase: Arc::new(SetBotRuntimeUseCase::new(
+                bots_dyn.clone(),
+                configs_dyn,
+                engines,
+                clock.clone(),
+            )),
+            get_bot_runtime_usecase: Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone())),
+            start_bot_usecase: Arc::new(StartBotUseCase::new(
+                bots_dyn.clone(),
+                runtimes_dyn.clone(),
+                locks,
+                self.ecs.clone(),
+                self.ecs.clone(),
+                clock.clone(),
+                CLUSTER_ARN.to_string(),
+                targets,
+                CONTAINER_NAME.to_string(),
+            )),
+            stop_bot_usecase: Arc::new(StopBotUseCase::new(
+                bots_dyn,
+                runtimes_dyn,
+                self.ecs.clone(),
+                clock,
+                CLUSTER_ARN.to_string(),
+            )),
+        };
+        mcp::BotTools::new(deps, auth)
+    }
+}
+
 fn build_deps(
     bots: Arc<DynamoBotRepository>,
     configs: Arc<InMemoryBotConfigs>,
@@ -146,8 +225,7 @@ fn build_deps(
     templates: Arc<InMemoryTemplates>,
     clock: Arc<FixedClock>,
 ) -> Deps {
-    let engines = EngineTaskDefinitions::parse(&format!("7={TD_V7},8={TD_V8}"))
-        .expect("engine task definition table");
+    let engines = engines();
 
     let bots_dyn: Arc<dyn domain::BotRepository> = bots.clone();
     let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = bots.clone();
