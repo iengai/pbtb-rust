@@ -24,6 +24,27 @@ variable "pb_runner_github_repo" {
   }
 }
 
+# GitHub is moving the OIDC subject to immutable ids, and pb-runner already
+# gets the new form while pbtb-rust still gets the classic one:
+#
+#   gh api repos/iengai/pb-runner/actions/oidc/customization/sub
+#     -> sub_claim_prefix "repo:iengai@22829148/pb-runner@1360175272"
+#   gh api repos/iengai/pbtb-rust/actions/oidc/customization/sub
+#     -> sub_claim_prefix "repo:iengai/pbtb-rust"
+#
+# A trust policy written in the classic form simply never matches such a
+# token: the assume fails with "Not authorized to perform
+# sts:AssumeRoleWithWebIdentity" and nothing says why. Both forms are
+# accepted here; both name the same repository and branch, so accepting the
+# pair grants nothing extra, and the role keeps working whichever form
+# GitHub hands out. `owner@<owner id>/repo@<repo id>` also survives a rename,
+# which the classic form does not.
+variable "pb_runner_github_repo_immutable" {
+  description = "owner@ownerid/repo@repoid form of pb_runner_github_repo; \"\" to accept only the classic form"
+  type        = string
+  default     = "iengai@22829148/pb-runner@1360175272"
+}
+
 resource "aws_iam_role" "gh_pb_runner_build" {
   name = "${var.project}-${var.env}-pb-runner-gh-build"
 
@@ -35,7 +56,10 @@ resource "aws_iam_role" "gh_pb_runner_build" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.pb_runner_github_repo}:ref:refs/heads/master" }
+        StringLike = { "token.actions.githubusercontent.com:sub" = compact([
+          "repo:${var.pb_runner_github_repo}:ref:refs/heads/master",
+          var.pb_runner_github_repo_immutable == "" ? "" : "repo:${var.pb_runner_github_repo_immutable}:ref:refs/heads/master",
+        ]) }
       }
     }]
   })
