@@ -1,0 +1,6 @@
+# Pin every environment to one toolchain. The Dev Container's rust feature
+# installed 1.88 while the images build on rust:1.89-bookworm, so clippy passed
+# locally and failed in CI on lints 1.89 added.
+[toolchain]
+channel = "1.89"
+components = ["rustfmt", "clippy"]
