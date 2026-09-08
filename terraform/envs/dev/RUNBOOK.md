@@ -151,13 +151,31 @@ the pb-runner image of line 8. `var.passivbot_engines` keys are the table keys.
    ["--live"]` -- pb-runner only trades with `--live`; without it it plans and
    logs. Memory starts at a placeholder (96 MiB, target <= 64) -- measure after
    the first `rs` bot start and adjust.
-3. Scoped apply, as for a new line:
+3. Get the new binaries live BEFORE `8rs` enters the table: merge to main
+   (telebot-build pushes the new `:latest` image), then run `lambda-deploy.yml`.
+   The new parser reads the old table (`7=…,8=…`) fine, so this step is safe on
+   its own; the reverse is not: an old lambda binary given a table with `8rs`
+   fails at config load (`EngineTaskDefinitions::parse` on key `8rs`) and
+   never boots, taking auto-restart down silently. Step 4's scoped apply bakes
+   the table into the lambda env, so the binary must already be there. Note
+   this ordering is the OPPOSITE of "First apply of the per-engine split":
+   there env and binary changed shape together, so they had to be
+   back-to-back; here only the table gains a key the new binary already
+   understands.
+4. Scoped apply, as for a new line:
    `terraform apply -target='module.passivbot_task["8rs"]' -target=module.lambda_task_state_change_handler -target=aws_ssm_parameter.telebot_base_env`.
-4. `telebot-deploy` with `passivbot_revisions=latest` (pins accept the same
-   keys: `8rs=3`).
-5. Move one bot: `/runtime <bot_id> rs`, Stop, Run; watch
+5. `telebot-deploy` with the post-merge image tag (`latest`, or that merge's
+   SHA) and `passivbot_revisions=latest` (pins accept the same keys: `8rs=3`).
+   An older telebot image fails the same way the old lambda does once the
+   families contain `8rs`.
+6. Move one bot: `/runtime <bot_id> rs`, Stop, Run; watch
    `/ecs/<project>-<env>/passivbot-v8-rs`. Roll back with `/runtime <bot_id> py`
    + restart. Every other bot keeps `py` until moved.
+
+Rollback of the table itself: re-comment `8rs` in `terraform.tfvars` and
+re-run the step-4 apply to return the table to the old shape. Only valid while
+no bot's `runtime` is still `rs` -- such a bot would be refused at Run and by
+the auto-restart, so flip every `rs` bot back to `py` first.
 
 ### Retiring a line
 
