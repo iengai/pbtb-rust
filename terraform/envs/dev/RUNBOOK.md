@@ -90,6 +90,55 @@ same apply is busy destroying — the exact outage this is meant to avoid.
   per window (out to the standby, back to the primary). Seconds of rejected
   calls, versus minutes of a black hole.
 
+### What the first real run of this hit (2026-09-08)
+
+The window below was written before it had ever been run end to end. Three
+things went wrong; all three are fixed, and the last one is the reason to read
+this section rather than trust the script blindly.
+
+1. **Step 2 raced the SSM agent.** Step 1 creates the standby, step 2 sends it
+   a command, and an instance that has just booted is not yet a valid
+   `SendCommand` target -- the agent registers tens of seconds after the API
+   calls the instance running, and until then SSM answers `InvalidInstanceId:
+   Instances not in a valid state for account`. That is every cold start, so
+   the window aborted at step 2 every time. `pbtb_ops.ssm()` now waits for
+   `PingStatus == Online` first.
+
+2. **Step 3 could never pass its own gate.** The route and the EIP association
+   choose their target through `local.active_nat_instance_id`, which names
+   BOTH instances, and terraform's dependency graph is static -- so
+   `-target`ing either of them always drags `aws_instance.nat` into the plan.
+   While that instance has a pending replacement -- the only situation this
+   whole window exists for -- the flip therefore cannot plan as "move the
+   route and the EIP", and the gate correctly refuses to apply a plan that
+   would move egress and destroy the egress host in one shot, with no ordering
+   guarantee between the two.
+
+   The way through is to hide the pending change for the duration of the flip:
+   put `lifecycle { ignore_changes = [user_data] }` on `aws_instance.nat`,
+   run step 3 (which then plans as exactly one route update plus one EIP
+   association replacement), and **remove it again before step 5**, which is
+   the step that is supposed to replace the instance. `ignore_changes` cannot
+   take a variable, so this is a literal edit, added and removed inside the
+   window. Do not commit it.
+
+3. **An abort before an apply left `terraform.tfvars` lying.** Each step writes
+   the switches and then gates the plan, so a gate rejection leaves the file
+   describing an intent that was never applied -- and the script said "tfvars
+   is left at ... on purpose: it has to keep describing reality", which was
+   then false. A file reading `standby` while the EIP is still on the primary
+   is exactly the state this document warns about: the next apply re-points
+   the default route at a NAT it is busy destroying. The abort path now reads
+   the EIP holder from AWS and rewrites the switches to match.
+
+Also found, and not caused by the window: telebot could not start on the
+rebuilt host, because `main` carried the app change that made
+`telegram.allowed_user_ids` a required config field while the base-env that
+supplies `APP__TELEGRAM__ALLOWED_USER_IDS` had not been applied. The old
+container kept running, so nothing surfaced it until a fresh host had to start
+one. If step 6 fails with a config error, check that the deployed telebot
+image and the applied base-env come from the same commit.
+
 ### Procedure
 
 1. **Bring the standby up, without touching the live path.** In

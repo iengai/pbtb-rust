@@ -176,6 +176,19 @@ def eip_holder(a) -> tuple[str, str]:
     return (r[0] or "?"), (r[1] or "")
 
 
+def actual_egress(a) -> str:
+    """Which NAT egress is really on, read from AWS: "primary", "standby" or
+    "unknown". The switches in tfvars state an intent; this states the fact."""
+    _, holder = eip_holder(a)
+    if not holder:
+        return "unknown"
+    if holder == instance_by_tag(cfg(a.env)["nat_tag_name"], a):
+        return "primary"
+    if holder == instance_by_tag(STANDBY_TAG, a):
+        return "standby"
+    return "unknown"
+
+
 def default_route_eni(a) -> str:
     r = aws(["ec2", "describe-route-tables", "--route-table-ids", ROUTE_TABLE,
              "--query", "RouteTables[0].Routes[?DestinationCidrBlock=='0.0.0.0/0'].NetworkInterfaceId"],
@@ -379,16 +392,40 @@ def main():
                 say("dry-run: stopping after the first planned step")
                 break
     except Abort as e:
-        _, active_now = switches()
+        enabled_now, active_now = switches()
         print(f"\nABORTED at that step: {e}", file=sys.stderr)
         if a.dry_run:
             TFVARS.write_text(original, encoding="utf-8", newline="")
             print("dry-run: terraform.tfvars restored", file=sys.stderr)
+            raise SystemExit(1)
+
+        # Each step writes the switches BEFORE its plan is gated, so an abort
+        # from the gate leaves tfvars stating an intent that was never applied.
+        # Claiming "tfvars describes reality" there is worse than saying
+        # nothing: the RUNBOOK's one hard rule is that every apply in the
+        # window agrees with the switches, and a file reading "standby" while
+        # the EIP is still on the primary sends the next apply to re-point the
+        # route at a NAT it is busy destroying. So ask AWS where egress
+        # actually is, and make the file match that.
+        real = actual_egress(a)
+        if real == "unknown":
+            print(f"\nCould not tell which NAT holds the EIP. tfvars says "
+                  f"nat_egress_active=\"{active_now}\" -- CHECK IT BEFORE THE NEXT APPLY.",
+                  file=sys.stderr)
+        elif real != active_now:
+            set_switches(enabled_now, real)
+            print(f"\ntfvars said nat_egress_active=\"{active_now}\" but egress is on the "
+                  f"{real}: the gate refused before that step applied anything.\n"
+                  f"terraform.tfvars has been corrected to \"{real}\" so it describes reality.",
+                  file=sys.stderr)
         else:
-            print(f"\ntfvars is left at nat_egress_active=\"{active_now}\" on purpose: it has to keep\n"
-                  f"describing reality. Egress is {'on the standby, so the bots are trading and there is no rush'
-                                                   if active_now == 'standby' else 'on the primary'}.\n"
-                  f"Fix the cause, then: python scripts/ops/nat_rebuild.py --from <step>", file=sys.stderr)
+            print(f"\ntfvars is at nat_egress_active=\"{real}\", which is where egress is.",
+                  file=sys.stderr)
+        if real == "standby":
+            print("Egress is on the standby, so the bots are trading and there is no rush.",
+                  file=sys.stderr)
+        print("Fix the cause, then: python scripts/ops/nat_rebuild.py --from <step>",
+              file=sys.stderr)
         raise SystemExit(1)
 
     if a.dry_run:

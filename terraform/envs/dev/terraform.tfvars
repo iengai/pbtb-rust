@@ -86,6 +86,20 @@ passivbot_engines = {
 # (516889601) are v7.12.0 and need P7 first.
 passivbot_shadows = {
   xxbot = { user_id = "5351347639", bot_id = "516903813" }
+
+  # NOT a parity shadow: DollarDigger (436713564) trades a v7.12.0 config, so
+  # pb-runner cannot run its config at all. This one runs the v8.1.0 migration
+  # of the same strategy (predefined/bybit-cap300-iter1-winner-v810.json --
+  # same cap tier, same 8 coins, long n_positions=1 / twel=1.75, short off) on
+  # DollarDigger's ACCOUNT, to see what v8 would plan there. Its cancel/create
+  # lines are the two strategy versions disagreeing, not a port defect, so do
+  # not read `cancels=0 creates=0` into this one.
+  #
+  # `436713564-v8ref` is an S3 config directory, not a bot: it holds that
+  # config with `live.user = "436713564"` and a copy of DollarDigger's
+  # api-keys.json, so the key is the live bot's own. There is no DynamoDB row
+  # and telebot does not know about it.
+  dollardigger_v8ref = { user_id = "5351347639", bot_id = "436713564-v8ref" }
 }
 
 log_retention_days = 30
