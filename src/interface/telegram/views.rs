@@ -130,3 +130,85 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
         Confirm to apply, or Cancel."
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refs(pairs: &[(&str, &str)]) -> Vec<StrategyRef> {
+        pairs
+            .iter()
+            .map(|(name, side)| StrategyRef {
+                name: (*name).to_string(),
+                side: (*side).to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn no_strategies_render_as_a_dash() {
+        assert_eq!(format_strategies(&[]), "—");
+    }
+
+    #[test]
+    fn a_strategy_on_both_sides_is_named_once() {
+        assert_eq!(
+            format_strategies(&refs(&[("grid", "long"), ("grid", "short")])),
+            "grid (long+short)"
+        );
+    }
+
+    #[test]
+    fn strategies_keep_the_order_they_first_appear_in() {
+        assert_eq!(
+            format_strategies(&refs(&[
+                ("beta", "short"),
+                ("alpha", "long"),
+                ("beta", "long"),
+            ])),
+            "beta (long+short), alpha (long)"
+        );
+    }
+
+    #[test]
+    fn a_side_that_is_neither_long_nor_short_gets_no_label() {
+        // Configs are user data: a side this crate does not know must render as
+        // the bare name rather than claim a side it never had.
+        assert_eq!(format_strategies(&refs(&[("odd", "sideways")])), "odd");
+    }
+
+    #[test]
+    fn every_observed_phase_has_its_own_glyph_and_label() {
+        let phases = [
+            RuntimePhase::Starting,
+            RuntimePhase::Running,
+            RuntimePhase::Stopping,
+            RuntimePhase::Stopped,
+        ];
+        let labels: Vec<&str> = phases
+            .iter()
+            .map(|p| format_runtime_phase(Some(p)))
+            .collect();
+        let glyphs: Vec<&str> = phases
+            .iter()
+            .map(|p| runtime_phase_glyph(Some(p)))
+            .collect();
+
+        // Two phases sharing a rendering would make a wind-down look like a
+        // start, which is the pair a reader most needs to tell apart.
+        for set in [&labels, &glyphs] {
+            let mut seen = set.clone();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), set.len(), "two phases render alike: {set:?}");
+        }
+        assert_eq!(format_runtime_phase(None), "❔ Unknown");
+        assert_eq!(runtime_phase_glyph(None), "❔");
+    }
+
+    #[test]
+    fn a_runtime_renders_with_the_image_it_stands_for() {
+        assert_eq!(format_bot_runtime(Runtime::Py), "py — passivbot (Python)");
+        assert_eq!(format_bot_runtime(Runtime::Rs), "rs — pb-runner (Rust)");
+    }
+}

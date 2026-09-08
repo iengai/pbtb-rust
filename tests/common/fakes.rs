@@ -68,10 +68,11 @@ pub struct InMemoryTemplates {
 }
 
 impl InMemoryTemplates {
-    pub fn with(templates: Vec<ConfigTemplate>) -> Self {
-        Self {
-            templates: Mutex::new(templates.into_iter().map(|t| (t.name.clone(), t)).collect()),
-        }
+    pub fn add(&self, template: ConfigTemplate) {
+        self.templates
+            .lock()
+            .unwrap()
+            .insert(template.name.clone(), template);
     }
 }
 
