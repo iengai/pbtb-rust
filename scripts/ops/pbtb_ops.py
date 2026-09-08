@@ -457,7 +457,33 @@ def nat_instance(c: dict, a) -> str | None:
     return r[0] if r else None
 
 
+def ssm_wait_online(instance: str, a, timeout_s: int = 300) -> None:
+    """Block until SSM will accept a command for this instance.
+
+    An instance that has just booted is not yet a valid SendCommand target:
+    the agent registers seconds to a couple of minutes after the API reports
+    the instance running, and until it does SendCommand fails outright with
+    `InvalidInstanceId: Instances not in a valid state for account`. Anything
+    that talks to a freshly created instance has to wait for this first --
+    the NAT rebuild's step 2 runs against a standby step 1 created moments
+    earlier, so without the wait it aborts the window every time.
+    """
+    deadline = time.time() + timeout_s
+    while True:
+        info = aws(["ssm", "describe-instance-information",
+                    "--filters", f"Key=InstanceIds,Values={instance}",
+                    "--query", "InstanceInformationList[0].PingStatus"], a.profile, a.region)
+        if info == "Online":
+            return
+        if time.time() >= deadline:
+            raise RuntimeError(
+                f"{instance} never came Online in SSM within {timeout_s}s "
+                f"(last PingStatus: {info or 'not registered'})")
+        time.sleep(5)
+
+
 def ssm(instance: str, commands: list[str], a, timeout_s: int = 60) -> str:
+    ssm_wait_online(instance, a)
     params = json.dumps({"commands": commands})
     cid = aws(["ssm", "send-command", "--instance-ids", instance, "--document-name", "AWS-RunShellScript",
                "--parameters", params, "--query", "Command.CommandId"], a.profile, a.region)
