@@ -3,8 +3,8 @@ name: daily-pnl-snapshot-deploy
 # Build the daily_pnl_snapshot collector bootstrap and ship it straight to the
 # function via `aws lambda update-function-code`. Same pattern as lambda-deploy:
 # no Terraform, no state lock, no NAT touch. Built through the SAME builder stage
-# (.devcontainer/Dockerfile, rust:1.89-bullseye -> glibc 2.31) to stay below
-# AL2023's glibc 2.34 — never a bare `cargo build` on the runner.
+# (.devcontainer/Dockerfile, rust:1.89-bookworm), which references no symbol above
+# GLIBC_2.34 — exactly AL2023's glibc — never a bare `cargo build` on the runner.
 
 on:
   workflow_dispatch:
