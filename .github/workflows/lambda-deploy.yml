@@ -1,22 +1,29 @@
 name: lambda-deploy
 
-# Build the task_state_change_handler Lambda bootstrap and ship it straight to
-# the function via `aws lambda update-function-code`. No Terraform — so this
-# never touches the env S3 state, the backend lock, or the NAT lifecycle. The
-# function's config/wiring stays Terraform-owned; only the code is shipped here
-# (the function ignores source_code_hash drift; see terraform/modules/lambda/base).
+# Build a Lambda bootstrap and ship it straight to the function via `aws lambda
+# update-function-code`. No Terraform — so this never touches the env S3 state,
+# the backend lock, or the NAT lifecycle. The function's config/wiring stays
+# Terraform-owned; only the code is shipped here (the function ignores
+# source_code_hash drift; see terraform/modules/lambda/base).
 #
 # The binary is built through the SAME builder stage the devcontainer/telebot use
 # (.devcontainer/Dockerfile, FROM rust:1.89-bookworm), which references no symbol
 # above GLIBC_2.34 — exactly the glibc AL2023 ships. A plain `cargo build` on the
 # ubuntu-24.04 runner links against glibc 2.39 and could fail on the Lambda host.
 #
-# Manual only: this updates code on the trading-control Lambda, so deploys are
-# deliberate (mirrors telebot-deploy).
+# Manual only: every target here can act on live bots, so deploys are deliberate
+# (mirrors telebot-deploy).
 
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: 'Which lambda to deploy'
+        type: choice
+        default: task-state-change-handler
+        options:
+          - task-state-change-handler
+          - mcp-http
       publish:
         description: 'Publish an immutable Lambda version for rollback'
         type: boolean
@@ -27,12 +34,7 @@ permissions:
   contents: read
 
 env:
-  # Mirrors terraform's "${project}-${env}-${function_name}" (project=scalable-cluster,
-  # env=dev). Keep in sync with terraform if the project/env or function name is
-  # renamed, or update-function-code 404s.
   AWS_REGION: ap-northeast-1
-  FUNCTION_NAME: scalable-cluster-dev-task-state-change-handler
-  BIN_NAME: task_state_change_handler
 
 jobs:
   deploy:
@@ -41,6 +43,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Mirrors terraform's "${project}-${env}-${function_name}" (project=scalable-cluster,
+      # env=dev). Keep in sync with terraform if the project/env or a function name
+      # is renamed, or update-function-code 404s.
+      - name: Resolve the target
+        run: |
+          set -euo pipefail
+          case "${{ github.event.inputs.target }}" in
+            mcp-http)
+              echo "FUNCTION_NAME=scalable-cluster-dev-mcp-http" >> "$GITHUB_ENV"
+              echo "BIN_NAME=mcp_http" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "FUNCTION_NAME=scalable-cluster-dev-task-state-change-handler" >> "$GITHUB_ENV"
+              echo "BIN_NAME=task_state_change_handler" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - uses: docker/setup-buildx-action@v3
 
@@ -128,13 +147,19 @@ jobs:
           [ "$LOCAL_SHA" = "${{ steps.update.outputs.remote_sha }}" ] \
             || { echo "CodeSha256 mismatch (upload corrupted?)"; exit 1; }
 
-      # A benign non-aws.ecs event hits the early-return in event_handler.rs
-      # (source/detail-type guard) -> Ok(()) before any ECS/DynamoDB call, so it
-      # NEVER launches a task. Never smoke-test with a real STOPPED event.
-      - name: Smoke invoke (ignored event -> 200, no FunctionError)
+      # Neither payload can act on a bot. The task-state event is a benign
+      # non-aws.ecs one, which hits the source/detail-type guard in
+      # event_handler.rs and returns before any ECS or DynamoDB call — NEVER
+      # smoke-test that function with a real STOPPED event. The MCP payload
+      # carries no bearer, so it is refused at the edge; a 401 is the pass.
+      - name: Smoke invoke
         run: |
           set -euo pipefail
-          PAYLOAD='{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
+          if [ "${{ github.event.inputs.target }}" = "mcp-http" ]; then
+            PAYLOAD='{"version":"2.0","rawPath":"/","requestContext":{"http":{"method":"POST","path":"/"}},"headers":{"content-type":"application/json"},"body":"{}","isBase64Encoded":false}'
+          else
+            PAYLOAD='{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
+          fi
           # AWS CLI v2 exits non-zero when the response carries a FunctionError;
           # tolerate it so the explicit StatusCode/FunctionError checks below run
           # (and print response.json) instead of set -e aborting with a raw exit.
@@ -150,12 +175,17 @@ jobs:
           FERR=$(echo "$RESP" | jq -r '.FunctionError // "None"')
           [ "$STATUS" = "200" ] || { echo "unexpected StatusCode=$STATUS"; exit 1; }
           [ "$FERR" = "None" ] || { echo "FunctionError: $FERR"; cat response.json; exit 1; }
+          if [ "${{ github.event.inputs.target }}" = "mcp-http" ]; then
+            CODE=$(jq -r '.statusCode' response.json)
+            [ "$CODE" = "401" ] || { echo "an unauthenticated request returned $CODE, not 401"; exit 1; }
+          fi
           echo "smoke ok"
 
       - name: Summary
         run: |
           {
             echo "### Lambda deployed"
+            echo "- target: \`${{ github.event.inputs.target }}\`"
             echo "- function: \`$FUNCTION_NAME\`"
             echo "- CodeSha256: \`${{ steps.update.outputs.remote_sha }}\`"
             echo "- published version: \`$([ "${{ github.event.inputs.publish }}" = "true" ] && echo yes || echo no)\`"

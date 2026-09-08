@@ -16,7 +16,6 @@ const fmtDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
 // percentage measured against a stake that no longer exists. Report the state
 // rather than a number that reads as performance.
 const DEAD_EPS = 1e-9; // at or below this the account is wiped out
-const DISTORT_BASE = 1; // base under 1% of the starting index (100) ⇒ noise
 
 // Preset look-back windows, stock-chart style. `days: null` means all history.
 const RANGES = [
@@ -132,7 +131,6 @@ function draw() {
   // window opened. Any percentage here would be invented.
   if (!(base > DEAD_EPS)) {
     statsEl.hidden = true;
-    $("warn").hidden = true;
     $("footer").innerHTML = "";
     $("chart").innerHTML =
       `<div class="msg">Account was already at zero when this ${label} window opened — no return to compute.` +
@@ -153,15 +151,6 @@ function draw() {
   statsEl.innerHTML = stats
     .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`)
     .join("");
-
-  // Still computable, but the stake it is measured against is a rounding error
-  // of the original — say so rather than letting "+100%" read as a good run.
-  $("warn").innerHTML =
-    base < DISTORT_BASE
-      ? `⚠ This window starts after the account had lost ${(100 - base).toFixed(2)}% of its capital. ` +
-        `Percentages off that tiny base overstate both gains and losses — read them as noise, not performance.`
-      : "";
-  $("warn").hidden = !(base < DISTORT_BASE);
 
   $("footer").innerHTML = s.generated_at
     ? `${s.exchange || "bybit"} · ${view.length} days shown · time-weighted, deposit-adjusted · updated ${fmtDate(s.generated_at)} UTC`

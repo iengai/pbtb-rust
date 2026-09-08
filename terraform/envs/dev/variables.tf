@@ -176,3 +176,24 @@ variable "nat_egress_active" {
   type        = string
   default     = "primary"
 }
+
+variable "mcp_http_enabled" {
+  type        = bool
+  default     = false
+  description = <<-EOT
+    Stand up the MCP Lambda Function URL. Off by default: the URL is open to the
+    internet with a shared bearer as the only control, so it is created
+    deliberately rather than carried along by an unrelated apply.
+  EOT
+}
+
+variable "mcp_user_id" {
+  type        = string
+  default     = ""
+  description = "Telegram user id the MCP endpoint acts as. Must appear in telegram_allowed_user_ids."
+
+  validation {
+    condition     = !var.mcp_http_enabled || can(regex("^[0-9]+$", var.mcp_user_id))
+    error_message = "mcp_user_id must be the numeric Telegram user id when mcp_http_enabled is true."
+  }
+}
