@@ -78,6 +78,28 @@ variable "command" {
   default     = null
 }
 
+# USER_ID / BOT_ID are normally injected per launch by RunTask (telebot, and
+# the restart lambda), so the definition carries the placeholder "required".
+# A SHADOW task is the exception: it must carry them in the definition itself
+# and be launched with NO overrides, because the restart lambda identifies a
+# bot solely from the override environment
+# (task_state_change_handler/event_handler.rs:52-88) and skips a task that has
+# none. Launched with overrides instead, a shadow would register itself as the
+# bot's current task -- the real bot's later stop would then read as
+# superseded and go unrestarted, and an OOM of the shadow would relaunch it
+# through the bot's own (live) engine line.
+variable "user_id" {
+  description = "USER_ID baked into the container definition; leave at \"required\" for a task launched with RunTask overrides."
+  type        = string
+  default     = "required"
+}
+
+variable "bot_id" {
+  description = "BOT_ID baked into the container definition; leave at \"required\" for a task launched with RunTask overrides."
+  type        = string
+  default     = "required"
+}
+
 variable "memory" {
   description = "Task-level hard memory limit (MiB) for this engine line. Sized per engine: a newer passivbot can have a different RSS profile, so it must not inherit another line's number blindly."
   type        = number

@@ -56,11 +56,11 @@ resource "aws_ecs_task_definition" "main" {
       environment = concat([
         {
           name  = "USER_ID"
-          value = "required"
+          value = var.user_id
         },
         {
           name  = "BOT_ID"
-          value = "required"
+          value = var.bot_id
         },
         {
           name  = "ENVIRONMENT"
