@@ -17,6 +17,17 @@ gate() { # name, exit code
   if [ "$2" -eq 0 ]; then echo "GATE $1: ok"; else echo "GATE $1: FAIL"; FAILS=$((FAILS+1)); fi
 }
 
+# Print why a gate failed. The matching lines when there are any, and the tail
+# regardless: a tool that dies before it can emit a diagnostic (a missing
+# component, an unreadable manifest) produces no match, and a FAIL with no
+# output at all is a gate nobody can act on.
+show() { # output, [grep pattern]
+  local pattern="${2:-^error}"
+  echo "$1" | grep -E "$pattern" -A8 | head -60
+  echo "  --- last 20 lines ---"
+  echo "$1" | tail -20 | sed 's/^/  /'
+}
+
 container_up() { docker exec app-node true >/dev/null 2>&1; }
 if [ "$MODE" = auto ]; then
   if container_up; then MODE=container; else MODE=host; echo "(docker/app-node not reachable -> host toolchain; re-run --container before merging)"; fi
@@ -38,18 +49,18 @@ cargo fmt --check >/dev/null 2>&1; gate fmt $?
 
 # 2. check incl. test targets
 OUT=$(run_cargo cargo check --workspace --all-targets 2>&1); RC=$?
-gate check-all-targets $RC; [ $RC -ne 0 ] && echo "$OUT" | grep -E "^error" -A6 | head -40
+gate check-all-targets $RC; [ $RC -ne 0 ] && show "$OUT"
 
 # 3. clippy gate
 OUT=$(run_cargo cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1); RC=$?
-gate clippy-D-warnings $RC; [ $RC -ne 0 ] && echo "$OUT" | grep -E "^error" -A8 | head -60
+gate clippy-D-warnings $RC; [ $RC -ne 0 ] && show "$OUT"
 
 # 4. tests
 OUT=$(run_cargo cargo test --workspace 2>&1); RC=$?
 if echo "$OUT" | grep -qE "FAILED|panicked"; then RC=1; fi
 gate tests $RC
 echo "$OUT" | grep -E "test result:" | sed 's/^/  /'
-[ $RC -ne 0 ] && echo "$OUT" | grep -E "FAILED|panicked" -B3 | head -40
+[ $RC -ne 0 ] && show "$OUT" "FAILED|panicked"
 # The dynamodb-local suites skip themselves when no server is reachable, and a
 # skip reads as a pass. app-node has no docker socket, so in the container they
 # depend on APP__DYNAMODB__ENDPOINT_URL pointing at the compose service.
