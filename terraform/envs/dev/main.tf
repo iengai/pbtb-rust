@@ -60,6 +60,9 @@ module "ecs" {
   ec2_instance_type  = var.ecs_instance_type
   min_capacity       = var.min_size
   max_capacity       = var.max_size
+  # The image the single ECS host currently runs. Changing it replaces that host
+  # and every task on it; see the variable's own docs before touching it.
+  ecs_ami = "ami-04e08e3365cdbba63"
 }
 
 module "task_base" {

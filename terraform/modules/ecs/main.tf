@@ -50,30 +50,10 @@ resource "aws_iam_instance_profile" "ecs_instance_profile" {
   role = aws_iam_role.ecs_instance_role.name
 }
 
-data "aws_ami" "ecs_optimized_al2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-kernel-6.1-arm64"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = ["arm64"]
-  }
-}
-
 # Launch Template for ECS instances
 resource "aws_launch_template" "ecs" {
   name_prefix   = "${var.project}-${var.env}-ecs-"
-  image_id      = data.aws_ami.ecs_optimized_al2023.id
+  image_id      = var.ecs_ami
   instance_type = var.ec2_instance_type
 
   block_device_mappings {

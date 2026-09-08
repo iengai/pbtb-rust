@@ -24,6 +24,11 @@ variable "ecs_sg_id" {
   type        = string
 }
 
+variable "ecs_ami" {
+  description = "AMI for the ECS container instances, pinned to an exact id. Resolving \"most recent\" here instead would put a launch-template change in every plan the moment Amazon publishes a new image, and the ASG's Rolling instance_refresh would then recycle the host -- which on a single-instance ASG kills every live trading task. Bumping this is therefore a deliberate, scheduled act: find a candidate with `aws ec2 describe-images --owners amazon --filters \"Name=name,Values=al2023-ami-*-kernel-6.1-arm64\" --query 'reverse(sort_by(Images,&CreationDate))[:3].[ImageId,Name]'`, and expect the host to be replaced when you apply it."
+  type        = string
+}
+
 variable "ec2_instance_type" {
   description = "EC2 instance type for ECS container instances"
   type        = string
