@@ -1,6 +1,6 @@
 # Local Development
 
-The Dev Container (`.devcontainer/`) is the canonical build/test environment. It pins the Rust toolchain and AWS CLI (via Dev Container features) and supplies the native build dependencies `aws-lc-sys` needs — NASM and cmake, commonly missing on Windows hosts. It also brings up DynamoDB Local on the same Docker network for integration tests. Run all `cargo build` / `cargo test` / `cargo clippy` inside the container rather than on the host.
+The Dev Container (`.devcontainer/`) is the canonical build/test environment. The Rust toolchain is pinned by `rust-toolchain.toml` — the container's own feature installs a different version, and clippy gains lints between releases, so without the pin a change passes locally and fails CI. It also pins the AWS CLI (via Dev Container features) and supplies the native build dependencies `aws-lc-sys` needs — NASM and cmake, commonly missing on Windows hosts. It also brings up DynamoDB Local on the same Docker network for integration tests. Run all `cargo build` / `cargo test` / `cargo clippy` inside the container rather than on the host.
 
 ## Prerequisites
 

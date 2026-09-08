@@ -36,16 +36,16 @@ if [ "$MODE" = container ] && ! container_up; then echo "app-node container is n
 
 run_cargo() { # runs a cargo command in the chosen toolchain, returns its exit code
   if [ "$MODE" = container ]; then
-    MSYS_NO_PATHCONV=1 docker exec app-node bash -lc "cd /app && $*" ; return $?
+    MSYS_NO_PATHCONV=1 docker exec -e CARGO_TERM_COLOR=never app-node bash -lc "cd /app && $*" ; return $?
   else
-    bash -lc "$*" ; return $?
+    CARGO_TERM_COLOR=never bash -lc "$*" ; return $?
   fi
 }
 
 echo "== toolchain: $MODE =="
 
 # 1. fmt (always on the host: pure formatter, same rustfmt.toml)
-cargo fmt --check >/dev/null 2>&1; gate fmt $?
+CARGO_TERM_COLOR=never cargo fmt --check >/dev/null 2>&1; gate fmt $?
 
 # 2. check incl. test targets
 OUT=$(run_cargo cargo check --workspace --all-targets 2>&1); RC=$?

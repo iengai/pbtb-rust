@@ -98,28 +98,26 @@ impl StartBotUseCase {
         if let Some(rt) = &runtime {
             let stale = matches!(rt.phase, RuntimePhase::Starting | RuntimePhase::Stopping)
                 && rt.observed_at <= now - START_LOCK_STALE_AFTER_SECS;
-            if stale {
-                if let Some(task_id) = rt.task_id.as_deref() {
-                    match self.controller.liveness(&self.cluster_arn, task_id).await {
-                        Ok(TaskLiveness::Alive) => return Ok(StartOutcome::AlreadyRunning),
-                        Ok(TaskLiveness::Gone) => {}
-                        Err(e) => {
-                            let context =
-                                format!("could not verify the in-flight task is stopped: {e:#}");
-                            return Err(DomainError::Repository {
-                                context,
-                                // The adapter hands this back as an anyhow chain, so the
-                                // SDK's error code is gone and retryability cannot be read
-                                // off it; the conservative class never over-promises.
-                                retry: Retryability::Permanent,
-                                source: e.into(),
-                            });
-                        }
+            // With no task id recorded (a crash before it could be attached)
+            // there is nothing to verify, so the time-based reclaim below is the
+            // accepted residual edge.
+            if stale && let Some(task_id) = rt.task_id.as_deref() {
+                match self.controller.liveness(&self.cluster_arn, task_id).await {
+                    Ok(TaskLiveness::Alive) => return Ok(StartOutcome::AlreadyRunning),
+                    Ok(TaskLiveness::Gone) => {}
+                    Err(e) => {
+                        let context =
+                            format!("could not verify the in-flight task is stopped: {e:#}");
+                        return Err(DomainError::Repository {
+                            context,
+                            // The adapter hands this back as an anyhow chain, so the
+                            // SDK's error code is gone and retryability cannot be read
+                            // off it; the conservative class never over-promises.
+                            retry: Retryability::Permanent,
+                            source: e.into(),
+                        });
                     }
                 }
-                // No task id was recorded (a crash before it could be attached):
-                // there is no id to verify, so the time-based reclaim below is the
-                // accepted residual edge.
             }
         }
 

@@ -127,61 +127,61 @@ async fn handle_bot_selection(
     deps: Deps,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
-    if let Some(data) = &q.data {
-        if data.starts_with("select_bot:") {
-            let bot_id = data.strip_prefix("select_bot:").unwrap_or("").to_string();
-            let user_id = q.from.id.to_string();
+    if let Some(data) = &q.data
+        && data.starts_with("select_bot:")
+    {
+        let bot_id = data.strip_prefix("select_bot:").unwrap_or("").to_string();
+        let user_id = q.from.id.to_string();
 
-            // Answer callback to remove loading state
-            bot.answer_callback_query(&q.id)
-                .text("✅ Bot selected!")
-                .await?;
+        // Answer callback to remove loading state
+        bot.answer_callback_query(&q.id)
+            .text("✅ Bot selected!")
+            .await?;
 
-            // Update bot context with selected bot_id
-            bot_context
-                .update(BotContext {
-                    selected_bot_id: Some(bot_id.clone()),
-                })
-                .await?;
+        // Update bot context with selected bot_id
+        bot_context
+            .update(BotContext {
+                selected_bot_id: Some(bot_id.clone()),
+            })
+            .await?;
 
-            let selected = deps
-                .list_bots_usecase
-                .execute(&user_id)
+        let selected = deps
+            .list_bots_usecase
+            .execute(&user_id)
+            .await
+            .ok()
+            .and_then(|bots| bots.into_iter().find(|b| b.id == bot_id));
+
+        let details = if let Some(b) = selected {
+            let runtime = deps
+                .get_bot_runtime_usecase
+                .execute(&user_id, &b.id)
                 .await
                 .ok()
-                .and_then(|bots| bots.into_iter().find(|b| b.id == bot_id));
+                .flatten();
+            let status = super::views::format_runtime_phase(runtime.as_ref().map(|r| &r.phase));
+            format!(
+                "🤖 Exchange: {}\n• Name: {}\n• ID: {}\n• Status: {}",
+                b.exchange.as_str().to_uppercase(),
+                b.name,
+                b.id,
+                status
+            )
+        } else {
+            format!("🤖 Bot ID: {bot_id}")
+        };
 
-            let details = if let Some(b) = selected {
-                let runtime = deps
-                    .get_bot_runtime_usecase
-                    .execute(&user_id, &b.id)
-                    .await
-                    .ok()
-                    .flatten();
-                let status = super::views::format_runtime_phase(runtime.as_ref().map(|r| &r.phase));
+        // Confirm to user, re-attaching the menu keyboard so the command
+        // buttons are available right after picking a bot from the inline list.
+        if let Some(Message { chat, .. }) = q.message {
+            bot.send_message(
+                chat.id,
                 format!(
-                    "🤖 Exchange: {}\n• Name: {}\n• ID: {}\n• Status: {}",
-                    b.exchange.as_str().to_uppercase(),
-                    b.name,
-                    b.id,
-                    status
-                )
-            } else {
-                format!("🤖 Bot ID: {bot_id}")
-            };
-
-            // Confirm to user, re-attaching the menu keyboard so the command
-            // buttons are available right after picking a bot from the inline list.
-            if let Some(Message { chat, .. }) = q.message {
-                bot.send_message(
-                    chat.id,
-                    format!(
-                        "✅ Bot selected!\n\n{details}\n\nYou can now use 'Run bot', 'Stop bot' and other operations."
-                    ),
-                )
-                .reply_markup(super::keyboards::main_menu_keyboard())
-                .await?;
-            }
+                    "✅ Bot selected!\n\n{details}\n\nYou can now use 'Run bot', 'Stop bot' and other operations."
+                ),
+            )
+            .reply_markup(super::keyboards::main_menu_keyboard())
+            .await?;
         }
     }
 
@@ -362,16 +362,16 @@ async fn handle_toggle_side(
                 .await?;
 
             // Re-render both toggles from the freshly saved config.
-            if let Ok(cfg) = deps.get_bot_config_usecase.execute(&user_id, &bot_id).await {
-                if let Some(Message { id, chat, .. }) = q.message {
-                    bot.edit_message_reply_markup(chat.id, id)
-                        .reply_markup(super::keyboards::strategy_sides_keyboard(
-                            cfg.side_enabled("long"),
-                            cfg.side_enabled("short"),
-                        ))
-                        .await
-                        .ok();
-                }
+            if let Ok(cfg) = deps.get_bot_config_usecase.execute(&user_id, &bot_id).await
+                && let Some(Message { id, chat, .. }) = q.message
+            {
+                bot.edit_message_reply_markup(chat.id, id)
+                    .reply_markup(super::keyboards::strategy_sides_keyboard(
+                        cfg.side_enabled("long"),
+                        cfg.side_enabled("short"),
+                    ))
+                    .await
+                    .ok();
             }
         }
         Err(e) => {

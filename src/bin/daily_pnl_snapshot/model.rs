@@ -57,10 +57,10 @@ impl BotState {
     /// day (a re-fetched partial day is authoritative) and extending with new
     /// ones. Seeds `first_pre_balance` from the new data only when empty.
     pub fn merge(&mut self, new_days: Vec<DayAgg>, new_first_pre: Option<f64>) {
-        if self.days.is_empty() {
-            if let Some(fp) = new_first_pre {
-                self.first_pre_balance = fp;
-            }
+        if self.days.is_empty()
+            && let Some(fp) = new_first_pre
+        {
+            self.first_pre_balance = fp;
         }
         let mut map: BTreeMap<i64, DayAgg> = self.days.drain(..).map(|d| (d.day, d)).collect();
         for d in new_days {
