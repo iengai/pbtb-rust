@@ -85,6 +85,14 @@ jobs:
         run: |
           set -euo pipefail
           test -f artifact/bootstrap || { echo "bootstrap not produced by the build"; exit 1; }
+          # AL2023 ships glibc 2.34. A bootstrap linked against anything newer
+          # builds and packages cleanly and fails only on the first invocation,
+          # so the builder image's glibc is checked here rather than trusted.
+          MAX=$(readelf --version-info artifact/bootstrap | grep -oE 'GLIBC_2\.[0-9]+' | sort -V | tail -1)
+          echo "max required glibc symbol: ${MAX:-none}"
+          if [ -n "$MAX" ] && [ "$(printf '%s\nGLIBC_2.34\n' "$MAX" | sort -V | tail -1)" != "GLIBC_2.34" ]; then
+            echo "bootstrap requires $MAX, newer than AL2023's GLIBC_2.34"; exit 1
+          fi
           chmod +x artifact/bootstrap
           (cd artifact && zip -X -q ../out.zip bootstrap)
           echo "LOCAL_SHA=$(openssl dgst -sha256 -binary out.zip | base64)" >> "$GITHUB_ENV"
