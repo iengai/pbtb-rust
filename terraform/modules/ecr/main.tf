@@ -26,29 +26,33 @@ resource "aws_ecr_lifecycle_policy" "this" {
 
   repository = aws_ecr_repository.this[each.key].name
 
-  policy = jsonencode({
-    rules = concat(
-      each.value.expire_untagged_after_days == null ? [] : [{
-        rulePriority = 1
-        description  = "Expire untagged images after ${each.value.expire_untagged_after_days} days"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = each.value.expire_untagged_after_days
-        }
-        action = { type = "expire" }
-      }],
-      each.value.keep_last_images == null ? [] : [{
-        rulePriority = 2
-        description  = "Keep the newest ${each.value.keep_last_images} images"
-        selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = each.value.keep_last_images
-        }
-        action = { type = "expire" }
-      }],
-    )
-  })
+  # The two rules have different shapes (`countUnit` belongs to the untagged
+  # rule only; ECR rejects it on an imageCountMoreThan rule), and putting both
+  # in one `concat`/list makes Terraform unify the element types, which turns
+  # every count into a string -- ECR then rejects the policy with "does not
+  # match any allowed primitive type (allowed: [integer])". Encoding each rule
+  # on its own keeps the numbers numbers.
+  policy = "{\"rules\":[${join(",", compact([
+    each.value.expire_untagged_after_days == null ? "" : jsonencode({
+      rulePriority = 1
+      description  = "Expire untagged images after ${each.value.expire_untagged_after_days} days"
+      selection = {
+        tagStatus   = "untagged"
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        countNumber = each.value.expire_untagged_after_days
+      }
+      action = { type = "expire" }
+    }),
+    each.value.keep_last_images == null ? "" : jsonencode({
+      rulePriority = 2
+      description  = "Keep the newest ${each.value.keep_last_images} images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = each.value.keep_last_images
+      }
+      action = { type = "expire" }
+    }),
+  ]))}]}"
 }
