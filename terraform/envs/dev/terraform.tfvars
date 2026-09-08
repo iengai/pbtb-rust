@@ -54,12 +54,25 @@ passivbot_engines = {
   # `rs` (/runtime <bot_id> rs). Enabled 2026-09-08: the image is in the
   # pb-runner ECR repo and the telebot + lambda binaries that parse `8rs` are
   # live (an older lambda binary given a table with this key fails at config
-  # load). Changing it needs the scoped apply of module.passivbot_task["8rs"]
-  # + the lambda + telebot base-env, then telebot-deploy (RUNBOOK "pb-runner
-  # runtime", follow the step order).
+  # load).
+  #
+  # `v810` is a MOVING tag, unlike every other line here, and that is the
+  # point: the passivbot images are cut once per upstream release, but
+  # pb-runner is our own code and ships fixes far more often. The tag names
+  # the passivbot VERSION LINE the image serves (v8.1.0); pb-runner's
+  # image-build workflow re-points it at each build, and ECS re-pulls it on
+  # every task start, so shipping a fix is a build plus a bot restart -- no
+  # apply here, no telebot-deploy. What still belongs in terraform is a new
+  # version line (a v8.2.0 runner: its own tag, its own entry).
+  #
+  # The cost is that this file no longer records which build is running.
+  # `pb-runner` logs `build=<git sha>` on its first line for that, and every
+  # build also keeps an immutable `<git sha>` tag to roll back to (RUNBOOK
+  # "pb-runner runtime").
+  #
   # 64 MB measured, not guessed: both rs bots sit at 16 MB RSS against the
   # 96 MB placeholder this line launched with, so 64 keeps 4x headroom.
-  "8rs" = { image_tag = "ca832b69b11314b7eda0565073b540e8a5543686", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
+  "8rs" = { image_tag = "v810", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
 }
 
 log_retention_days = 30
