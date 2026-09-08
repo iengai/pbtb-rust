@@ -7,9 +7,9 @@ name: lambda-deploy
 # (the function ignores source_code_hash drift; see terraform/modules/lambda/base).
 #
 # The binary is built through the SAME builder stage the devcontainer/telebot use
-# (.devcontainer/Dockerfile, FROM rust:1.89-bullseye -> glibc 2.31), keeping it
-# below AL2023's glibc 2.34. A plain `cargo build` on the ubuntu-24.04 runner
-# links against glibc 2.39 and could fail at runtime on the Lambda host.
+# (.devcontainer/Dockerfile, FROM rust:1.89-bookworm), which references no symbol
+# above GLIBC_2.34 — exactly the glibc AL2023 ships. A plain `cargo build` on the
+# ubuntu-24.04 runner links against glibc 2.39 and could fail on the Lambda host.
 #
 # Manual only: this updates code on the trading-control Lambda, so deploys are
 # deliberate (mirrors telebot-deploy).

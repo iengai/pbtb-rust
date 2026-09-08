@@ -81,7 +81,7 @@ config/wiring (but not its code — see below).
 `task_state_change_handler` ships code out-of-band via the `lambda-deploy` GitHub
 Actions workflow (manual `workflow_dispatch`), **not** Terraform. The workflow
 builds the bootstrap through the devcontainer's `lambda-export` Docker stage
-(`rust:1.89-bullseye`, glibc 2.31 < AL2023 2.34) and ships it with
+(`rust:1.89-bookworm`, no symbol above GLIBC_2.34 = AL2023's glibc) and ships it with
 `aws lambda update-function-code`. It never touches the env S3 state, the backend
 lock, or the NAT.
 

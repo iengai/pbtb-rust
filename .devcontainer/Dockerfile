@@ -1,11 +1,10 @@
 # syntax=docker/dockerfile:1.7-labs
 ######## Build ########
-FROM rust:1.89-bullseye AS builder
+FROM rust:1.89-bookworm AS builder
 # Only fresh CA certs. Every TLS stack in the tree is rustls (teloxide, reqwest,
-# the AWS SDK), so nothing links system OpenSSL; installing libssl-dev here only
-# upgraded the base image's libssl1.1 from bullseye-security, whose pool file
-# intermittently 404s from the CDN edge GitHub's runners use and broke the
-# lambda-deploy build three times in a row.
+# the AWS SDK), so nothing links system OpenSSL — do not add libssl-dev here: it
+# buys the build nothing and only drags in a security-suite package whose pool
+# file has broken lambda-deploy from the CDN edge GitHub's runners use.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -45,7 +44,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #
 # cmake/golang-go/nasm build aws-lc-sys (pulled in by the AWS SDK's TLS stack);
 # without them `cargo build`/`test` and the Lambda build fail in the container.
-FROM debian:bullseye-slim AS devcontainer
+FROM debian:bookworm-slim AS devcontainer
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       pkg-config \
@@ -61,7 +60,7 @@ RUN apt-get update \
 WORKDIR /app
 
 ######## Runtime ########
-FROM debian:bullseye-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -83,9 +82,10 @@ CMD ["/app/pbtb-rust"]
 
 ######## Lambda export ########
 # Emits ONLY the Lambda bootstrap binary so CI can extract it without a runtime
-# image. Built against the same `builder` stage (FROM rust:1.89-bullseye, glibc
-# 2.31) so the binary stays below AL2023's glibc 2.34 — building on the CI host's
-# newer glibc could link symbols the Lambda runtime lacks.
+# image. Built against the same `builder` stage (FROM rust:1.89-bookworm), which
+# references no symbol above GLIBC_2.34 — exactly the glibc AL2023 ships — so the
+# bootstrap resolves on the Lambda host. Building on the CI runner's own glibc
+# (2.39) would link symbols the Lambda runtime lacks.
 #
 #   docker build --target lambda-export \
 #     --build-arg BIN_NAME=task_state_change_handler \
