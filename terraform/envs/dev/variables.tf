@@ -138,3 +138,26 @@ variable "github_oidc_provider_arn" {
   type        = string
   default     = ""
 }
+# ---- Temporary standby NAT (maintenance-window egress) ----
+# Set both in terraform.tfvars, never with -var: every apply during the window
+# must agree on them, or a scoped apply silently routes egress back onto the NAT
+# it is busy destroying. Procedure: RUNBOOK.md, "Rebuilding the NAT without an
+# egress outage".
+
+variable "nat_standby_enabled" {
+  description = "Create the temporary standby NAT instance. false outside a maintenance window."
+  type        = bool
+  default     = false
+}
+
+variable "nat_standby_instance_type" {
+  description = "EC2 instance type for the standby NAT (packet forwarding only)"
+  type        = string
+  default     = "t4g.nano"
+}
+
+variable "nat_egress_active" {
+  description = "Which NAT carries the private default route and the EIP: 'primary' or 'standby'"
+  type        = string
+  default     = "primary"
+}

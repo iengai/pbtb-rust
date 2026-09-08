@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "main" {
-  bucket = "${var.project}-${var.env}-bot-configs"
+  bucket        = "${var.project}-${var.env}-bot-configs"
   force_destroy = false
 
   tags = merge(

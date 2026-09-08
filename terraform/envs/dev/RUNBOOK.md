@@ -29,7 +29,10 @@ window **all trading egress is blackholed** (the private route + EIP re-attach t
 the new instance in the same apply), and **telebot stays DOWN until the first
 `telebot-deploy` writes `/etc/telebot/telebot.env`.**
 
-Procedure (maintenance window):
+Procedure **without** a standby NAT — this is the fallback, and it costs the
+bots several minutes of blackholed egress. Prefer the standby procedure in the
+next section, which costs seconds instead.
+
 1. Pause/*quiesce* trading (stop bots; nothing should need egress).
 2. `terraform apply` (scoped if possible, e.g. `-target=module.network.aws_instance.nat`
    plus the `aws_ssm_parameter.telebot_base_env`). This rebuilds the NAT and
@@ -40,6 +43,142 @@ Procedure (maintenance window):
 
 > The **first** application of the config-decoupling refactor is exactly this:
 > it changes `user_data`, so it triggers one NAT rebuild. Treat it as the above.
+
+## Rebuilding the NAT without an egress outage (standby NAT)
+
+`terraform.tfvars` carries two switches that put a throwaway NAT in front of the
+rebuild:
+
+| Variable | Steady state | Purpose |
+|---|---|---|
+| `nat_standby_enabled` | `false` | Whether `module.network.aws_instance.nat_standby` exists (a `t4g.nano`, ~$0.0042/hr, billed only while it is up) |
+| `nat_egress_active` | `"primary"` | Which NAT carries the private default route **and** the EIP: `"primary"` or `"standby"` |
+
+The standby runs the plain `nat-userdata-al2023.sh` — NAT only, **no telebot, no
+app config** — so it never inherits the churn that forces the primary to be
+replaced. It is tagged `…-nat-standby`, deliberately not `nat-instance`, so the
+telebot-deploy role (which scopes `ssm:SendCommand` by `Name = nat-instance`)
+can never land a deploy on it.
+
+**Edit these in `terraform.tfvars`, never pass them with `-var`.** Every apply in
+the window has to agree on them; a scoped apply that forgets `-var
+nat_egress_active=standby` re-points the default route at the primary NAT that
+same apply is busy destroying — the exact outage this is meant to avoid.
+
+### What this does and does not cover
+
+- **Covered:** trading egress. The bots keep their route out for the whole
+  rebuild, through the same whitelisted address.
+- **Not covered:** telebot. It lives on the primary NAT and stays **down** from
+  the moment that instance is replaced until `telebot-deploy` writes
+  `/etc/telebot/telebot.env` on the new host. Auto-restart (the lambda) is
+  unaffected — it does not run on the NAT.
+- **Residual gap:** the exchange API keys are IP-whitelisted, so the EIP has to
+  move with the route. Moving it is a disassociate + associate, which leaves a
+  **few seconds** where egress exits via a non-whitelisted address and the
+  exchange rejects the call — passivbot retries through it. That happens twice
+  per window (out to the standby, back to the primary). Seconds of rejected
+  calls, versus minutes of a black hole.
+
+### Procedure
+
+1. **Bring the standby up, without touching the live path.** In
+   `terraform.tfvars` set `nat_standby_enabled = true`, leave
+   `nat_egress_active = "primary"`:
+   ```bash
+   AWS_PROFILE=dev terraform apply -target=module.network.aws_instance.nat_standby
+   ```
+   Expected: `1 to add, 0 to change, 0 to destroy`. Live traffic is untouched —
+   the route and the EIP have not moved.
+
+2. **Verify the standby actually forwards before trusting it with the bots.**
+   It is in the public subnet with a public IP, so SSM reaches it directly:
+   ```bash
+   STANDBY=$(terraform output -json network | jq -r .nat_standby_instance_id)
+   AWS_PROFILE=dev aws ssm send-command --region ap-northeast-1 \
+     --instance-ids "$STANDBY" --document-name AWS-RunShellScript \
+     --parameters 'commands=["cloud-init status --wait","sysctl net.ipv4.ip_forward","iptables -t nat -S POSTROUTING"]'
+   ```
+   Read the result with `aws ssm get-command-invocation --command-id <id>
+   --instance-id "$STANDBY"`.
+   **Do not proceed** unless `cloud-init status` is `done`, `ip_forward = 1`,
+   and `POSTROUTING` carries a `-j MASQUERADE` rule.
+
+3. **Flip egress onto the standby.** Set `nat_egress_active = "standby"`:
+   ```bash
+   AWS_PROFILE=dev terraform apply \
+     -target=module.network.aws_route.private_nat \
+     -target=module.network.aws_eip_association.nat
+   ```
+   Expected: the route is an **in-place** update (one atomic `ReplaceRoute`) and
+   the EIP association is replaced. This is the few-second gap.
+
+4. **Confirm the bots are out through the standby**, on the standby host:
+   `curl -s https://checkip.amazonaws.com` must return the EIP
+   (`terraform output -json network | jq -r .nat_eip_public_ip`), and
+   `iptables -t nat -L POSTROUTING -n -v` must show climbing counters — that is
+   the private subnet's traffic actually traversing it.
+
+5. **Now do the real NAT change.** The primary is rebuilt while the bots keep
+   trading through the standby:
+   ```bash
+   AWS_PROFILE=dev terraform apply \
+     -target=module.network.aws_instance.nat \
+     -target=aws_ssm_parameter.telebot_base_env
+   ```
+
+6. **Bring telebot back.** Wait for the new primary's cloud-init, then run the
+   **telebot-deploy** workflow (`tag=latest`, `passivbot_revisions=latest`).
+   Verify telebot responds in Telegram.
+
+7. **Flip back.** Set `nat_egress_active = "primary"` and re-run the step-3
+   apply. Same few-second gap; confirm the EIP is back on the primary
+   (`terraform output -json network`).
+
+8. **Destroy the standby — do not skip this.** Set
+   `nat_standby_enabled = false`:
+   ```bash
+   AWS_PROFILE=dev terraform apply -target=module.network.aws_instance.nat_standby
+   ```
+   Expected: `0 to add, 0 to change, 1 to destroy`. Commit the tfvars back to the
+   steady state (`false` / `"primary"`) so the next apply from a clean checkout
+   does not resurrect it — or, worse, find the route pointed at an instance that
+   no longer exists.
+
+### If the rebuild goes wrong
+
+Egress is already on the standby, so there is no rush: the bots are trading.
+Leave `nat_egress_active = "standby"` and fix the primary at your own pace. The
+standby is a `t4g.nano` running the same NAT rules, so it is a fine place to sit
+for hours — it just costs pennies and leaves telebot down.
+
+The one state to never leave behind is `nat_standby_enabled = false` while
+`nat_egress_active = "standby"`; the module rejects that combination at plan
+time rather than letting an apply delete the instance the default route points
+at.
+
+## Gateway endpoints: what does NOT go through the NAT
+
+`module.network` attaches S3 and DynamoDB **gateway** endpoints to the private
+route table. They are free, have no ENI, and are just prefix-list routes, so the
+private subnets reach those two services without touching the NAT at all. That
+covers bot config reads/writes, and -- because ECR serves image layers from S3
+in-region -- every task's image pull.
+
+What still needs the NAT: the exchange traffic, and the ECR / SSM / CloudWatch
+Logs **APIs**. Those are only available as interface endpoints, which are billed
+per hour per AZ, so they stay on the NAT.
+
+Two things to know before touching them:
+
+- **Adding or removing an endpoint rewrites the private route table.** In-flight
+  S3/DynamoDB connections break at that moment. Bots read their config at start,
+  so in practice this is a non-event -- but do not do it in the same apply as
+  anything else time-critical.
+- **No endpoint policy is set, so the default full-access policy applies. Do not
+  narrow it casually.** ECR image pulls resolve to S3 buckets owned by AWS, not
+  by this account; a policy scoped to the bot-config bucket would break every
+  task launch with an opaque pull error.
 
 ## Normal operations (no NAT impact)
 

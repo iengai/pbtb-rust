@@ -37,6 +37,11 @@ variable "tags" {
   default     = {}
 }
 
+variable "region" {
+  description = "AWS region, used to name the gateway endpoint services"
+  type        = string
+}
+
 variable "nat_ami" {
   type = string
 }
@@ -57,4 +62,40 @@ variable "nat_user_data" {
   description = "Override user-data for the NAT instance. Null = default NAT-only setup script."
   type        = string
   default     = null
+}
+
+# ---- Temporary standby NAT (maintenance-window egress) ----
+#
+# The primary NAT is the sole egress for all trading traffic AND the telebot
+# host, so any user_data/AMI change replaces it and blackholes egress for
+# minutes. These three variables let a throwaway NAT carry egress across that
+# window: bring it up, flip the route + EIP onto it, rebuild the primary, flip
+# back, destroy it. See terraform/envs/dev/RUNBOOK.md.
+
+variable "nat_standby_enabled" {
+  description = "Create the temporary standby NAT instance. Keep false outside a maintenance window -- it exists only to carry egress while the primary NAT is rebuilt."
+  type        = bool
+  default     = false
+}
+
+variable "nat_standby_instance_type" {
+  description = "EC2 instance type for the standby NAT. It only forwards packets (no telebot), so nano is enough."
+  type        = string
+  default     = "t4g.nano"
+}
+
+variable "nat_egress_active" {
+  description = "Which NAT carries the private subnets' default route and the EIP: 'primary' or 'standby'."
+  type        = string
+  default     = "primary"
+
+  validation {
+    condition     = contains(["primary", "standby"], var.nat_egress_active)
+    error_message = "nat_egress_active must be either 'primary' or 'standby'."
+  }
+
+  validation {
+    condition     = var.nat_egress_active != "standby" || var.nat_standby_enabled
+    error_message = "nat_egress_active = 'standby' requires nat_standby_enabled = true."
+  }
 }

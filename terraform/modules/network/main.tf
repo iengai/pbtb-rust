@@ -80,7 +80,7 @@ resource "aws_route" "public_default_to_igw" {
 
 # associate public subnet to route table
 resource "aws_route_table_association" "public" {
-  count = length(aws_subnet.public)
+  count          = length(aws_subnet.public)
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
@@ -99,11 +99,56 @@ resource "aws_route_table" "private" {
 
 # associate private subnet to route table
 resource "aws_route_table_association" "private" {
-  count = length(aws_subnet.private)
+  count          = length(aws_subnet.private)
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
 
+
+# ---- Gateway VPC endpoints ----
+#
+# S3 and DynamoDB are the two services the private subnets talk to that AWS
+# offers as a *gateway* endpoint: free, no ENI, just prefix-list routes in the
+# route table. Attaching them takes that traffic off the NAT entirely -- bot
+# config reads/writes and, because ECR serves image layers from S3 in-region,
+# every image pull as well. What remains on the NAT is the exchange traffic and
+# the ECR/SSM/CloudWatch APIs (those are interface endpoints, which are billed
+# per hour per AZ and are not worth it here).
+#
+# Only the private route table is associated. The NAT host sits in the public
+# subnet and already reaches S3 and DynamoDB over the IGW at no cost, so routing
+# telebot through the endpoints would change its data path for no gain.
+#
+# No endpoint policy is set, so the default full-access policy applies. Do not
+# narrow it casually: ECR image pulls resolve to S3 buckets owned by AWS, and a
+# bucket-scoped policy here would break every task launch.
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id]
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-s3-gateway-endpoint"
+    }
+  )
+}
+
+resource "aws_vpc_endpoint" "dynamodb" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private.id]
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-dynamodb-gateway-endpoint"
+    }
+  )
+}
 
 # ---- Security groups ----
 resource "aws_security_group" "nat_sg" {
@@ -196,6 +241,56 @@ resource "aws_instance" "nat" {
   depends_on = [aws_internet_gateway.main]
 }
 
+# ---- Temporary standby NAT ----
+#
+# A throwaway egress path used only while the primary NAT is being replaced.
+# It runs the plain NAT bootstrap (no telebot, no app config), so its user_data
+# never changes with app churn and it can be created and destroyed freely.
+#
+# It carries the same instance profile as the primary so it is reachable over
+# SSM for verification, and it is deliberately NOT tagged `nat-instance`: the
+# telebot-deploy role scopes ssm:SendCommand by that exact tag, so a deploy can
+# never land on this host.
+resource "aws_instance" "nat_standby" {
+  count = var.nat_standby_enabled ? 1 : 0
+
+  ami                         = var.nat_ami
+  instance_type               = var.nat_standby_instance_type
+  subnet_id                   = aws_subnet.public[0].id
+  vpc_security_group_ids      = [aws_security_group.nat_sg.id]
+  associate_public_ip_address = true
+  source_dest_check           = false
+  iam_instance_profile        = var.nat_iam_instance_profile
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
+  user_data                   = file("${path.module}/nat-userdata-al2023.sh")
+  user_data_replace_on_change = true
+
+  tags = merge(
+    var.tags,
+    {
+      Name = "${var.project}-${var.env}-nat-standby"
+      Role = "nat-standby"
+    }
+  )
+
+  depends_on = [aws_internet_gateway.main]
+}
+
+locals {
+  standby_active = var.nat_egress_active == "standby"
+
+  # Both the default route and the EIP follow this choice, so the egress IP the
+  # exchange sees stays the whitelisted one on whichever host is active.
+  active_nat_instance_id = local.standby_active ? one(aws_instance.nat_standby[*].id) : aws_instance.nat.id
+  active_nat_eni_id      = local.standby_active ? one(aws_instance.nat_standby[*].primary_network_interface_id) : aws_instance.nat.primary_network_interface_id
+}
+
 # elastic ip for nat
 resource "aws_eip" "nat" {
   domain = "vpc"
@@ -208,16 +303,24 @@ resource "aws_eip" "nat" {
   )
 }
 
+# The exchange API keys are IP-whitelisted, so the EIP moves with the route:
+# whichever NAT is active must present the whitelisted address. Changing
+# instance_id replaces the association (disassociate, then associate), which is
+# the few-second window where egress leaves through an unwhitelisted address --
+# allow_reassociation is deliberately left unset, since it is ForceNew and would
+# make the very next apply replace this association for nothing.
 resource "aws_eip_association" "nat" {
   allocation_id = aws_eip.nat.id
-  instance_id   = aws_instance.nat.id
+  instance_id   = local.active_nat_instance_id
 }
 
+# Changing network_interface_id is an in-place ReplaceRoute -- one atomic API
+# call -- so the failover itself costs seconds, not the minutes an instance
+# replacement costs.
 resource "aws_route" "private_nat" {
   route_table_id         = aws_route_table.private.id
   destination_cidr_block = "0.0.0.0/0"
-  network_interface_id   = aws_instance.nat.primary_network_interface_id
-  depends_on = [aws_instance.nat]
+  network_interface_id   = local.active_nat_eni_id
 }
 #
 # resource "aws_instance" "ecs-test" {
