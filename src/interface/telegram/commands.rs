@@ -189,6 +189,9 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
     }
 
     let Some(runtime) = runtime else {
+        // The interface reaches bots only through use cases and none returns a
+        // single bot, so this is the same list-and-find every other single-bot
+        // read in this module does (see `/start`).
         return match deps.list_bots_usecase.execute(user_id).await {
             Ok(bots) => match bots.iter().find(|b| b.id == bot_id) {
                 Some(b) => format!(
@@ -209,7 +212,7 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
         .execute(user_id, bot_id, runtime)
         .await
     {
-        Ok(SetRuntimeOutcome::Updated { previous, runtime }) if previous == runtime => format!(
+        Ok(SetRuntimeOutcome::Unchanged { runtime }) => format!(
             "⚙️ Bot {bot_id} already runs on {}.",
             super::views::format_bot_runtime(runtime)
         ),
