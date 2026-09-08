@@ -20,6 +20,12 @@ use crate::bybit::LedgerEntry;
 const DAY_S: i64 = 86_400;
 const DAY_MS: i64 = 86_400_000;
 
+/// A deposit at least this many times the balance it lands on is not a top-up:
+/// whatever survived is a rounding error beside the new capital. Calibrated on
+/// the live accounts — the largest genuine top-up is ~14x the balance it joins,
+/// the smallest post-wipeout re-funding ~42x.
+const REVIVE_RATIO: f64 = 20.0;
+
 /// A stable, opaque public key for a bot, derived from its IMMUTABLE id — never
 /// the display name (that changes) and never the raw id (it stays private in the
 /// state object). The artifact is keyed by this, so a rename never orphans a
@@ -78,6 +84,15 @@ pub struct DailyPoint {
     pub return_pct: f64,
 }
 
+/// The return index over a bot's history, plus the days on which it restarted.
+#[derive(Debug, Clone, Default)]
+pub struct ReturnSeries {
+    pub points: Vec<DailyPoint>,
+    /// Timestamps where the index restarts at 100. The capital before such a
+    /// day bears no relation to the capital after it.
+    pub capital_resets: Vec<i64>,
+}
+
 /// A marker the chart draws to show when the bot switched config.
 #[derive(Debug, Clone, Serialize)]
 pub struct SwitchMarker {
@@ -97,6 +112,8 @@ pub struct BotReturnSeries {
     pub current_return_pct: f64,
     pub points: Vec<DailyPoint>,
     pub config_switches: Vec<SwitchMarker>,
+    /// Days the index restarted; the chart never re-bases across one.
+    pub capital_resets: Vec<i64>,
 }
 
 impl BotReturnSeries {
@@ -104,10 +121,14 @@ impl BotReturnSeries {
         id: &str,
         name: &str,
         exchange: &str,
-        points: Vec<DailyPoint>,
+        series: ReturnSeries,
         switches: &[ConfigSwitchEvent],
         generated_at: i64,
     ) -> Self {
+        let ReturnSeries {
+            points,
+            capital_resets,
+        } = series;
         let current_return_pct = points.last().map(|p| p.return_pct).unwrap_or(0.0);
         let config_switches = switches
             .iter()
@@ -124,6 +145,7 @@ impl BotReturnSeries {
             current_return_pct,
             points,
             config_switches,
+            capital_resets,
         }
     }
 }
@@ -190,22 +212,58 @@ pub fn aggregate(ledger: &[LedgerEntry]) -> (Vec<DayAgg>, Option<f64>) {
 /// day's return is realized PnL over the balance at the start of the day (the
 /// previous day's close, or `first_pre_balance` on day 0), compounded. A
 /// non-positive start balance yields a flat day (no div-by-zero / blow-up).
-pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> Vec<DailyPoint> {
+///
+/// A multiplicative chain cannot climb back out of zero, so an account that is
+/// wiped out and then re-funded would read −100% for the rest of its life. A
+/// re-funding therefore opens a new capital era: the index restarts at 100 and
+/// the day is recorded in `capital_resets`. The stake before such a day and the
+/// stake after it are different money; nothing may be compounded across one.
+pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
     let mut prev_end: Option<f64> = None;
     let mut idx = 100.0_f64;
-    let mut out = Vec::with_capacity(days.len());
+    let mut points = Vec::with_capacity(days.len());
+    let mut capital_resets = Vec::new();
+
     for d in days {
         let start = prev_end.unwrap_or(first_pre_balance);
+        let ts = d.day * DAY_S;
+        prev_end = Some(d.end_balance);
+
+        // `aggregate` keeps transfers out of `realized`, so whatever else moved
+        // the balance that day is capital flowing in or out.
+        let flow = d.end_balance - start - d.realized;
+        if flow > 0.0 && d.end_balance > 0.0 && (start <= 0.0 || flow >= REVIVE_RATIO * start) {
+            // The day's own PnL is dropped: it was earned on the dust that the
+            // deposit replaced, and there is no base to measure it against.
+            idx = 100.0;
+            capital_resets.push(ts);
+            points.push(DailyPoint {
+                ts,
+                index: 100.0,
+                return_pct: 0.0,
+            });
+            continue;
+        }
+
         let dr = if start > 0.0 { d.realized / start } else { 0.0 };
-        idx *= 1.0 + dr;
-        out.push(DailyPoint {
-            ts: d.day * DAY_S,
+        // A day that loses the whole starting balance ends at zero; letting the
+        // factor go negative would flip the sign of every day after it.
+        idx = if 1.0 + dr > 0.0 {
+            idx * (1.0 + dr)
+        } else {
+            0.0
+        };
+        points.push(DailyPoint {
+            ts,
             index: round4(idx),
             return_pct: round4(idx - 100.0),
         });
-        prev_end = Some(d.end_balance);
     }
-    out
+
+    ReturnSeries {
+        points,
+        capital_resets,
+    }
 }
 
 #[cfg(test)]
@@ -233,7 +291,7 @@ mod tests {
         ];
         let (aggs, first_pre) = aggregate(&ledger);
         assert_eq!(first_pre, Some(1000.0));
-        let pts = compute_points(&aggs, first_pre.unwrap());
+        let pts = compute_points(&aggs, first_pre.unwrap()).points;
         assert_eq!(pts.len(), 2);
         assert!((pts[0].return_pct - 0.5).abs() < 1e-6); // 5/1000
         assert!((pts[1].index - 102.5).abs() < 1e-6); // 100.5 * (1 + 20/1005)
@@ -249,7 +307,7 @@ mod tests {
             mk(2 * DAY_MS, -15.0, 1015.0),
         ];
         let (full_aggs, full_pre) = aggregate(&full);
-        let one_shot = compute_points(&full_aggs, full_pre.unwrap());
+        let one_shot = compute_points(&full_aggs, full_pre.unwrap()).points;
 
         // Incremental: first two days, then merge day 2 + 3 (re-fetching day 1).
         let (a1, p1) = aggregate(&full[..2]);
@@ -257,13 +315,58 @@ mod tests {
         state.merge(a1, p1);
         let (a2, p2) = aggregate(&full[1..]); // overlaps day 1
         state.merge(a2, p2);
-        let incremental = compute_points(&state.days, state.first_pre_balance);
+        let incremental = compute_points(&state.days, state.first_pre_balance).points;
 
         assert_eq!(incremental.len(), one_shot.len());
         for (a, b) in incremental.iter().zip(one_shot.iter()) {
             assert_eq!(a.ts, b.ts);
             assert!((a.index - b.index).abs() < 1e-9, "index mismatch");
         }
+    }
+
+    fn agg(day: i64, realized: f64, end_balance: f64) -> DayAgg {
+        DayAgg {
+            day,
+            realized,
+            end_balance,
+        }
+    }
+
+    #[test]
+    fn refunding_a_wiped_account_starts_a_new_era() {
+        // 1000 traded to dust, then re-funded with 100 and up 10% on that stake.
+        let days = vec![
+            agg(0, 0.0, 1000.0),
+            agg(1, -999.99, 0.01),
+            agg(2, 0.0, 100.01),
+            agg(3, 10.0, 110.01),
+        ];
+        let s = compute_points(&days, 1000.0);
+        assert_eq!(s.capital_resets, vec![2 * DAY_S]);
+        assert_eq!(s.points[2].index, 100.0);
+        assert!((s.points[3].return_pct - 9.999).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_top_up_onto_a_live_balance_keeps_the_era() {
+        // +9000 onto a working 1000 is a deposit, not a revival: TWR already
+        // excludes it, and the day's 1% return must survive intact.
+        let days = vec![agg(0, 0.0, 1000.0), agg(1, 10.0, 10_010.0)];
+        let s = compute_points(&days, 1000.0);
+        assert!(s.capital_resets.is_empty());
+        assert!((s.points[1].return_pct - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_loss_past_the_starting_balance_stops_at_zero() {
+        let days = vec![
+            agg(0, 0.0, 100.0),
+            agg(1, -150.0, -50.0),
+            agg(2, 0.0, -50.0),
+        ];
+        let s = compute_points(&days, 100.0);
+        assert_eq!(s.points[1].index, 0.0);
+        assert_eq!(s.points[2].index, 0.0);
     }
 
     #[test]

@@ -123,9 +123,25 @@ function draw() {
     if (win.length < 2) win = all.slice(-2); // window shorter than history: show what we have
   }
 
+  // A capital reset separates two unrelated stakes: the account was wiped out
+  // and re-funded, and the index restarts at 100 there. Re-basing across one
+  // would report the deposit as a return, so the window shows the era it ends
+  // in — never a curve stitched from before and after.
+  const reset = (s.capital_resets || []).filter((t) => t >= win[0].ts && t <= lastTs).pop();
+  if (reset != null) win = win.filter((p) => p.ts >= reset);
+
+  if (win.length < 2) {
+    statsEl.hidden = true;
+    $("footer").innerHTML = "";
+    $("chart").innerHTML =
+      `<div class="msg">The account was re-funded on ${fmtDate(reset)} — not enough data since then to plot.` +
+      `<br><span class="hint">Everything before that date was earned on capital that no longer exists.</span></div>`;
+    return;
+  }
+
   // Re-base the cumulative index to the window start.
   const base = win[0].index;
-  const label = range.days == null ? "Total" : range.k;
+  const label = reset != null ? "Since re-funding" : range.days == null ? "Total" : range.k;
 
   // Nothing left to measure against: the account was already at zero when this
   // window opened. Any percentage here would be invented.
@@ -152,8 +168,12 @@ function draw() {
     .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`)
     .join("");
 
+  const era =
+    reset != null
+      ? ` · index restarted ${fmtDate(reset)}, when the wiped account was re-funded`
+      : "";
   $("footer").innerHTML = s.generated_at
-    ? `${s.exchange || "bybit"} · ${view.length} days shown · time-weighted, deposit-adjusted · updated ${fmtDate(s.generated_at)} UTC`
+    ? `${s.exchange || "bybit"} · ${view.length} days shown · time-weighted, deposit-adjusted${era} · updated ${fmtDate(s.generated_at)} UTC`
     : "";
 
   const switches = (s.config_switches || []).filter(
