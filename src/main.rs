@@ -34,10 +34,10 @@ async fn main() -> anyhow::Result<()> {
         EngineTaskDefinitions::parse(&td_by_engine).context("APP__ECS__TD_PASSIVBOT_BY_ENGINE")?;
     let container_name = configs.ecs.td_passivbot_container_name.clone();
     // The Telegram users allowed to reach any handler; an empty list fails startup.
-    let allowed_user_ids = interface::telegram::middlewares::parse_allowed_user_ids(
-        &configs.telegram.allowed_user_ids,
-    )
-    .context("APP__TELEGRAM__ALLOWED_USER_IDS")?;
+    let allowed_user_ids = configs
+        .telegram
+        .allowlist()
+        .context("APP__TELEGRAM__ALLOWED_USER_IDS")?;
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));

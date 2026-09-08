@@ -1,5 +1,4 @@
 // Rust
-use anyhow::bail;
 use std::collections::HashSet;
 use teloxide::prelude::*;
 use teloxide::types::{UpdateKind, UserId};
@@ -33,29 +32,6 @@ pub fn install() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
             _ => log::info!("update {} (other kind) chat={chat:?}", u.id),
         }
     }))
-}
-
-/// The Telegram user ids allowed to use this bot, from the comma-separated
-/// `APP__TELEGRAM__ALLOWED_USER_IDS`.
-///
-/// An empty list fails startup instead of admitting everyone, the same way a bad
-/// engine table does (`EngineTaskDefinitions::parse`): a missing allowlist is a
-/// deploy mistake, and failing here makes it one loud failure rather than a bot
-/// silently open to whoever finds it — which would let a stranger create a
-/// tenant, bind exchange keys and run live tasks on this account's ECS capacity.
-pub fn parse_allowed_user_ids(raw: &str) -> anyhow::Result<HashSet<String>> {
-    let ids: HashSet<String> = raw
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if ids.is_empty() {
-        bail!(
-            "allowlist is empty; set it to the comma-separated Telegram user ids that may use this bot"
-        );
-    }
-    Ok(ids)
 }
 
 /// Terminates every update whose sender is not on the allowlist, before it can
@@ -103,7 +79,7 @@ mod tests {
     use super::*;
 
     fn allowlist(ids: &str) -> HashSet<String> {
-        parse_allowed_user_ids(ids).expect("non-empty allowlist")
+        ids.split(',').map(str::to_owned).collect()
     }
 
     #[test]
@@ -122,19 +98,5 @@ mod tests {
     #[test]
     fn update_without_sender_is_rejected() {
         assert!(!is_allowed(&allowlist("5351347639"), None));
-    }
-
-    #[test]
-    fn ids_are_split_and_trimmed() {
-        assert_eq!(
-            allowlist(" 1 , 2,3 ,"),
-            HashSet::from(["1".into(), "2".into(), "3".into()])
-        );
-    }
-
-    #[test]
-    fn blank_allowlist_is_a_startup_error() {
-        assert!(parse_allowed_user_ids("").is_err());
-        assert!(parse_allowed_user_ids(" , ").is_err());
     }
 }
