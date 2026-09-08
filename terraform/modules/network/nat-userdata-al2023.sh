@@ -79,3 +79,15 @@ EOF
 systemctl daemon-reload
 systemctl enable nat-setup.service
 systemctl start nat-setup.service
+
+
+#########################################################
+# 4) Turn off the ECS agent this AMI ships enabled
+#########################################################
+# The AMI is the ECS-optimized AL2023 arm64 image, picked for its ready Docker
+# setup, but this box is a NAT/telebot host and never receives an ECS task. The
+# agent it starts by default registers into the `default` cluster, the instance
+# role has no ecs:RegisterContainerInstance, and systemd restarts it forever on
+# that terminal error -- a permanent crash loop holding memory on a t4g.micro
+# and burying real container failures in `docker ps -a`.
+systemctl disable --now ecs || true
