@@ -46,6 +46,16 @@ next section, which costs seconds instead.
 
 ## Rebuilding the NAT without an egress outage (standby NAT)
 
+**Run it with `python scripts/ops/nat_rebuild.py`.** That script is the eight
+steps below, with every check between them enforced instead of eyeballed: each
+apply is planned to a file, the plan's resource actions are compared against
+exactly what that step is allowed to do, and only the checked plan is applied. A
+mismatch aborts before anything is touched. `--dry-run` rehearses the preflight
+and the first plan; `--from <n>` resumes after an abort.
+
+Read the rest of this section anyway. The script encodes the procedure, not the
+reasoning, and an abort hands the window back to you at whatever step failed.
+
 `terraform.tfvars` carries two switches that put a throwaway NAT in front of the
 rebuild:
 
