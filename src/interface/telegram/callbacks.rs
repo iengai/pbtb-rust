@@ -4,6 +4,8 @@ use super::{
     states::{BotContext, DialogueState},
     types,
 };
+use crate::domain::engine::Runtime;
+use crate::usecase::SetRuntimeOutcome;
 use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
 use teloxide::types::CallbackQuery;
@@ -47,6 +49,12 @@ async fn handle_callback(
     // Check if this is a strategy-side toggle callback
     if data.starts_with("toggle_side:") {
         handle_toggle_side(bot, q, deps, bot_context).await?;
+        return Ok(());
+    }
+
+    // Picking the image the selected bot launches on.
+    if data.starts_with("set_runtime:") {
+        handle_set_runtime(bot, q, deps, bot_context).await?;
         return Ok(());
     }
 
@@ -369,6 +377,93 @@ async fn handle_toggle_side(
                 .show_alert(true)
                 .await?;
         }
+    }
+
+    Ok(())
+}
+
+/// Handle a runtime pick callback (`set_runtime:py` / `set_runtime:rs`).
+/// Sets the selected bot's runtime through the same use case `/runtime` uses,
+/// then re-renders the keyboard so the marked option is what was stored — a
+/// refused switch (no image for the bot's line on that runtime) leaves the
+/// marks where they were, matching the alert the user just read.
+async fn handle_set_runtime(
+    bot: Bot,
+    q: CallbackQuery,
+    deps: Deps,
+    bot_context: MyBotContext,
+) -> anyhow::Result<()> {
+    let Some(runtime) = q
+        .data
+        .as_deref()
+        .and_then(|d| d.strip_prefix("set_runtime:"))
+        .and_then(|s| s.parse::<Runtime>().ok())
+    else {
+        bot.answer_callback_query(&q.id)
+            .text("❌ Unknown runtime")
+            .show_alert(true)
+            .await?;
+        return Ok(());
+    };
+    let user_id = q.from.id.to_string();
+
+    let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
+        Some(id) => id,
+        None => {
+            bot.answer_callback_query(&q.id)
+                .text("❌ No bot selected")
+                .show_alert(true)
+                .await?;
+            return Ok(());
+        }
+    };
+
+    let stored = match deps
+        .set_bot_runtime_usecase
+        .execute(&user_id, &bot_id, runtime)
+        .await
+    {
+        Ok(SetRuntimeOutcome::Updated { previous, runtime }) => {
+            bot.answer_callback_query(&q.id)
+                .text(format!(
+                    "{previous} → {runtime} — applies on next 'Run bot'"
+                ))
+                .await?;
+            Some(runtime)
+        }
+        Ok(SetRuntimeOutcome::Unchanged { runtime }) => {
+            bot.answer_callback_query(&q.id)
+                .text(format!("Already on {runtime}"))
+                .await?;
+            Some(runtime)
+        }
+        Ok(SetRuntimeOutcome::BotNotFound) => {
+            bot.answer_callback_query(&q.id)
+                .text(format!("❌ Bot {bot_id} not found"))
+                .show_alert(true)
+                .await?;
+            None
+        }
+        Err(e) => {
+            bot.answer_callback_query(&q.id)
+                .text(redact("changing the runtime", &e))
+                .show_alert(true)
+                .await?;
+            // The tap was refused, so re-read rather than assume: the marks must
+            // keep showing the runtime the bot is actually on.
+            super::find_own_bot(&deps, &user_id, &bot_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|b| b.runtime)
+        }
+    };
+
+    if let (Some(stored), Some(Message { id, chat, .. })) = (stored, q.message) {
+        bot.edit_message_reply_markup(chat.id, id)
+            .reply_markup(super::keyboards::runtime_keyboard(stored))
+            .await
+            .ok();
     }
 
     Ok(())

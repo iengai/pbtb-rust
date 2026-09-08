@@ -1,4 +1,5 @@
 // Rust
+use crate::domain::engine::Runtime;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
@@ -22,6 +23,7 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
             KeyboardButton::new("Delete API key"),
             KeyboardButton::new("List"),
             KeyboardButton::new("Sides"),
+            KeyboardButton::new("Runtime"),
         ],
     ])
     .resize_keyboard(true)
@@ -45,6 +47,21 @@ pub(crate) fn strategy_sides_keyboard(
             "toggle_side:short",
         )],
     ])
+}
+
+/// Inline keyboard to pick which image a bot launches on. The bot's current
+/// choice is marked; tapping the other one switches it (callback
+/// `set_runtime:<py|rs>`). Both options are always offered — a line with no
+/// image for the tapped runtime is refused by the use case with a message that
+/// names it, which is more use than a button that is silently missing.
+pub(crate) fn runtime_keyboard(current: Runtime) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(Runtime::ALL.map(|rt| {
+        let mark = if rt == current { "🟢" } else { "⚪" };
+        vec![InlineKeyboardButton::callback(
+            format!("{mark} {} — {}", rt, rt.image_label()),
+            format!("set_runtime:{rt}"),
+        )]
+    }))
 }
 
 /// Create inline keyboard for bot list. Each button leads with the bot's OBSERVED

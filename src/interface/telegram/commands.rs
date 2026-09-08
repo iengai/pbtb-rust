@@ -174,7 +174,8 @@ async fn dispatch_command(
 const RUNTIME_USAGE: &str = "Usage: /runtime <bot_id> [py|rs]\n\n\
     • py — passivbot (Python), the default\n\
     • rs — pb-runner (Rust)\n\n\
-    The bot must be one of yours (see /list). A change applies on the next 'Run bot'.";
+    The bot must be one of yours (see /list). A change applies on the next 'Run bot'.\n\
+    The 'Runtime' menu button does the same thing for the selected bot.";
 
 /// `/runtime` handler body. The bot is looked up under the caller's own
 /// Telegram id, so a user can only ever read or move their own bots.
@@ -189,17 +190,12 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
     }
 
     let Some(runtime) = runtime else {
-        // The interface reaches bots only through use cases and none returns a
-        // single bot, so this is the same list-and-find every other single-bot
-        // read in this module does (see `/start`).
-        return match deps.list_bots_usecase.execute(user_id).await {
-            Ok(bots) => match bots.iter().find(|b| b.id == bot_id) {
-                Some(b) => format!(
-                    "⚙️ Bot {bot_id} runtime: {}",
-                    super::views::format_bot_runtime(b.runtime)
-                ),
-                None => format!("❌ Bot {bot_id} not found."),
-            },
+        return match super::find_own_bot(deps, user_id, bot_id).await {
+            Ok(Some(b)) => format!(
+                "⚙️ Bot {bot_id} runtime: {}",
+                super::views::format_bot_runtime(b.runtime)
+            ),
+            Ok(None) => format!("❌ Bot {bot_id} not found."),
             Err(e) => redact("fetching bots", &e),
         };
     };

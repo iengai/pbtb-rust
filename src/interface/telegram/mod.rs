@@ -12,9 +12,27 @@ pub mod views;
 
 // Dependencies aggregation for handlers
 use crate::domain::bot::Bot;
+use crate::domain::error::DomainError;
 use crate::domain::runtime::RuntimePhase;
 use crate::usecase::*;
 use std::sync::Arc;
+
+/// One of the caller's own bots by id. Every per-bot panel resolves the bot
+/// under the Telegram user's own id, so a user can only ever read or change
+/// their own bots; an id that is not theirs is indistinguishable from one that
+/// does not exist.
+pub(crate) async fn find_own_bot(
+    deps: &Deps,
+    user_id: &str,
+    bot_id: &str,
+) -> Result<Option<Bot>, DomainError> {
+    Ok(deps
+        .list_bots_usecase
+        .execute(user_id)
+        .await?
+        .into_iter()
+        .find(|b| b.id == bot_id))
+}
 
 /// Pair each bot with its OBSERVED runtime phase (for list buttons / status
 /// lines). One runtime read per bot; phase is `None` when no record exists.

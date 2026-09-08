@@ -436,6 +436,57 @@ async fn handle_start_state(
                     }
                 }
             }
+            "Runtime" => {
+                let ctx = bot_context.get().await?.unwrap_or_default();
+
+                let bot_id = match ctx.selected_bot_id.as_ref() {
+                    Some(id) => id,
+                    None => {
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ No bot selected. Please use 'List' to select a bot first.",
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                };
+
+                let user_id = msg
+                    .from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // The panel needs only the bot row, not its config: a bot with no
+                // config applied still has a runtime, and picking one before the
+                // first template is legitimate.
+                match super::find_own_bot(&deps, &user_id, bot_id).await {
+                    Ok(Some(b)) => {
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "⚙️ Runtime\n\n\
+                                🤖 Bot: {bot_id}\n\
+                                📦 Current: {}\n\n\
+                                Tap an image to switch to it.\n\
+                                Both run the same engine line — only the binary differs.\n\
+                                ⚠️ Applies on the next 'Run bot'. A running task keeps \
+                                its current image until it is stopped and started again.",
+                                super::views::format_bot_runtime(b.runtime)
+                            ),
+                        )
+                        .reply_markup(super::keyboards::runtime_keyboard(b.runtime))
+                        .await?;
+                    }
+                    Ok(None) => {
+                        bot.send_message(msg.chat.id, format!("❌ Bot {bot_id} not found."))
+                            .await?;
+                    }
+                    Err(e) => {
+                        bot.send_message(msg.chat.id, redact("fetching bots", &e))
+                            .await?;
+                    }
+                }
+            }
             "Unstuck" => {
                 bot.send_message(msg.chat.id, "🔧 Unstuck operation... (Feature coming soon)")
                     .reply_markup(super::keyboards::main_menu_keyboard())
