@@ -71,12 +71,19 @@ TELEBOT_TOKEN_PARAM="$(val TELEBOT_TOKEN_PARAM)"
 TELEBOT_MEMORY="$(val TELEBOT_MEMORY)"
 
 # Container env = APP__*/RUST_LOG only (exclude the TELEBOT_* host-orchestration
-# vars). Written to tmpfs and refreshed each start; docker parses it literally.
+# vars) plus the token. Written to tmpfs and refreshed each start; docker parses
+# it literally.
+#
+# The token is fetched at runtime and goes in this file rather than a
+# `docker run -e` argument, because an argument is world-readable through
+# /proc/<pid>/cmdline to every user on the host. /run is tmpfs and this
+# directory is mode 700, so neither form ever reaches disk.
 install -d -m 700 /run/telebot
-grep -E '^(APP__|RUST_LOG=)' "$ENV_FILE" > /run/telebot/container.env
-
-# Token is fetched at runtime so it is never persisted to disk / the env file.
-TELOXIDE_TOKEN="$(aws ssm get-parameter --name "$TELEBOT_TOKEN_PARAM" --with-decryption --region "$TELEBOT_REGION" --query 'Parameter.Value' --output text)"
+install -m 600 /dev/null /run/telebot/container.env
+{
+  grep -E '^(APP__|RUST_LOG=)' "$ENV_FILE"
+  printf 'TELOXIDE_TOKEN=%s\n' "$(aws ssm get-parameter --name "$TELEBOT_TOKEN_PARAM" --with-decryption --region "$TELEBOT_REGION" --query 'Parameter.Value' --output text)"
+} > /run/telebot/container.env
 
 aws ecr get-login-password --region "$TELEBOT_REGION" | docker login --username AWS --password-stdin "$TELEBOT_ECR_REGISTRY"
 docker pull "$TELEBOT_IMAGE"
@@ -86,7 +93,6 @@ exec docker run --rm --name telebot \
   --memory="$TELEBOT_MEMORY" --memory-swap="$TELEBOT_MEMORY" \
   --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 \
   --env-file /run/telebot/container.env \
-  -e TELOXIDE_TOKEN="$TELOXIDE_TOKEN" \
   "$TELEBOT_IMAGE"
 SCRIPT
 chmod +x /usr/local/bin/run-telebot.sh
