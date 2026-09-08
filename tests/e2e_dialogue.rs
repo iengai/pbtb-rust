@@ -9,6 +9,7 @@ mod common;
 
 use common::telegram::{USER_ID, callback, group_message, text_message};
 use common::{Harness, NOW};
+use pbtb_rust::domain::IdentityRepository;
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
@@ -341,5 +342,37 @@ async fn the_link_button_refuses_to_post_a_personal_url_into_a_group() {
     assert!(
         wire.contains("private"),
         "and the reply should say where to ask instead: {wire}"
+    );
+}
+
+#[tokio::test]
+async fn unlink_releases_the_callers_own_links_and_nobody_elses() {
+    let h = harness!();
+    h.given_link("workos", "sub-mine", &USER_ID.to_string())
+        .await;
+    h.given_link("workos", "sub-theirs", "999888777").await;
+
+    assert!(h.send(text_message(USER_ID, "/unlink")).await);
+
+    assert!(
+        h.transcript().await.contains("Released 1"),
+        "got: {}",
+        h.transcript().await
+    );
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    assert!(
+        identities
+            .find_link("workos", "sub-mine")
+            .await
+            .expect("find")
+            .is_none()
+    );
+    assert!(
+        identities
+            .find_link("workos", "sub-theirs")
+            .await
+            .expect("find")
+            .is_some(),
+        "another tenant's link is not the caller's to release"
     );
 }

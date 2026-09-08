@@ -120,6 +120,8 @@ async fn main() -> anyhow::Result<()> {
         clock.clone(),
         configs.link.url.trim(),
     ));
+    let identities: Arc<dyn domain::IdentityRepository> = bot_repository.clone();
+    let unlink_identities_usecase = Arc::new(UnlinkIdentitiesUseCase::new(identities));
 
     // Create use cases - ECS actuation (Run/Stop buttons -> RunTask/StopTask)
     // A launch is routed to the task definition registered for the engine line the
@@ -169,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         get_bot_runtime_usecase,
         // Account linking
         issue_link_ticket_usecase,
+        unlink_identities_usecase,
         // ECS actuation
         start_bot_usecase,
         stop_bot_usecase,

@@ -266,3 +266,98 @@ async fn link_rows_do_not_break_the_table_wide_scan() {
         .expect("a link must not break the daily snapshot for every tenant");
     assert!(all.iter().any(|b| b.id == "beta"));
 }
+
+#[tokio::test]
+async fn releasing_a_link_lets_its_owner_claim_the_identity() {
+    let repo = repo!();
+
+    repo.link(PROVIDER, "sub-release", &an_identity("u-wrong"))
+        .await
+        .expect("link");
+    // The way back from a link that went to the wrong place. Without it the
+    // rightful owner is refused forever.
+    assert!(
+        repo.unlink(PROVIDER, "sub-release", "u-wrong")
+            .await
+            .expect("unlink")
+    );
+
+    assert!(
+        repo.find_link(PROVIDER, "sub-release")
+            .await
+            .expect("find")
+            .is_none()
+    );
+    assert_eq!(
+        repo.link(PROVIDER, "sub-release", &an_identity("u-right"))
+            .await
+            .expect("link"),
+        LinkOutcome::Linked
+    );
+}
+
+#[tokio::test]
+async fn a_tenant_can_only_release_their_own_links() {
+    let repo = repo!();
+
+    repo.link(PROVIDER, "sub-mine", &an_identity("u-owner"))
+        .await
+        .expect("link");
+
+    // Otherwise releasing would be a way to take an identity off someone, and
+    // then claim it.
+    assert!(
+        !repo
+            .unlink(PROVIDER, "sub-mine", "u-thief")
+            .await
+            .expect("unlink"),
+        "a delete on someone else's link must fail, not succeed quietly"
+    );
+    assert_eq!(
+        repo.find_link(PROVIDER, "sub-mine")
+            .await
+            .expect("find")
+            .expect("still linked")
+            .user_id,
+        "u-owner"
+    );
+}
+
+#[tokio::test]
+async fn a_tenants_links_are_listed_from_their_own_partition() {
+    let repo = repo!();
+
+    for subject in ["sub-a", "sub-b"] {
+        repo.link(PROVIDER, subject, &an_identity("u-many"))
+            .await
+            .expect("link");
+    }
+    repo.link(PROVIDER, "sub-other", &an_identity("u-elsewhere"))
+        .await
+        .expect("link");
+
+    let mut links = repo.links_of("u-many").await.expect("list");
+    links.sort();
+    assert_eq!(
+        links,
+        vec![
+            (PROVIDER.to_string(), "sub-a".to_string()),
+            (PROVIDER.to_string(), "sub-b".to_string()),
+        ],
+        "another tenant's links are not this tenant's to see or release"
+    );
+}
+
+#[tokio::test]
+async fn releasing_leaves_nothing_in_the_tenants_own_listing() {
+    let repo = repo!();
+
+    repo.link(PROVIDER, "sub-clean", &an_identity("u-clean"))
+        .await
+        .expect("link");
+    repo.unlink(PROVIDER, "sub-clean", "u-clean")
+        .await
+        .expect("unlink");
+
+    assert!(repo.links_of("u-clean").await.expect("list").is_empty());
+}

@@ -27,6 +27,12 @@ pub enum Command {
     /// dialogue as plain text.
     #[command(description = "show or set a bot's runtime: /runtime <bot_id> [py|rs]")]
     Runtime(String),
+    /// The way back from a link that went to the wrong place — the wrong account
+    /// signed in, or someone else's link followed. Without it a link is
+    /// permanent, and the identity can never be claimed by whoever should hold
+    /// it.
+    #[command(description = "release every account linked to you")]
+    Unlink,
 }
 
 pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
@@ -104,6 +110,24 @@ async fn dispatch_command(
                 };
 
                 bot.send_message(msg.chat.id, welcome_msg)
+                    .reply_markup(keyboards::main_menu_keyboard())
+                    .await?;
+            }
+            Command::Unlink => {
+                let user_id = msg
+                    .from()
+                    .map(|user| user.id.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                let text = match deps.unlink_identities_usecase.execute(&user_id).await {
+                    Ok(0) => "🔗 No accounts are linked to you.".to_string(),
+                    Ok(n) => format!(
+                        "🔗 Released {n} linked account(s). Anything signing in with \
+                         them loses access; link again with the button."
+                    ),
+                    Err(e) => redact("releasing your linked accounts", &e),
+                };
+                bot.send_message(msg.chat.id, text)
                     .reply_markup(keyboards::main_menu_keyboard())
                     .await?;
             }

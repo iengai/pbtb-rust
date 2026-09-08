@@ -290,16 +290,18 @@ has one, the button says linking is not set up rather than producing a dead end.
 
 ### Unlinking
 
-There is no unlink path yet, and `ClaimedByAnother` is terminal: an identity
-bound to the wrong tenant stays there. Until there is one, the remedy is to
-delete both rows by hand — the identity row, and the tenant's own listing of it:
+`/unlink` in the bot releases every identity linked to the caller. It is the way
+back from a link that went to the wrong place — the wrong account signed in, or
+someone else's link followed — and without one a link is permanent: the identity
+can never be claimed by whoever should hold it, because `ClaimedByAnother` is
+terminal.
 
-```bash
-aws dynamodb delete-item --table-name scalable-cluster-dev-bots \
-  --key '{"pk":{"S":"identity#workos#<subject>"},"sk":{"S":"profile"}}'
-aws dynamodb delete-item --table-name scalable-cluster-dev-bots \
-  --key '{"pk":{"S":"user_id#<telegram id>"},"sk":{"S":"identity#workos#<subject>"}}'
-```
+Releasing is scoped to the caller's own links by a condition on the delete, so it
+is not a way to take an identity off someone else.
+
+A link written by hand needs both rows, or `/unlink` will not see it: the
+identity row above, and the tenant's own listing —
+`pk = user_id#<telegram id>`, `sk = identity#workos#<subject>`.
 
 Note that enabling the table's TTL is part of this and touches the live bots
 table. It is safe by inspection — no other row shape carries `expires_at` — but

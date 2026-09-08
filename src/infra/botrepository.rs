@@ -1171,6 +1171,79 @@ impl IdentityRepository for DynamoBotRepository {
 
         Ok(outcome)
     }
+
+    async fn links_of(&self, user_id: &str) -> Result<Vec<(String, String)>, DomainError> {
+        let result = self
+            .client
+            .query()
+            .table_name(&self.table_name)
+            .key_condition_expression("pk = :pk AND begins_with(sk, :prefix)")
+            .expression_attribute_values(":pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .expression_attribute_values(
+                ":prefix",
+                AttributeValue::S(IDENTITY_PK_PREFIX.to_string()),
+            )
+            .send()
+            .await
+            .map_err(|e| sdk_err("DynamoDB query failed", e))?;
+
+        Ok(result
+            .items()
+            .iter()
+            .filter_map(|item| item.get("sk").and_then(|v| v.as_s().ok()))
+            .filter_map(|sk| sk.strip_prefix(IDENTITY_PK_PREFIX))
+            // `provider#subject`, and a subject may itself contain `#`, so the
+            // split takes only the first one.
+            .filter_map(|rest| rest.split_once('#'))
+            .map(|(provider, subject)| (provider.to_string(), subject.to_string()))
+            .collect())
+    }
+
+    async fn unlink(
+        &self,
+        provider: &str,
+        subject: &str,
+        user_id: &str,
+    ) -> Result<bool, DomainError> {
+        // The identity row first: it is the one that grants access, so a fault
+        // between the two leaves only an unusable listing, which the next unlink
+        // clears. The condition is what scopes this to the tenant's own — a
+        // delete on someone else's link fails rather than succeeding quietly.
+        let deleted = self
+            .client
+            .delete_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(identity_pk(provider, subject)))
+            .key("sk", AttributeValue::S(IDENTITY_SK.to_string()))
+            .condition_expression("user_id = :user_id")
+            .expression_attribute_values(":user_id", AttributeValue::S(user_id.to_string()))
+            .send()
+            .await;
+
+        match deleted {
+            Ok(_) => {}
+            Err(SdkError::ServiceError(err))
+                if err.err().is_conditional_check_failed_exception() =>
+            {
+                return Ok(false);
+            }
+            Err(e) => return Err(sdk_err("DynamoDB delete_item failed", e)),
+        }
+
+        self.client
+            .delete_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
+            .key(
+                "sk",
+                AttributeValue::S(format!("{IDENTITY_PK_PREFIX}{provider}#{subject}")),
+            )
+            .send()
+            .await
+            .map_err(|e| sdk_err("DynamoDB delete_item failed", e))?;
+
+        Ok(true)
+    }
 }
 
 #[cfg(test)]

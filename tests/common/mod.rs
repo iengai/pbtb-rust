@@ -208,36 +208,23 @@ impl Harness {
             .expect("issue a ticket")
     }
 
-    /// Link an external identity to a tenant, the way a link flow would.
+    /// Link an external identity to a tenant, the way the flow does.
     ///
-    /// Written through the client rather than a repository method: reading the
-    /// link is a port, creating one is not — that belongs to a link flow that
-    /// does not exist yet, and inventing a write port now would be a guess at
-    /// its shape.
+    /// Through the repository rather than the client, so the fixture leaves both
+    /// rows a real link leaves — a test that set up only the identity row would
+    /// be exercising a state the flow never produces.
     pub async fn given_link(&self, provider: &str, subject: &str, user_id: &str) {
-        self._db
-            .client
-            .put_item()
-            .table_name(&self._db.table)
-            .item(
-                "pk",
-                aws_sdk_dynamodb::types::AttributeValue::S(format!(
-                    "identity#{provider}#{subject}"
-                )),
+        let identities: &dyn domain::IdentityRepository = self.bots.as_ref();
+        identities
+            .link(
+                provider,
+                subject,
+                &domain::LinkedIdentity {
+                    user_id: user_id.to_string(),
+                    email: None,
+                    linked_at: NOW,
+                },
             )
-            .item(
-                "sk",
-                aws_sdk_dynamodb::types::AttributeValue::S("profile".to_string()),
-            )
-            .item(
-                "user_id",
-                aws_sdk_dynamodb::types::AttributeValue::S(user_id.to_string()),
-            )
-            .item(
-                "linked_at",
-                aws_sdk_dynamodb::types::AttributeValue::N(NOW.to_string()),
-            )
-            .send()
             .await
             .expect("link the identity");
     }
@@ -330,6 +317,7 @@ fn build_deps(
     ));
 
     let link_tickets: Arc<dyn domain::identity::LinkTicketRepository> = bots.clone();
+    let identities: Arc<dyn domain::IdentityRepository> = bots.clone();
 
     Deps {
         issue_link_ticket_usecase: Arc::new(IssueLinkTicketUseCase::new(
@@ -337,6 +325,7 @@ fn build_deps(
             clock.clone(),
             LINK_URL,
         )),
+        unlink_identities_usecase: Arc::new(UnlinkIdentitiesUseCase::new(identities)),
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
         add_bot_usecase: Arc::new(AddBotUseCase::new(
             bots_dyn.clone(),

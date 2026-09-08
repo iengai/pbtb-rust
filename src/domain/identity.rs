@@ -67,6 +67,22 @@ pub trait IdentityRepository: Send + Sync {
         subject: &str,
         identity: &LinkedIdentity,
     ) -> Result<LinkOutcome, DomainError>;
+
+    /// The identities `user_id` holds, as `(provider, subject)` pairs.
+    async fn links_of(&self, user_id: &str) -> Result<Vec<(String, String)>, DomainError>;
+
+    /// Release an identity, and only one this tenant actually holds.
+    ///
+    /// Without this a link is permanent: an identity bound to the wrong tenant —
+    /// the wrong account signed in, or someone else's link followed — can never
+    /// be claimed by its owner, who gets a refusal forever. Scoped to the
+    /// tenant's own so releasing is not a way to take an identity off someone.
+    async fn unlink(
+        &self,
+        provider: &str,
+        subject: &str,
+        user_id: &str,
+    ) -> Result<bool, DomainError>;
 }
 
 /// How long a user has to finish a link. Long enough to sign in with a password

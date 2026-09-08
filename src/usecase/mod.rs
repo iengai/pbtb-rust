@@ -15,6 +15,7 @@ mod set_strategy_side;
 mod start_bot;
 mod stop_bot;
 mod stop_task;
+mod unlink_identities;
 mod update_bot_config;
 mod update_risklevel;
 
@@ -37,5 +38,6 @@ pub use set_strategy_side::SetStrategySideUseCase;
 pub use start_bot::{StartBotUseCase, StartOutcome};
 pub use stop_bot::{StopBotUseCase, StopOutcome};
 pub use stop_task::{EcsTaskController, TaskController, TaskLiveness};
+pub use unlink_identities::UnlinkIdentitiesUseCase;
 pub use update_bot_config::UpdateBotConfigUseCase;
 pub use update_risklevel::UpdateRiskLevelUseCase;

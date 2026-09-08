@@ -123,6 +123,7 @@ pub struct Deps {
 
     // Account linking (the browser leg lives in `interface::link`)
     pub issue_link_ticket_usecase: Arc<IssueLinkTicketUseCase>,
+    pub unlink_identities_usecase: Arc<UnlinkIdentitiesUseCase>,
 
     // ECS actuation (desired state -> real RunTask/StopTask)
     pub start_bot_usecase: Arc<StartBotUseCase>,
