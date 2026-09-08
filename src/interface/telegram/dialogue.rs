@@ -43,7 +43,7 @@ async fn handle_start_state(
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("handle_start_state", async {
         let text = match msg.text() {
             Some(t) => t,
             None => return Ok(()),
@@ -562,7 +562,8 @@ async fn handle_start_state(
         }
 
         anyhow::Ok(())
-    }.await;
+    })
+    .await;
 
     result.map_err(|_| DependencyMap::new())
 }
@@ -573,7 +574,7 @@ async fn receive_bot_name(
     _bot_context: MyBotContext,
     msg: Message,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("receive_bot_name", async {
         match msg.text() {
             Some(name) => {
                 bot.send_message(
@@ -593,7 +594,7 @@ async fn receive_bot_name(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())
@@ -606,7 +607,7 @@ async fn receive_api_key(
     name: String,
     msg: Message,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("receive_api_key", async {
         match msg.text() {
             Some(api_key) => {
                 bot.send_message(
@@ -627,7 +628,7 @@ async fn receive_api_key(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())
@@ -641,7 +642,7 @@ async fn receive_secret_key(
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("receive_secret_key", async {
         match msg.text() {
             Some(secret_key) => {
                 let secret_key = secret_key.to_string();
@@ -711,7 +712,7 @@ async fn receive_secret_key(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())
@@ -725,7 +726,7 @@ async fn confirm_delete(
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("confirm_delete", async {
         match msg.text() {
             Some(text) => {
                 if text.trim().eq_ignore_ascii_case("yes") {
@@ -770,7 +771,7 @@ async fn confirm_delete(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())
@@ -784,7 +785,7 @@ async fn confirm_overwrite_bot(
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("confirm_overwrite_bot", async {
         match msg.text() {
             Some(text) => {
                 if text.trim().eq_ignore_ascii_case("yes") {
@@ -836,7 +837,7 @@ async fn confirm_overwrite_bot(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())
@@ -849,7 +850,7 @@ async fn receive_risk_level(
     msg: Message,
     deps: Deps,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("receive_risk_level", async {
         match msg.text() {
             Some(text) => {
                 // Allow cancellation
@@ -968,7 +969,7 @@ async fn receive_risk_level(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())

@@ -47,7 +47,7 @@ async fn dispatch_command(
     dialogue: MyDialogue,
     bot_context: MyBotContext,
 ) -> Result<(), DependencyMap> {
-    let result = async {
+    let result = super::with_deadline("dispatch_command", async {
         match cmd {
             Command::Start => {
                 // Reset dialogue state to Start (clears any ongoing conversation)
@@ -165,7 +165,7 @@ async fn dispatch_command(
             }
         }
         anyhow::Ok(())
-    }
+    })
     .await;
 
     result.map_err(|_| DependencyMap::new())

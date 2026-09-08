@@ -24,9 +24,12 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                  deps: Deps,
                  dialogue: MyDialogue,
                  bot_context: MyBotContext| async move {
-                    handle_callback(bot, q, deps, dialogue, bot_context)
-                        .await
-                        .map_err(|_e| DependencyMap::new())
+                    super::with_deadline(
+                        "handle_callback",
+                        handle_callback(bot, q, deps, dialogue, bot_context),
+                    )
+                    .await
+                    .map_err(|_e| DependencyMap::new())
                 },
             ),
     )

@@ -17,6 +17,40 @@ use crate::domain::runtime::RuntimePhase;
 use crate::usecase::*;
 use std::sync::Arc;
 
+/// How long a single handler body may run before it is abandoned.
+///
+/// Generous enough for the slowest legitimate panel (a bot list decorated with
+/// one runtime read per bot), short enough that a wedged handler does not take
+/// the chat down with it.
+const HANDLER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Runs one handler body under a deadline, and makes both failure modes visible.
+///
+/// Each handler maps its error to an empty `DependencyMap`, which teloxide
+/// discards, so a failure reaches nobody unless it is recorded here. The
+/// deadline matters just as much: teloxide processes one chat's
+/// updates strictly in order, so a body that never returns blocks every later
+/// update for that chat and reads as the whole bot being dead.
+pub(crate) async fn with_deadline<F>(handler: &str, fut: F) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    match tokio::time::timeout(HANDLER_DEADLINE, fut).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            log::error!("handler {handler} failed: {e:#}");
+            Err(e)
+        }
+        Err(_) => {
+            log::error!(
+                "handler {handler} exceeded {}s and was abandoned",
+                HANDLER_DEADLINE.as_secs()
+            );
+            Err(anyhow::anyhow!("handler {handler} timed out"))
+        }
+    }
+}
+
 /// One of the caller's own bots by id. Every per-bot panel resolves the bot
 /// under the Telegram user's own id, so a user can only ever read or change
 /// their own bots; an id that is not theirs is indistinguishable from one that

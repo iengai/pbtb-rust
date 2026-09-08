@@ -2367,6 +2367,7 @@ dependencies = [
  "hex",
  "hmac",
  "lambda_runtime",
+ "log",
  "reqwest",
  "serde",
  "serde_json",
