@@ -75,6 +75,19 @@ passivbot_engines = {
   "8rs" = { image_tag = "v810", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
 }
 
+# pb-runner shadow runs (P5.2): dry-run tasks watching a live bot's account,
+# config and key, planning what they would do and logging only. See
+# passivbot-shadow.tf for why they are not engine entries and must be launched
+# without RunTask overrides.
+#
+# Only line-8 bots can be shadowed: the image is built `engine-v8` and refuses
+# a v7 config at startup. Of the four live bots today, `xxbot` (516903813) and
+# `abot` (415196485) are v8.1.0; DollarDigger (436713564) and Low-Risk Trader
+# (516889601) are v7.12.0 and need P7 first.
+passivbot_shadows = {
+  xxbot = { user_id = "5351347639", bot_id = "516903813" }
+}
+
 log_retention_days = 30
 
 s3_bucket_name = "bot-configs"
