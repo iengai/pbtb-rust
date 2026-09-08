@@ -312,12 +312,13 @@ rather than silently launching the Python image.
 Table key syntax: `<major>[rs]` -- `8` is the Python image of line 8, `8rs`
 the pb-runner image of line 8. `var.passivbot_engines` keys are the table keys.
 
-1. Build + push the image from the **pb-runner repo**: its CodeBuild project
-   is the analogue of `deploy/passivbot-image/buildspec.yml` here
-   (`deploy/buildspec.yml` there; env `ENGINE=engine-v8`,
-   `IMAGE_TAG=8-v8.1.0-arm64`, `ECR_REPO=pb-runner`). The ECR repo is
-   `module.ecr` key `pb_runner` (name `pb-runner`), applied like the other
-   repos: `terraform apply -target='module.ecr'`.
+1. Build + push the image from the **pb-runner repo**: run its
+   `image-build` workflow (`gh workflow run image-build.yml --repo
+   iengai/pb-runner --ref master`), which builds on a native arm64 GitHub
+   runner and pushes to this ECR repo via the OIDC role in
+   `pb-runner-ci.tf`. The ECR repo is `module.ecr` key `pb_runner` (name
+   `pb-runner`), applied like the other repos: `terraform apply
+   -target='module.ecr'`.
 2. Uncomment the `"8rs"` entry in `passivbot_engines` (`terraform.tfvars`):
    `image_repo = "pb_runner"`, `family_suffix = "-v8-rs"`, `command =
    ["--live"]` -- pb-runner only trades with `--live`; without it it plans and
@@ -348,6 +349,40 @@ Rollback of the table itself: re-comment `8rs` in `terraform.tfvars` and
 re-run the step-4 apply to return the table to the old shape. Only valid while
 no bot's `runtime` is still `rs` -- such a bot would be refused at Run and by
 the auto-restart, so flip every `rs` bot back to `py` first.
+
+#### Shipping a pb-runner fix (no terraform)
+
+The steps above are for adding a **version line**. Within a line, `8rs`
+points at the moving tag `v810`, so a fix ships without touching terraform:
+
+1. In the pb-runner repo, run `image-build` from `master`. It pushes
+   `src-<hash>` and `<git sha>`, then re-points `v810` at that image.
+2. Restart the bot from Telegram (Stop, then Run). ECS re-pulls the tag on
+   every task start (the agent's default `ECS_IMAGE_PULL_BEHAVIOR`), so the
+   new task comes up on the new image. No apply, no `telebot-deploy` -- the
+   task definition revision does not change.
+3. Confirm what actually started: `pb-runner` logs
+   `pb-runner starting version=… engine_line=8 build=<git sha>` as its first
+   line. That log is the only record of which build a container ran, because
+   the tag has usually moved on by the time anyone asks.
+
+Consequences worth knowing before using this:
+
+- **A crash-restart also picks up the newest image.** The auto-restart
+  lambda relaunches the same task definition, which resolves `v810` afresh.
+  A bot that dies after a build comes back on the new build, not the one it
+  was running. Build with `promote: false` if that is not what you want.
+- **Rollback** is re-pointing the tag at an older build, which every build
+  leaves behind as an immutable `<git sha>` tag:
+  ```
+  aws ecr batch-get-image --repository-name pb-runner --image-ids imageTag=<old sha>     --query 'images[0].imageManifest' --output text > /tmp/m.json
+  aws ecr put-image --repository-name pb-runner --image-tag v810     --image-manifest "file:///tmp/m.json"
+  ```
+  then restart the bot. The repo keeps the newest 20 images
+  (`keep_last_images`), so a build older than that is gone -- rebuild from
+  the commit instead.
+- **Terraform still owns the line.** Memory, command, family and the engine
+  table are unchanged by any of this; only the image contents move.
 
 ### Retiring a line
 
