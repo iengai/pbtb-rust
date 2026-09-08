@@ -34,6 +34,6 @@ pub use set_bot_runtime::{SetBotRuntimeUseCase, SetRuntimeOutcome};
 pub use set_strategy_side::SetStrategySideUseCase;
 pub use start_bot::{StartBotUseCase, StartOutcome};
 pub use stop_bot::{StopBotUseCase, StopOutcome};
-pub use stop_task::{EcsTaskController, TaskController};
+pub use stop_task::{EcsTaskController, TaskController, TaskLiveness};
 pub use update_bot_config::UpdateBotConfigUseCase;
 pub use update_risklevel::UpdateRiskLevelUseCase;

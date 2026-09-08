@@ -59,7 +59,7 @@ The container bind-mounts the folder it was opened on (`${localWorkspaceFolder}`
 
 The host needs the native toolchain — `aws-lc-sys` requires NASM/cmake, often missing on Windows. The Dev Container is recommended for this reason.
 
-- Run the test suite. The integration tests start their own `amazon/dynamodb-local` via `testcontainers`, so only Docker needs to be available:
+- Run the test suite. The integration tests take the first DynamoDB Local they can reach: the endpoint in `APP__DYNAMODB__ENDPOINT_URL` (what the Dev Container sets, pointing at the compose service), otherwise one they start themselves via `testcontainers`. The Dev Container has no Docker socket, so inside it the endpoint is the only path — without it those suites self-skip and still report a pass:
 
   ```bash
   cargo test

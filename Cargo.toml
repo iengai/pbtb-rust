@@ -32,6 +32,10 @@ hex = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
+# Stand-in Telegram Bot API for the end-to-end tests: teloxide is pointed at it
+# with `Bot::set_api_url`, so handlers make real HTTP calls that the test can
+# assert on instead of reaching api.telegram.org.
+wiremock = "0.6"
 testcontainers = "0.24"
 aws-credential-types = "1"
 
