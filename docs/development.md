@@ -110,7 +110,7 @@ All configuration comes from `APP__*` environment variables — there is no conf
 
 - `APP__DYNAMODB__TABLE_NAME` → `[dynamodb] table_name`
 - `APP__S3__ENDPOINT_URL` → `[s3] endpoint_url`
-- …and so on for every field of `Configs` (dynamodb / s3 / ecs).
+- …and so on for every field of `Configs` (dynamodb / s3 / ecs / telegram).
 
 How those variables reach the process is environment-specific and external to the application code:
 
@@ -126,5 +126,6 @@ How those variables reach the process is environment-specific and external to th
 | `RUST_LOG` | Log level (e.g., `info`, `debug`) |
 | `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override (local dev) |
 | `APP__S3__ENDPOINT_URL` | S3 endpoint override (local dev) |
+| `APP__TELEGRAM__ALLOWED_USER_IDS` | Comma-separated Telegram user ids allowed to use the bot. The bot refuses to start without it, and answers everyone else with a refusal. The Dev Container ships a placeholder `0`; set it to your own id to drive the bot locally. |
 
 Do not commit `.env` files, secrets, or hardcoded credentials.

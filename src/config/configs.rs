@@ -1,6 +1,7 @@
 use super::dynamodb::DynamoDBConfig;
 use super::ecs::EcsConfig;
 use super::s3::S3Config;
+use super::telegram::TelegramConfig;
 use anyhow::Context;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -10,6 +11,7 @@ pub struct Configs {
     pub dynamodb: DynamoDBConfig,
     pub s3: S3Config,
     pub ecs: EcsConfig,
+    pub telegram: TelegramConfig,
 }
 
 /// Build the config from `APP__*` environment variables, the single config
