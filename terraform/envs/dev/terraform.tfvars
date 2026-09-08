@@ -57,8 +57,9 @@ passivbot_engines = {
   # load). Changing it needs the scoped apply of module.passivbot_task["8rs"]
   # + the lambda + telebot base-env, then telebot-deploy (RUNBOOK "pb-runner
   # runtime", follow the step order).
-  # Memory is a placeholder until measured; the target is <= 64 MB.
-  "8rs" = { image_tag = "8-v8.1.0-arm64", memory = 96, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
+  # 64 MB measured, not guessed: both rs bots sit at 16 MB RSS against the
+  # 96 MB placeholder this line launched with, so 64 keeps 4x headroom.
+  "8rs" = { image_tag = "8-v8.1.0-arm64", memory = 64, family_suffix = "-v8-rs", image_repo = "pb_runner", command = ["--live"] }
 }
 
 log_retention_days = 30
