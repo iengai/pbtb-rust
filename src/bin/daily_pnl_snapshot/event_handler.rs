@@ -128,7 +128,7 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
     let (new_days, new_pre) = model::aggregate(&ledger);
     bot_state.merge(new_days, new_pre);
 
-    let points = model::compute_points(&bot_state.days, bot_state.first_pre_balance);
+    let returns = model::compute_points(&bot_state.days, bot_state.first_pre_balance);
     let switches = ConfigSwitchRepository::list_for_bot(&*state.bots, &bot.user_id, &bot.id)
         .await
         .context("read config switches")?;
@@ -141,7 +141,7 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         &key,
         &bot.name,
         bot.exchange.as_str(),
-        points,
+        returns,
         &switches,
         now_ms / 1000,
     );
