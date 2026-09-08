@@ -1,9 +1,14 @@
 use crate::domain::error::{DomainError, Retryability};
 use uuid::Uuid;
 
-/// Redact a use-case [`DomainError`] into user-facing Telegram copy at the
-/// interface edge: hide the *cause*, keep the *consequence*
-/// (docs/conventions.md § Error Handling).
+/// Redact a use-case [`DomainError`] into user-facing copy at the interface
+/// edge: hide the *cause*, keep the *consequence* (docs/conventions.md § Error
+/// Handling).
+///
+/// Shared by every adapter. The policy is the same wherever a fault leaves the
+/// process — an MCP tool result reaches a model and its transcript, so it is
+/// owed the same closed category set and the same correlation id as a chat
+/// reply.
 ///
 /// The user-facing contract is a small, closed, stable category set keyed on
 /// what the user does, not why it failed:

@@ -4,11 +4,14 @@ pub mod commands;
 pub mod dialogue;
 pub mod keyboards;
 pub mod middlewares;
-pub mod redaction;
 pub mod router;
 pub mod states;
 pub mod types;
 pub mod views;
+// The redaction policy is adapter-independent and lives at the interface root.
+// Re-exported here so the `super::redaction` path the sibling modules use
+// resolves without a `use` line in each of them.
+pub use crate::interface::redaction;
 
 // Dependencies aggregation for handlers
 use crate::domain::bot::Bot;
