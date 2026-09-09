@@ -448,6 +448,8 @@ async fn a_template_is_described_never_dumped() {
     assert_eq!(one["name"], json!("v7-template"));
     assert_eq!(one["description"], json!("a strategy"));
     assert_eq!(one["min_vip_level"], json!(0));
+    assert_eq!(one["title"], json!("10-coin basket · Balanced · $1k"));
+    assert_eq!(one["title_zh"], json!("十币组合 · 平衡 · $1k"));
     assert_eq!(one["coins"]["long"], json!(["XRP"]));
     let text = one.to_string();
     assert!(
@@ -759,6 +761,8 @@ fn a_template(name: &str) -> ConfigTemplate {
             "config_version": "v7.12.0",
             "pbtb": {
                 "name": name,
+                "title": "10-coin basket · Balanced · $1k",
+                "title_zh": "十币组合 · 平衡 · $1k",
                 "exchange": "bybit",
                 "description": "a strategy",
                 "strategies": [{ "name": name, "side": "long" }],

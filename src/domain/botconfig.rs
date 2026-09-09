@@ -373,17 +373,38 @@ impl BotConfig {
         Self::embedded_template_name(&self.config_data)
     }
 
+    /// A `pbtb` field as a non-blank string. No legacy fallback: the fields
+    /// read through here were introduced with the block itself.
+    fn pbtb_str(&self, field: &str) -> Option<&str> {
+        self.config_data
+            .get("pbtb")
+            .and_then(|m| m.get(field))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
+
     /// Exchange whose market data the strategy was tuned/backtested on (e.g.
     /// `"bybit"`), read from `pbtb.exchange`. Distinct from the exchange the
     /// bot trades on: a config tuned on bybit data may be deployed elsewhere,
     /// and the mismatch is worth surfacing. `None` on legacy templates.
     pub fn data_exchange(&self) -> Option<&str> {
-        self.config_data
-            .get("pbtb")
-            .and_then(|m| m.get("exchange"))
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
+        self.pbtb_str("exchange")
+    }
+
+    /// What a reader is shown the template as (`pbtb.title`), against
+    /// `strategy_name`'s id. The id is the S3 key and is fixed for the life of
+    /// the template; the title is wording and can be rewritten in place, so a
+    /// surface that has room for one line shows the title and keeps the id for
+    /// the one that has room for both. `None` on a template published before
+    /// titles.
+    pub fn title(&self) -> Option<&str> {
+        self.pbtb_str("title")
+    }
+
+    /// The same in Chinese (`pbtb.title_zh`), for a surface that renders in it.
+    pub fn title_zh(&self) -> Option<&str> {
+        self.pbtb_str("title_zh")
     }
 
     /// Free-text strategy explanation (`pbtb.description`, or the legacy
@@ -683,6 +704,29 @@ mod tests {
         assert_eq!(strategies.len(), 1);
         assert_eq!(strategies[0].name, "bybit-cap700-iter2-winner-v712");
         assert_eq!(strategies[0].side, "long");
+    }
+
+    #[test]
+    fn titles_come_from_pbtb_and_never_from_a_legacy_field() {
+        let mut config = sample_config(0);
+        config.config_data["title"] = json!("legacy title");
+        assert_eq!(config.title(), None);
+        assert_eq!(config.title_zh(), None);
+
+        config.config_data["pbtb"] = json!({
+            "name": "bybit-mix10-1000u-balanced-v8",
+            "title": "  10-coin basket · Balanced · $1k  ",
+            "title_zh": "十币组合 · 平衡 · $1k",
+        });
+        assert_eq!(config.title(), Some("10-coin basket · Balanced · $1k"));
+        assert_eq!(config.title_zh(), Some("十币组合 · 平衡 · $1k"));
+    }
+
+    #[test]
+    fn a_blank_title_reads_as_no_title() {
+        let mut config = sample_config(0);
+        config.config_data["pbtb"] = json!({ "name": "bybit-x", "title": "   " });
+        assert_eq!(config.title(), None);
     }
 
     #[test]

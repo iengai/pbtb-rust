@@ -94,6 +94,11 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `GET /templates` | read | Choose config | `{templates:[{name, min_vip_level}]}`; nothing is hidden by level |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
 
+A template is addressed by its id and read by its `title` / `title_zh`, which
+every described config carries alongside `template_name`. `GET /templates`
+lists ids only; the console joins them with the titles in the published
+backtests it already loads.
+
 Config changes take effect on a bot's next start. A running task keeps the
 config and the binary it started with.
 

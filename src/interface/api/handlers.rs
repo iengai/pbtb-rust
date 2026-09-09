@@ -577,6 +577,8 @@ fn bot_summary(bot: &Bot, phase: Option<String>) -> Value {
 fn describe_config(config: &BotConfig) -> Value {
     json!({
         "template_name": config.strategy_name().unwrap_or(&config.template_name),
+        "title": config.title(),
+        "title_zh": config.title_zh(),
         "template_version": config.template_version,
         "description": config.description(),
         "tuned_on": config.data_exchange(),

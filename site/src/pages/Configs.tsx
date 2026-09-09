@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLoad } from "../api/hooks";
-import { Badge, Chips, ErrorBanner, Loading, Sparkline, engineLabel } from "../components/ui";
+import { Badge, Chips, ErrorBanner, Loading, Sparkline, engineLabel, templateTitle } from "../components/ui";
 import { staticData, type TemplateSummary } from "../data/static";
-import { useT } from "../i18n/locale";
+import { useLang, useT } from "../i18n/locale";
 import { fmtGain, fmtMetric, wipedOut } from "./metrics";
 
 export function Configs() {
@@ -55,6 +55,7 @@ export function Configs() {
 
 function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
   const t = useT();
+  const { lang } = useLang();
   const gain = tpl.metrics.gain;
   // A backtest the engine cut short is an account that got liquidated inside
   // the window; its gain is the balance before the wipe, not a result.
@@ -62,7 +63,7 @@ function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
   return (
     <Link to={`/configs/${encodeURIComponent(tpl.name)}`} className="tcard">
       <div className="head">
-        <div className="name">{tpl.name}</div>
+        <div className="name">{templateTitle(tpl, lang)}</div>
         {wiped && <Badge>{t.configs.liquidatedBadge}</Badge>}
         <Badge>{engineLabel(tpl.engine)}</Badge>
       </div>
@@ -87,6 +88,8 @@ function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
       </div>
       <Chips items={tpl.coins} max={5} tight />
       <div className="hint">
+        <span className="mono">{tpl.name}</span>
+        <br />
         {t.configs.list.backtestRange(tpl.start.slice(0, 7), tpl.end.slice(0, 7), tpl.exchange)}
       </div>
     </Link>

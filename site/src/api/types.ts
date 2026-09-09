@@ -17,6 +17,8 @@ export type BotSummary = {
 
 export type ConfigDescription = {
   template_name: string;
+  title: string | null;
+  title_zh: string | null;
   template_version: string | null;
   description: string | null;
   tuned_on: string | null;

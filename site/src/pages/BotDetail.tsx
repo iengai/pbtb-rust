@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, isRetryConflict } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import type { BotDetail as Detail } from "../api/types";
+import { staticData } from "../data/static";
 import { ChartCaption, RangeSelector, ReturnChart, useRangeLabel } from "../chart/ReturnChart";
 import {
   type BotReturnSeries,
@@ -26,6 +27,7 @@ import {
   engineLabel,
   relativeTime,
   runtimeLabel,
+  templateTitle,
 } from "../components/ui";
 import { loadReturns } from "./returnsApi";
 import { useLang, useT } from "../i18n/locale";
@@ -191,8 +193,8 @@ export function BotDetail() {
                 <div className="kv">
                   <div className="k">{t.bots.detail.template}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <span className="mono ellipsis" style={{ fontSize: 13 }}>
-                      {d.config.template_name}
+                    <span className="ellipsis" title={d.config.template_name}>
+                      {templateTitle({ ...d.config, name: d.config.template_name }, lang)}
                     </span>
                     {d.config.template_version && <Badge>{engineLabel(d.config.template_version)}</Badge>}
                   </div>
@@ -374,11 +376,19 @@ function TemplateDialog({
   onDone: (msg: string) => void;
 }) {
   const list = useLoad(() => api.listTemplates(), "templates");
+  // The API lists template ids; the titles live with the published backtests,
+  // so an id the catalogue does not carry still shows, as itself.
+  const catalog = useLoad(() => staticData.templates(), "templates:titles");
   const [name, setName] = useState("");
   const [confirm, setConfirm] = useState(false);
   const action = useAction();
   const t = useT();
+  const { lang } = useLang();
   const current = bot.config?.template_name ?? null;
+  const label = (id: string) => {
+    const tpl = catalog.data?.find((row) => row.name === id);
+    return tpl ? templateTitle(tpl, lang) : id;
+  };
   return (
     <Modal title={t.bots.detail.changeConfig} onClose={onClose}>
       <ErrorBanner error={list.error} onRetry={list.reload} />
@@ -388,7 +398,7 @@ function TemplateDialog({
           <option value="">{list.data ? t.bots.templateModal.choose : t.common.loading}</option>
           {list.data?.templates.map((tpl) => (
             <option key={tpl.name} value={tpl.name}>
-              {tpl.name}
+              {label(tpl.name)}
               {tpl.name === current ? t.bots.templateModal.currentSuffix : ""}
               {tpl.min_vip_level > 0 ? t.bots.templateModal.levelSuffix(tpl.min_vip_level) : ""}
             </option>

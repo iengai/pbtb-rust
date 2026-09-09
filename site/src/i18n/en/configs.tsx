@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 export const configs = {
   // A backtest the engine cut short is an account that was liquidated inside the
   // window, so both pages mark it.
-  liquidatedBadge: "liquidated in backtest",
+  liquidatedBadge: "liquidated",
   wipedOut: "wiped out",
 
   list: {

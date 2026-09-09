@@ -11,6 +11,8 @@ const now = () => Math.floor(Date.now() / 1000);
 
 const config = (name: string, version: string, coins: string[], short = false): ConfigDescription => ({
   template_name: name,
+  title: null,
+  title_zh: null,
   template_version: version,
   description: null,
   tuned_on: "bybit",
