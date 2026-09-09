@@ -14,6 +14,9 @@ use uuid::Uuid;
 /// what the user does, not why it failed:
 /// - `Validation` — the user's own domain; echoed with specifics so they can fix
 ///   their input (out-of-range risk, a missing config path).
+/// - `Entitlement` — what the account's level does not allow; echoed with the
+///   ceiling or the level asked for, since the user can act on either (stop a
+///   bot, or know what a higher level unlocks).
 /// - `Transient` — an infra fault infra classified as worth another attempt; the
 ///   user is told to retry, and still gets a correlation id.
 /// - `Internal` — every other technical/data fault collapses to one opaque line
@@ -34,6 +37,9 @@ pub fn redact(action: &str, err: &DomainError) -> String {
         | DomainError::MissingConfigPath(_)
         | DomainError::InvalidConfig(_)
         | DomainError::InvalidBotName(_) => format!("⚠️ {err}"),
+        DomainError::QuotaExceeded { .. } | DomainError::InsufficientLevel { .. } => {
+            format!("🔒 {err}")
+        }
         DomainError::CorruptRecord(_) | DomainError::Repository { .. } => {
             let ref_id = Uuid::new_v4().simple().to_string();
             let ref_short = &ref_id[..8];
@@ -78,6 +84,25 @@ mod tests {
         let msg = redact("updating the risk level", &err);
         assert!(msg.contains("out of range"), "constraint is shown: {msg}");
         assert!(!msg.contains("ref:"), "validation needs no correlation id");
+    }
+
+    #[test]
+    fn entitlement_refusals_say_what_the_level_allows() {
+        let msg = redact("starting the bot", &DomainError::QuotaExceeded { limit: 1 });
+        assert!(msg.contains("1 running bot"), "the ceiling is shown: {msg}");
+        assert!(!msg.contains("ref:"));
+
+        let msg = redact(
+            "applying the template",
+            &DomainError::InsufficientLevel {
+                required: 3,
+                current: 0,
+            },
+        );
+        assert!(
+            msg.contains("VIP 3") && msg.contains("VIP 0"),
+            "both levels are shown: {msg}"
+        );
     }
 
     #[test]

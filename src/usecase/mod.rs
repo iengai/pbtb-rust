@@ -39,7 +39,7 @@ pub use get_template::{GetTemplateUseCase, TemplatePreview};
 pub use issue_link_ticket::{IssueLinkTicketUseCase, PURPOSE_START};
 pub use list_bots::ListBotsUseCase;
 pub use list_identities::ListIdentitiesUseCase;
-pub use list_templates::ListTemplatesUseCase;
+pub use list_templates::{ListTemplatesUseCase, TemplateListing};
 pub use reconcile_stopped_task::{ReconcileOutcome, ReconcileStoppedTaskUseCase, StopInfo};
 pub use record_running_task::{RecordRunningOutcome, RecordRunningTaskUseCase};
 pub use resolve_telegram_sender::{ResolveTelegramSenderUseCase, SenderResolution, TelegramSender};

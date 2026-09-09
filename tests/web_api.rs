@@ -97,6 +97,15 @@ fn read_only(user_id: &str) -> Arc<dyn TokenVerifier> {
     }))
 }
 
+/// Both scopes at a given level: the way to test what a level may do.
+fn at_level(user_id: &str, vip_level: u8) -> Arc<dyn TokenVerifier> {
+    Arc::new(Fixed(Principal {
+        user_id: user_id.to_string(),
+        scopes: HashSet::from(["bots:read".to_string(), "bots:write".to_string()]),
+        vip_level,
+    }))
+}
+
 // ---------------------------------------------------------------- the edge
 
 #[tokio::test]
@@ -387,7 +396,10 @@ async fn a_template_is_described_never_dumped() {
     let api = h.http_api(TOKEN);
 
     let listing = api.handle(get("/templates")).await;
-    assert_eq!(body(&listing)["templates"], json!(["v7-template"]));
+    assert_eq!(
+        body(&listing)["templates"],
+        json!([{ "name": "v7-template", "min_vip_level": 0 }])
+    );
 
     let one = api.handle(get("/templates/v7-template")).await;
     assert_eq!(
@@ -399,6 +411,7 @@ async fn a_template_is_described_never_dumped() {
     let one = body(&one);
     assert_eq!(one["name"], json!("v7-template"));
     assert_eq!(one["description"], json!("a strategy"));
+    assert_eq!(one["min_vip_level"], json!(0));
     assert_eq!(one["coins"]["long"], json!(["XRP"]));
     let text = one.to_string();
     assert!(
@@ -408,6 +421,99 @@ async fn a_template_is_described_never_dumped() {
 
     let missing = api.handle(get("/templates/no-such")).await;
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_template_above_the_callers_level_is_refused_but_never_hidden() {
+    let h = harness!();
+    let mut gated = a_template("gated");
+    gated.config_data["pbtb"]["min_vip_level"] = json!(3);
+    h.templates.add(gated);
+    h.given_bot(a_bot(USER, "abot")).await;
+    let api = h.http_api_with(at_level(USER, 2));
+
+    let listing = api.handle(get("/templates")).await;
+    assert_eq!(
+        body(&listing)["templates"],
+        json!([{ "name": "gated", "min_vip_level": 3 }]),
+        "the catalogue shows what a higher level unlocks"
+    );
+    let described = api.handle(get("/templates/gated")).await;
+    assert_eq!(described.status(), StatusCode::OK, "reading is never gated");
+    assert_eq!(body(&described)["min_vip_level"], json!(3));
+
+    let refused = api
+        .handle(request(
+            "POST",
+            "/bots/abot/template",
+            Some(TOKEN),
+            Some(json!({ "name": "gated" })),
+        ))
+        .await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let refused = body(&refused);
+    assert_eq!(refused["error"], json!("insufficient_level"));
+    assert_eq!(refused["required"], json!(3));
+    assert_eq!(refused["current"], json!(2));
+    assert!(
+        h.configs.get_saved(USER, "abot").is_none(),
+        "a refused apply leaves no config behind"
+    );
+
+    let allowed = h.http_api_with(at_level(USER, 3));
+    let applied = allowed
+        .handle(request(
+            "POST",
+            "/bots/abot/template",
+            Some(TOKEN),
+            Some(json!({ "name": "gated" })),
+        ))
+        .await;
+    assert_eq!(
+        applied.status(),
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(applied.body())
+    );
+}
+
+#[tokio::test]
+async fn a_level_zero_account_runs_one_bot_at_a_time() {
+    let h = harness!();
+    for name in ["first", "second"] {
+        let bot = a_bot(USER, name);
+        h.given_bot(bot.clone()).await;
+        h.configs.put(
+            pbtb_rust::domain::botconfig::BotConfig::from_template(
+                USER.to_string(),
+                bot.id.clone(),
+                &a_template("v7-template"),
+                NOW,
+            )
+            .expect("a config from the template"),
+        );
+    }
+    let api = h.http_api_with(at_level(USER, 0));
+    let start = |id: &str| request("POST", &format!("/bots/{id}/start"), Some(TOKEN), None);
+
+    let first = api.handle(start("first")).await;
+    assert_eq!(
+        first.status(),
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(first.body())
+    );
+
+    let second = api.handle(start("second")).await;
+    assert_eq!(second.status(), StatusCode::FORBIDDEN);
+    let refused = body(&second);
+    assert_eq!(refused["error"], json!("quota_exceeded"));
+    assert_eq!(refused["limit"], json!(1));
+    assert_eq!(h.ecs.launches().len(), 1, "the ceiling never reached ECS");
+
+    // The bot that is on may be run again: its slot is its own.
+    let again = api.handle(start("first")).await;
+    assert_eq!(again.status(), StatusCode::OK);
 }
 
 // ---------------------------------------------------------------- account

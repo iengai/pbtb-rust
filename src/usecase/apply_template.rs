@@ -3,6 +3,7 @@ use crate::domain::botconfig::{BotConfig, BotConfigRepository};
 use crate::domain::clock::Clock;
 use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchRepository};
 use crate::domain::configtemplate::ConfigTemplateRepository;
+use crate::domain::entitlement;
 use crate::domain::error::DomainError;
 use crate::usecase::engine_routing::EngineTaskDefinitions;
 use std::sync::Arc;
@@ -35,14 +36,19 @@ impl ApplyTemplateUseCase {
         }
     }
 
+    /// `vip_level` is the caller's, as their account row reads at this request;
+    /// a template above it is refused before anything is built.
     pub async fn execute(
         &self,
         user_id: &str,
+        vip_level: u8,
         bot_id: &str,
         template_name: &str,
     ) -> Result<(), DomainError> {
         // 1. Build the bot config from the template (sets live.user internally).
-        let bot_config = self.preview(user_id, bot_id, template_name).await?;
+        let bot_config = self
+            .preview(user_id, vip_level, bot_id, template_name)
+            .await?;
 
         // 2. Save bot config to S3: {user_id}/{bot_id}.json
         self.bot_config_repository.save(&bot_config).await?;
@@ -76,13 +82,25 @@ impl ApplyTemplateUseCase {
     /// Build the bot config that `execute` would apply, WITHOUT saving it — for a
     /// confirmation preview (coins, exposure, strategy, description). `live.user`
     /// is set exactly as the real apply, so the preview matches what gets saved.
+    ///
+    /// The level gate sits here too: the preview is what the user confirms, so
+    /// a template their level cannot apply is refused at the first tap rather
+    /// than after they have read and agreed to it.
     pub async fn preview(
         &self,
         user_id: &str,
+        vip_level: u8,
         bot_id: &str,
         template_name: &str,
     ) -> Result<BotConfig, DomainError> {
         let template = self.template_repository.get(template_name).await?;
+        let required = template.min_vip_level();
+        if !entitlement::meets(vip_level, required) {
+            return Err(DomainError::InsufficientLevel {
+                required,
+                current: vip_level,
+            });
+        }
         let now = self.clock.now();
         let config =
             BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)?;
@@ -117,6 +135,8 @@ mod tests {
     const NOW: i64 = 1_700_000_000;
     const USER: &str = "u-1";
     const BOT: &str = "alpha";
+    /// A level no template in these tests asks more than.
+    const TOP: u8 = crate::domain::user::MAX_VIP_LEVEL;
 
     struct FixedClock;
     impl Clock for FixedClock {
@@ -258,7 +278,7 @@ mod tests {
         let switches = Arc::new(Switches::default());
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "7=arn:7");
 
-        uc.execute(USER, BOT, "steady").await.expect("apply");
+        uc.execute(USER, TOP, BOT, "steady").await.expect("apply");
 
         let saved = configs
             .0
@@ -283,7 +303,7 @@ mod tests {
             "7=arn:7",
         );
 
-        uc.execute(USER, BOT, "steady").await.expect("apply");
+        uc.execute(USER, TOP, BOT, "steady").await.expect("apply");
 
         let events = switches.recorded.lock().unwrap().clone();
         assert_eq!(events.len(), 1);
@@ -303,7 +323,7 @@ mod tests {
         });
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "7=arn:7");
 
-        uc.execute(USER, BOT, "steady")
+        uc.execute(USER, TOP, BOT, "steady")
             .await
             .expect("the switch itself succeeded, so the user's action must not fail");
 
@@ -320,7 +340,7 @@ mod tests {
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "8=arn:8");
 
         let err = uc
-            .execute(USER, BOT, "steady")
+            .execute(USER, TOP, BOT, "steady")
             .await
             .expect_err("a config that could never launch must not be applied");
 
@@ -346,7 +366,7 @@ mod tests {
         );
 
         let err = uc
-            .execute(USER, BOT, "steady")
+            .execute(USER, TOP, BOT, "steady")
             .await
             .expect_err("no rs image is registered for this line");
         assert!(err.to_string().contains("rs"), "{err}");
@@ -357,9 +377,65 @@ mod tests {
         let switches = Arc::new(Switches::default());
         let (uc, configs) = usecase(a_template(), None, switches, "7=arn:7py");
 
-        uc.execute(USER, BOT, "steady")
+        uc.execute(USER, TOP, BOT, "steady")
             .await
             .expect("the default runtime is py, which is registered");
+        assert!(configs.0.lock().unwrap().is_some());
+    }
+
+    fn a_gated_template(min_vip_level: u8) -> ConfigTemplate {
+        let mut template = a_template();
+        template.config_data["pbtb"] = json!({ "min_vip_level": min_vip_level });
+        template
+    }
+
+    #[tokio::test]
+    async fn a_template_above_the_callers_level_is_refused_before_anything_is_built() {
+        let switches = Arc::new(Switches::default());
+        let (uc, configs) = usecase(
+            a_gated_template(3),
+            Some(a_bot(Runtime::Py)),
+            switches.clone(),
+            "7=arn:7",
+        );
+
+        let err = uc
+            .execute(USER, 2, BOT, "steady")
+            .await
+            .expect_err("VIP 2 may not apply a VIP 3 template");
+        assert!(
+            matches!(
+                err,
+                DomainError::InsufficientLevel {
+                    required: 3,
+                    current: 2
+                }
+            ),
+            "{err}"
+        );
+        assert!(configs.0.lock().unwrap().is_none());
+        assert!(switches.recorded.lock().unwrap().is_empty());
+
+        let err = uc
+            .preview(USER, 2, BOT, "steady")
+            .await
+            .expect_err("the preview is what the user confirms, so it is gated too");
+        assert!(matches!(err, DomainError::InsufficientLevel { .. }));
+    }
+
+    #[tokio::test]
+    async fn a_template_at_the_callers_level_applies() {
+        let switches = Arc::new(Switches::default());
+        let (uc, configs) = usecase(
+            a_gated_template(3),
+            Some(a_bot(Runtime::Py)),
+            switches,
+            "7=arn:7",
+        );
+
+        uc.execute(USER, 3, BOT, "steady")
+            .await
+            .expect("the gate is met at the level itself");
         assert!(configs.0.lock().unwrap().is_some());
     }
 
@@ -373,7 +449,7 @@ mod tests {
             "7=arn:7",
         );
 
-        let preview = uc.preview(USER, BOT, "steady").await.expect("preview");
+        let preview = uc.preview(USER, TOP, BOT, "steady").await.expect("preview");
 
         assert_eq!(preview.config_data["live"]["user"], BOT);
         assert!(

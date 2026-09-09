@@ -1,5 +1,6 @@
 use crate::domain::bot::BotRepository;
 use crate::domain::clock::Clock;
+use crate::domain::entitlement;
 use crate::domain::error::{DomainError, Retryability};
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
 use crate::usecase::engine_routing::LaunchTargetResolver;
@@ -31,9 +32,11 @@ pub enum StartOutcome {
 /// Turns the user's "Run bot" intent into a single ECS task launch.
 ///
 /// Order is deliberate and money-critical:
-/// 1. flip desired state ON (so the reconcile Lambda will keep it up),
-/// 2. claim the exclusive start lock (CAS) — only the winner launches,
-/// 3. launch, then record the task id so a stop during startup can find it.
+/// 1. refuse what the account's level does not allow, before any intent is
+///    recorded,
+/// 2. flip desired state ON (so the reconcile Lambda will keep it up),
+/// 3. claim the exclusive start lock (CAS) — only the winner launches,
+/// 4. launch, then record the task id so a stop during startup can find it.
 pub struct StartBotUseCase {
     bots: Arc<dyn BotRepository>,
     runtimes: Arc<dyn BotRuntimeRepository>,
@@ -72,11 +75,36 @@ impl StartBotUseCase {
         }
     }
 
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<StartOutcome, DomainError> {
+    /// `vip_level` is the caller's, as their account row reads at this request.
+    pub async fn execute(
+        &self,
+        user_id: &str,
+        vip_level: u8,
+        bot_id: &str,
+    ) -> Result<StartOutcome, DomainError> {
         let mut bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,
             None => return Ok(StartOutcome::BotNotFound),
         };
+
+        // The level's ceiling on switched-on bots, counted over the tenant's
+        // OTHER bots so that re-running one that is already on never trips it.
+        // Desired state is the measure, not the observed phase: a bot that is
+        // on but between tasks still holds its slot. Two starts racing past
+        // this read can both pass; the ceiling is a cost guard, not a lock, and
+        // the exclusive start lock below is what keeps a bot from double-running.
+        if let Some(limit) = entitlement::max_running_bots(vip_level) {
+            let enabled_others = self
+                .bots
+                .find_by_user_id(user_id)
+                .await?
+                .iter()
+                .filter(|b| b.enabled && b.id != bot.id)
+                .count();
+            if enabled_others >= limit {
+                return Err(DomainError::QuotaExceeded { limit });
+            }
+        }
 
         // Which engine this bot's config needs, and the task definition for it.
         // Resolved BEFORE desired state is flipped on: a config that cannot launch
@@ -194,6 +222,8 @@ mod tests {
     use std::sync::Mutex;
 
     const NOW: i64 = 1_700_000_000;
+    /// No ceiling, so the launch tests stay about the launch.
+    const TOP: u8 = crate::domain::user::MAX_VIP_LEVEL;
 
     struct FixedClock;
     impl Clock for FixedClock {
@@ -416,11 +446,15 @@ mod tests {
     }
 
     fn bot(enabled: bool) -> Bot {
+        named_bot("bot-1", enabled)
+    }
+
+    fn named_bot(id: &str, enabled: bool) -> Bot {
         Bot::new(
-            "bot-1".to_string(),
+            id.to_string(),
             "user-1".to_string(),
             Exchange::Bybit,
-            "bot-1".to_string(),
+            id.to_string(),
             "ak".to_string(),
             "sk".to_string(),
             enabled,
@@ -476,7 +510,7 @@ mod tests {
             controller,
         );
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(
             out,
             StartOutcome::Started {
@@ -497,6 +531,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_level_at_its_ceiling_is_refused_before_enabling_or_locking() {
+        // VIP 0 runs one bot; another is already switched on.
+        let bots = Arc::new(InMemoryBots::with(bot(false)));
+        bots.save(&named_bot("bot-2", true)).await.unwrap();
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(MockRunner::ok("task-xyz"));
+        let controller = Arc::new(MockController::new(TaskLiveness::Gone));
+        let uc = use_case(
+            bots.clone(),
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            controller,
+        );
+
+        let err = uc.execute("user-1", 0, "bot-1").await.unwrap_err();
+
+        assert!(
+            matches!(err, DomainError::QuotaExceeded { limit: 1 }),
+            "{err}"
+        );
+        assert!(
+            !bots.get("user-1", "bot-1").unwrap().enabled,
+            "no intent is recorded for a launch the level does not allow"
+        );
+        assert_eq!(*locks.acquire_calls.lock().unwrap(), 0);
+        assert_eq!(runner.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn the_bot_being_started_does_not_count_against_its_own_ceiling() {
+        // Already on (say its task died and the user taps Run again): VIP 0's
+        // single slot is this bot's own.
+        let bots = Arc::new(InMemoryBots::with(bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(MockRunner::ok("task-xyz"));
+        let controller = Arc::new(MockController::new(TaskLiveness::Gone));
+        let uc = use_case(bots, runtimes, locks, runner.clone(), controller);
+
+        let out = uc.execute("user-1", 0, "bot-1").await.unwrap();
+
+        assert!(matches!(out, StartOutcome::Started { .. }));
+        assert_eq!(runner.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_top_level_has_no_ceiling() {
+        let bots = Arc::new(InMemoryBots::with(bot(false)));
+        for n in 2..=12 {
+            bots.save(&named_bot(&format!("bot-{n}"), true))
+                .await
+                .unwrap();
+        }
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(MockRunner::ok("task-xyz"));
+        let controller = Arc::new(MockController::new(TaskLiveness::Gone));
+        let uc = use_case(bots, runtimes, locks, runner.clone(), controller);
+
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
+
+        assert!(matches!(out, StartOutcome::Started { .. }));
+    }
+
+    #[tokio::test]
     async fn already_running_does_not_launch_but_still_enables() {
         let bots = Arc::new(InMemoryBots::with(bot(false)));
         let runtimes = Arc::new(InMemoryRuntimes::default());
@@ -505,7 +606,7 @@ mod tests {
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
         let uc = use_case(bots.clone(), runtimes, locks, runner.clone(), controller);
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(out, StartOutcome::AlreadyRunning);
         assert!(bots.get("user-1", "bot-1").unwrap().enabled);
         assert_eq!(
@@ -524,7 +625,7 @@ mod tests {
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
         let uc = use_case(bots, runtimes, locks, runner.clone(), controller);
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(out, StartOutcome::Stopping);
         assert_eq!(
             runner.call_count(),
@@ -542,7 +643,7 @@ mod tests {
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
         let uc = use_case(bots, runtimes, locks, runner.clone(), controller);
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(out, StartOutcome::AlreadyStarting);
         assert_eq!(runner.call_count(), 0, "must not launch a second task");
     }
@@ -562,7 +663,7 @@ mod tests {
             controller,
         );
 
-        let err = uc.execute("user-1", "bot-1").await.unwrap_err();
+        let err = uc.execute("user-1", TOP, "bot-1").await.unwrap_err();
         assert!(err.to_string().contains("run_task"));
         assert_eq!(runner.call_count(), 1);
         assert_eq!(
@@ -585,7 +686,7 @@ mod tests {
         let controller = Arc::new(MockController::new(TaskLiveness::Gone));
         let uc = use_case(bots, runtimes, locks.clone(), runner.clone(), controller);
 
-        let out = uc.execute("user-1", "ghost").await.unwrap();
+        let out = uc.execute("user-1", TOP, "ghost").await.unwrap();
         assert_eq!(out, StartOutcome::BotNotFound);
         assert_eq!(
             *locks.acquire_calls.lock().unwrap(),
@@ -612,7 +713,7 @@ mod tests {
             controller.clone(),
         );
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(
             out,
             StartOutcome::AlreadyRunning,
@@ -652,7 +753,7 @@ mod tests {
             controller.clone(),
         );
 
-        let out = uc.execute("user-1", "bot-1").await.unwrap();
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
         assert_eq!(
             out,
             StartOutcome::Started {
@@ -690,7 +791,7 @@ mod tests {
             "container".to_string(),
         );
 
-        let err = uc.execute("user-1", "bot-1").await.unwrap_err();
+        let err = uc.execute("user-1", TOP, "bot-1").await.unwrap_err();
         assert!(matches!(err, DomainError::InvalidConfig(_)), "{err}");
         assert!(
             !bots.get("user-1", "bot-1").unwrap().enabled,

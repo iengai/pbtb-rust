@@ -229,7 +229,7 @@ async fn handle_template_selection(
 
     match deps
         .apply_template_usecase
-        .preview(&user_id, &bot_id, &template_name)
+        .preview(&user_id, sender.vip_level, &bot_id, &template_name)
         .await
     {
         Ok(preview) => {
@@ -289,7 +289,7 @@ async fn handle_confirm_template(
 
     match deps
         .apply_template_usecase
-        .execute(&user_id, &bot_id, &template_name)
+        .execute(&user_id, sender.vip_level, &bot_id, &template_name)
         .await
     {
         Ok(_) => {
