@@ -128,7 +128,7 @@ Bucket: {project}-{env}-bot-configs
         └── api-keys.json   # API credentials
 ```
 
-- `predefined/` — reusable configuration templates.
+- `predefined/` — reusable configuration templates. A template's own metadata sits under its top-level `pbtb` object (name, exchange, description, strategies), including `min_vip_level`, the lowest account level that may apply it (absent = open to all); an operator edits the object to change the gate, no deploy needed.
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
 - `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
 

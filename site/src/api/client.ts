@@ -10,6 +10,7 @@ import type {
   StartStatus,
   StopStatus,
   TemplateDescription,
+  TemplateListing,
 } from "./types";
 
 export class ApiError extends Error {
@@ -17,7 +18,12 @@ export class ApiError extends Error {
   retryable: boolean;
   body: Record<string, unknown>;
   constructor(status: number, body: Record<string, unknown>, fallback: string) {
-    super(typeof body.error === "string" ? body.error : fallback);
+    // A coded refusal (`error` is a code such as `insufficient_level`) also
+    // carries a `message` in words; that is the fallback text, the code is
+    // what the UI translates.
+    super(
+      typeof body.message === "string" ? body.message : typeof body.error === "string" ? body.error : fallback,
+    );
     this.status = status;
     this.retryable = body.retryable === true;
     this.body = body;
@@ -80,7 +86,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     handlers.refuse("expired");
     throw new AuthRefused("expired");
   }
-  if (r.status === 403) {
+  if (r.status === 403 && !isEntitlementRefusal(json)) {
     // A 403 with `error="insufficient_scope"` is a good token short of a scope;
     // one without any error code is a verified subject nobody has linked.
     const www = r.headers.get("www-authenticate") ?? "";
@@ -89,6 +95,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new AuthRefused(kind);
   }
   throw new ApiError(r.status, json, `HTTP ${r.status}`);
+}
+
+/**
+ * A 403 about the account's level rather than its token: the session is fine,
+ * the action is not allowed. Rendered as an ordinary error, never as a refusal
+ * that would send the user back to the login page.
+ */
+export function isEntitlementRefusal(body: Record<string, unknown>): boolean {
+  return body.error === "insufficient_level" || body.error === "quota_exceeded";
 }
 
 export const api = {
@@ -122,7 +137,7 @@ export const api = {
     request<{ status: "applied" }>("POST", `/bots/${encodeURIComponent(id)}/template`, { name }),
   unstuck: (id: string) => request<never>("POST", `/bots/${encodeURIComponent(id)}/unstuck`),
 
-  listTemplates: () => request<{ templates: string[] }>("GET", "/templates"),
+  listTemplates: () => request<{ templates: TemplateListing[] }>("GET", "/templates"),
   getTemplate: (name: string) =>
     request<TemplateDescription>("GET", `/templates/${encodeURIComponent(name)}`),
 };

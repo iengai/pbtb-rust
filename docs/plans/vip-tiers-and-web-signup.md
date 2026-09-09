@@ -1,6 +1,8 @@
 # 方案草案：成员 VIP 分级 + Web 自主注册
 
-状态：裁决已定（2026-09-09），按第 8 节分期开工。技术细节在开发时由实现者与同级模型 review 后定，这里只定边界和不可逆的选择。
+状态：裁决已定（2026-09-09），按第 8 节分期开工。P0–P3 已合并（2026-09-10）；剩 P4 与上线。技术细节在开发时由实现者与同级模型 review 后定，这里只定边界和不可逆的选择。
+
+实施中偏离草案的两点：`APP__TELEGRAM__ALLOWED_USER_IDS` 没有收窄成管理员列表而是整个删掉（管理动作只走 ops 脚本，列表没有用处）；`src/interface/link/` 的 bot 发起 link 流程已退役但还没删，作为后续清理。
 
 已定的裁决：
 - 等级 0–9。0 级默认；运营者现有账户为 9 级。0 级可同时启动 1 个 bot，9 级不限；1–8 级为 `level + 1` 个（一个纯函数表，随时可调）。
@@ -93,7 +95,7 @@ web「绑定 Telegram」 → POST /api/v1/me/telegram/bind-ticket
 - `reject_unauthorized` 改为：`msg.from.id` → `find_link("telegram", id)`（强一致读，一次 get）→ 有且用户 `status = active` 才放行，并把 `user_id` 注入 `DependencyMap`。
 - 十几处 `msg.from().map(|u| u.id.to_string()).unwrap_or("unknown")` 全部换成注入的 `user_id`；`"unknown"` 这个租户桶随之消失。
 - 未绑定的人收到的不再是「limited to authorized users」，而是「请在 <站点> 用 Google 注册并绑定 Telegram」。**例外**：`/start <token>` 必须在拦截之前处理，否则绑定流程进不来。
-- `APP__TELEGRAM__ALLOWED_USER_IDS` 语义收窄为**管理员**列表（能改别人的 VIP 等级、封禁），不再是准入门槛。`APP__MCP__USER_ID` 在 OAuth 模式下本来就是摆设，只用于开机断言，跟着一起清理。Terraform 那两个数字正则删掉。
+- ~~`APP__TELEGRAM__ALLOWED_USER_IDS` 语义收窄为**管理员**列表~~（实施时整个删掉了，见开头）。`APP__MCP__USER_ID` 在 OAuth 模式下本来就是摆设，只用于开机断言，跟着一起清理。Terraform 那两个数字正则删掉。
 
 ## 6. VIP 分级
 
@@ -118,10 +120,10 @@ web「绑定 Telegram」 → POST /api/v1/me/telegram/bind-ticket
 
 | 期 | 内容 | 依赖 |
 | --- | --- | --- |
-| P0 | 用户行 + `UserRepository` + `identity#telegram`；ops 脚本为现有租户补行；`find_all` / `find_by_user_id` 形状测试 | 无 |
-| P1 | telebot 由 allowlist 改为身份解析 + 注入 `user_id`；`/start <token>` 绑定；未绑定提示 | P0 |
-| P2 | `POST /api/v1/signup`、`bind-ticket`、`GET /me` 带 `vip_level`；站点注册页与账户页「绑定 Telegram」 | P0 |
-| P3 | VIP：`Entitlement`、启动配额、模板 `min_vip_level`、三表面门禁与呈现、`set-vip` 脚本 | P0 |
+| P0 ✅ | 用户行 + `UserRepository` + `identity#telegram`；ops 脚本为现有租户补行；`find_all` / `find_by_user_id` 形状测试 | 无 |
+| P1 ✅ | telebot 由 allowlist 改为身份解析 + 注入 `user_id`；`/start <token>` 绑定；未绑定提示 | P0 |
+| P2 ✅ | `POST /api/v1/signup`、`bind-ticket`、`GET /me` 带 `vip_level`；站点注册页与账户页「绑定 Telegram」 | P0 |
+| P3 ✅ | VIP：`Entitlement`、启动配额、模板 `min_vip_level`、三表面门禁与呈现、`set-vip` 脚本 | P0 |
 | P4 | 收益曲线私有化：收集器按 `{user_id}/{bot_id}` 写、API 读、站点页改登录后读、下线公开同步 | 无，但要在放开注册前合并 |
 | 上线 | 部署 mcp-http + telebot → 站点 publish → 关掉「invitation only」文案 | P1–P4 |
 

@@ -28,4 +28,9 @@ export const common = {
   notFound: "Nothing here.",
   backToBots: "Back to bots",
   busyConflict: (phase: string) => `The bot is ${phase} right now — try again in a moment.`,
+  // Refusals about the account's level (403 with a code), never about the session.
+  insufficientLevel: (required: number, current: number) =>
+    `This config needs VIP ${required}; your account is VIP ${current}.`,
+  quotaExceeded: (limit: number) =>
+    `Your level allows ${limit} running bot${limit === 1 ? "" : "s"} at a time — stop one first.`,
 };

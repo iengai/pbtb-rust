@@ -38,10 +38,10 @@ lives, and it never returns a config.
 | `list_bots` | `bots:read` | id, name, exchange, desired state, runtime, observed phase |
 | `get_bot_status` | `bots:read` | observed phase, task id, restart generation |
 | `get_bot_config` | `bots:read` | the stored passivbot config |
-| `list_templates` | `bots:read` | |
-| `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent |
+| `list_templates` | `bots:read` | `{name, min_vip_level}` each; nothing is hidden by level |
+| `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent; refused past the level's running-bot ceiling |
 | `stop_bot` | `bots:write` | idempotent |
-| `apply_template` | `bots:write` | applies on the bot's next start |
+| `apply_template` | `bots:write` | applies on the bot's next start; refused for a template above the caller's level |
 | `set_risk_level` | `bots:write` | per-side wallet exposure limits |
 | `set_strategy_side` | `bots:write` | enable/disable one side |
 | `set_bot_runtime` | `bots:write` | `py` (passivbot) or `rs` (pb-runner) |
@@ -49,6 +49,10 @@ lives, and it never returns a config.
 
 Config changes take effect on a bot's next start. A running task keeps the
 config and the binary it started with.
+
+A refusal by level is a tool error in words (`🔒 …`), never redacted: the
+ceiling or the level asked for is what the caller acts on. The table is
+[web-api.md § Levels](web-api.md#levels).
 
 ## Authentication
 

@@ -28,4 +28,6 @@ export const common: typeof en = {
   notFound: "这里什么都没有。",
   backToBots: "返回机器人列表",
   busyConflict: (phase) => `机器人当前${phase}，请稍后重试。`,
+  insufficientLevel: (required, current) => `这个配置需要 VIP ${required}，你的账户是 VIP ${current}。`,
+  quotaExceeded: (limit) => `你的等级同时最多运行 ${limit} 个机器人，请先停掉一个。`,
 };
