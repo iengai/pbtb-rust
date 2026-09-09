@@ -1,6 +1,8 @@
 use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
 
+use crate::usecase::TelegramSender;
+
 use super::{
     Deps,
     redaction::redact,
@@ -42,6 +44,7 @@ async fn handle_start_state(
     bot_context: MyBotContext,
     msg: Message,
     deps: Deps,
+    sender: TelegramSender,
 ) -> Result<(), DependencyMap> {
     let result = super::with_deadline("handle_start_state", async {
         let text = match msg.text() {
@@ -66,9 +69,7 @@ async fn handle_start_state(
                 }
 
                 let bot_id = ctx.selected_bot_id.as_ref().unwrap();
-                let user_id = msg.from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 // Fetch the bot once and reuse it for name, exchange, desired state and runtime.
                 let (bot_name, bot_exchange, bot_enabled, bot_runtime) = match deps.list_bots_usecase.execute(&user_id).await {
@@ -219,58 +220,6 @@ async fn handle_start_state(
                     }
                 }
             }
-            "Link account" => {
-                // 🔴 The URL is a bearer credential for one person's account, and
-                // an inline button renders for everyone in the chat. The
-                // allowlist filters who may drive the bot, not who can see what
-                // it posts — so in a group the first member to tap would link
-                // their own identity to the operator's tenant.
-                if !msg.chat.is_private() {
-                    bot.send_message(
-                        msg.chat.id,
-                        "🔗 Send me 'Link account' in a private chat — the sign-in \
-                         link is personal.",
-                    )
-                    .await?;
-                    return Ok(());
-                }
-
-                if !deps.issue_link_ticket_usecase.is_configured() {
-                    bot.send_message(msg.chat.id, "🔗 Account linking is not set up yet.")
-                        .reply_markup(super::keyboards::main_menu_keyboard())
-                        .await?;
-                    return Ok(());
-                }
-
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-
-                match deps
-                    .issue_link_ticket_usecase
-                    .execute(&user_id, msg.chat.id.0)
-                    .await
-                {
-                    // A URL button rather than the link as text: the token is
-                    // single-use and short-lived, and a tappable button is far
-                    // less likely to be copied, forwarded, or left in a chat.
-                    Ok(url) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "🔗 Sign in to link an account.\n\nThis link works once and \
-                             expires in 10 minutes.",
-                        )
-                        .reply_markup(super::keyboards::link_account_keyboard(&url))
-                        .await?;
-                    }
-                    Err(e) => {
-                        bot.send_message(msg.chat.id, redact("preparing the link", &e))
-                            .reply_markup(super::keyboards::main_menu_keyboard())
-                            .await?;
-                    }
-                }
-            }
             "Balance" => {
                 bot.send_message(msg.chat.id, "💰 Balance: $0.00")
                     .reply_markup(super::keyboards::main_menu_keyboard())
@@ -336,9 +285,7 @@ async fn handle_start_state(
                 }
 
                 // Check if bot has config
-                let user_id = msg.from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 let bot_id = ctx.selected_bot_id.as_ref().unwrap();
 
@@ -388,9 +335,7 @@ async fn handle_start_state(
                     .unwrap_or_default();
 
                 let text = if let Some(ref bot_id) = ctx.selected_bot_id {
-                    let user_id = msg.from()
-                        .map(|user| user.id.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = sender.user_id.clone();
 
                     match deps.start_bot_usecase.execute(&user_id, bot_id).await {
                         Ok(StartOutcome::Started { .. }) => format!("▶️ Bot {bot_id} is starting up."),
@@ -414,9 +359,7 @@ async fn handle_start_state(
                     .unwrap_or_default();
 
                 let text = if let Some(ref bot_id) = ctx.selected_bot_id {
-                    let user_id = msg.from()
-                        .map(|user| user.id.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = sender.user_id.clone();
 
                     match deps.stop_bot_usecase.execute(&user_id, bot_id).await {
                         Ok(StopOutcome::Stopped { .. }) => format!("🛑 Bot {bot_id} is stopping."),
@@ -452,10 +395,7 @@ async fn handle_start_state(
                     }
                 };
 
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
                     Ok(config) => {
@@ -503,10 +443,7 @@ async fn handle_start_state(
                     }
                 };
 
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 // The panel needs only the bot row, not its config: a bot with no
                 // config applied still has a runtime, and picking one before the
@@ -573,9 +510,7 @@ async fn handle_start_state(
             }
             "List" => {
                 // Get user_id from telegram message
-                let user_id = msg.from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 // Call use case to get bots
                 match deps.list_bots_usecase.execute(&user_id).await {
@@ -693,15 +628,13 @@ async fn receive_secret_key(
     (name, api_key): (String, String),
     msg: Message,
     deps: Deps,
+    sender: TelegramSender,
 ) -> Result<(), DependencyMap> {
     let result = super::with_deadline("receive_secret_key", async {
         match msg.text() {
             Some(secret_key) => {
                 let secret_key = secret_key.to_string();
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 // Save bot using use case
                 match deps
@@ -777,16 +710,14 @@ async fn confirm_delete(
     bot_id: String,
     msg: Message,
     deps: Deps,
+    sender: TelegramSender,
 ) -> Result<(), DependencyMap> {
     let result = super::with_deadline("confirm_delete", async {
         match msg.text() {
             Some(text) => {
                 if text.trim().eq_ignore_ascii_case("yes") {
                     // User confirmed deletion
-                    let user_id = msg
-                        .from()
-                        .map(|user| user.id.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = sender.user_id.clone();
 
                     match deps
                         .delete_bot_usecase
@@ -840,15 +771,13 @@ async fn confirm_overwrite_bot(
     (name, api_key, secret_key): (String, String, String),
     msg: Message,
     deps: Deps,
+    sender: TelegramSender,
 ) -> Result<(), DependencyMap> {
     let result = super::with_deadline("confirm_overwrite_bot", async {
         match msg.text() {
             Some(text) => {
                 if text.trim().eq_ignore_ascii_case("yes") {
-                    let user_id = msg
-                        .from()
-                        .map(|user| user.id.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = sender.user_id.clone();
 
                     match deps
                         .add_bot_usecase
@@ -905,6 +834,7 @@ async fn receive_risk_level(
     bot_context: MyBotContext,
     msg: Message,
     deps: Deps,
+    sender: TelegramSender,
 ) -> Result<(), DependencyMap> {
     let result = super::with_deadline("receive_risk_level", async {
         match msg.text() {
@@ -970,10 +900,7 @@ async fn receive_risk_level(
                 }
 
                 // Get user_id and bot_id
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 let ctx = bot_context.get().await?.unwrap_or_default();
 

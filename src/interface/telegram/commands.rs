@@ -9,7 +9,7 @@ use super::{
     states::{BotContext, DialogueState},
 };
 use crate::domain::engine::Runtime;
-use crate::usecase::SetRuntimeOutcome;
+use crate::usecase::{SetRuntimeOutcome, TelegramSender};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -27,11 +27,9 @@ pub enum Command {
     /// dialogue as plain text.
     #[command(description = "show or set a bot's runtime: /runtime <bot_id> [py|rs]")]
     Runtime(String),
-    /// The way back from a link that went to the wrong place — the wrong account
-    /// signed in, or someone else's link followed. Without it a link is
-    /// permanent, and the identity can never be claimed by whoever should hold
-    /// it.
-    #[command(description = "release every account linked to you")]
+    /// Releases the caller's Telegram id from their account, so another can be
+    /// bound from the web. The account itself is untouched.
+    #[command(description = "unbind this Telegram account from your account")]
     Unlink,
 }
 
@@ -50,6 +48,7 @@ async fn dispatch_command(
     msg: Message,
     cmd: Command,
     deps: Deps,
+    sender: TelegramSender,
     dialogue: MyDialogue,
     bot_context: MyBotContext,
 ) -> Result<(), DependencyMap> {
@@ -63,9 +62,7 @@ async fn dispatch_command(
                 let ctx = bot_context.get().await?.unwrap_or_default();
 
                 let welcome_msg = if let Some(ref bot_id) = ctx.selected_bot_id {
-                    let user_id = msg.from()
-                        .map(|user| user.id.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = sender.user_id.clone();
 
                     let selected = deps.list_bots_usecase.execute(&user_id).await
                         .ok()
@@ -114,28 +111,18 @@ async fn dispatch_command(
                     .await?;
             }
             Command::Unlink => {
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-
-                let text = match deps.unlink_identities_usecase.execute(&user_id).await {
-                    Ok(0) => "🔗 No accounts are linked to you.".to_string(),
-                    Ok(n) => format!(
-                        "🔗 Released {n} linked account(s). Anything signing in with \
-                         them loses access; link again with the button."
-                    ),
-                    Err(e) => redact("releasing your linked accounts", &e),
+                let text = match deps.unbind_telegram_usecase.execute(&sender.user_id).await {
+                    Ok(0) => "🔗 No Telegram account is bound to your account.".to_string(),
+                    Ok(_) => "🔗 Unbound. This Telegram account can no longer drive your \
+                              bots; bind one again from your account page on the web."
+                        .to_string(),
+                    Err(e) => redact("unbinding your Telegram account", &e),
                 };
-                bot.send_message(msg.chat.id, text)
-                    .reply_markup(keyboards::main_menu_keyboard())
-                    .await?;
+                // No menu: the next tap from this sender would be refused.
+                bot.send_message(msg.chat.id, text).await?;
             }
             Command::Runtime(args) => {
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
                 let text = runtime_command(&deps, &user_id, &args).await;
                 bot.send_message(msg.chat.id, text)
                     .reply_markup(keyboards::main_menu_keyboard())
@@ -143,10 +130,7 @@ async fn dispatch_command(
             }
             Command::List => {
                 // Get user_id from telegram message
-                let user_id = msg
-                    .from()
-                    .map(|user| user.id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let user_id = sender.user_id.clone();
 
                 // Call use case to get bots
                 match deps.list_bots_usecase.execute(&user_id).await {

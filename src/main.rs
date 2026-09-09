@@ -33,11 +33,6 @@ async fn main() -> anyhow::Result<()> {
     let engines =
         EngineTaskDefinitions::parse(&td_by_engine).context("APP__ECS__TD_PASSIVBOT_BY_ENGINE")?;
     let container_name = configs.ecs.td_passivbot_container_name.clone();
-    // The Telegram users allowed to reach any handler; an empty list fails startup.
-    let allowed_user_ids = configs
-        .telegram
-        .allowlist()
-        .context("APP__TELEGRAM__ALLOWED_USER_IDS")?;
 
     // Create repositories
     let bot_repository = Arc::new(DynamoBotRepository::new(dynamodb_client, table_name));
@@ -114,14 +109,18 @@ async fn main() -> anyhow::Result<()> {
     let start_locks: Arc<dyn domain::StartLockRepository> = bot_repository.clone();
     let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone()));
 
+    // Who a sender is: the `telegram` identity row, then the account behind it.
     let link_tickets: Arc<dyn domain::identity::LinkTicketRepository> = bot_repository.clone();
-    let issue_link_ticket_usecase = Arc::new(IssueLinkTicketUseCase::new(
-        link_tickets,
-        clock.clone(),
-        configs.link.url.trim(),
-    ));
     let identities: Arc<dyn domain::IdentityRepository> = bot_repository.clone();
-    let unlink_identities_usecase = Arc::new(UnlinkIdentitiesUseCase::new(identities));
+    let users: Arc<dyn domain::UserRepository> = bot_repository.clone();
+    let resolve_sender_usecase =
+        Arc::new(ResolveTelegramSenderUseCase::new(identities.clone(), users));
+    let bind_telegram_usecase = Arc::new(BindTelegramUseCase::new(
+        link_tickets,
+        identities.clone(),
+        clock.clone(),
+    ));
+    let unbind_telegram_usecase = Arc::new(UnbindTelegramUseCase::new(identities));
 
     // Create use cases - ECS actuation (Run/Stop buttons -> RunTask/StopTask)
     // A launch is routed to the task definition registered for the engine line the
@@ -169,13 +168,14 @@ async fn main() -> anyhow::Result<()> {
         set_bot_runtime_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
-        // Account linking
-        issue_link_ticket_usecase,
-        unlink_identities_usecase,
+        // Sender resolution and Telegram binding
+        resolve_sender_usecase,
+        bind_telegram_usecase,
+        unbind_telegram_usecase,
         // ECS actuation
         start_bot_usecase,
         stop_bot_usecase,
     };
 
-    interface::telegram::router::run(bot, deps, allowed_user_ids).await
+    interface::telegram::router::run(bot, deps, configs.telegram.site_url.clone()).await
 }

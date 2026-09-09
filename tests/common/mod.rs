@@ -15,7 +15,6 @@ pub mod fakes;
 pub mod oauth;
 pub mod telegram;
 
-use std::collections::HashSet;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
@@ -41,6 +40,8 @@ pub const NOW: i64 = 1_700_000_000;
 /// refusal points a client at, and what a token has to be audienced for.
 pub const RESOURCE: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/";
 pub const LINK_URL: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/link";
+/// The web console the bot points a stranger at.
+pub const SITE_URL: &str = "https://console.example.test/";
 
 pub struct Harness {
     /// Holds the fixture's table (and its container, when it started one).
@@ -58,13 +59,24 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// Build the whole stack. `None` when no DynamoDB Local is reachable,
-    /// matching the skip behaviour of the repository suite.
+    /// Build the whole stack, with the operator's account in place: an active
+    /// account whose id is the Telegram id (as a tenant that predates account
+    /// rows has), bound to that Telegram id. `None` when no DynamoDB Local is
+    /// reachable, matching the skip behaviour of the repository suite.
     pub async fn start() -> Option<Self> {
-        Self::start_with_allowlist(HashSet::from([telegram::USER_ID.to_string()])).await
+        let h = Self::start_empty().await?;
+        h.given_account(&telegram::USER_ID.to_string(), 0).await;
+        h.given_link(
+            domain::identity::PROVIDER_TELEGRAM,
+            &telegram::USER_ID.to_string(),
+            &telegram::USER_ID.to_string(),
+        )
+        .await;
+        Some(h)
     }
 
-    pub async fn start_with_allowlist(allowed: HashSet<String>) -> Option<Self> {
+    /// The stack with no accounts at all.
+    pub async fn start_empty() -> Option<Self> {
         let db = dynamo::start().await?;
 
         let bots = Arc::new(DynamoBotRepository::new(
@@ -97,7 +109,7 @@ impl Harness {
             api_keys,
             ecs,
             templates,
-            schema: router::schema(allowed),
+            schema: router::schema(SITE_URL.to_string()),
             deps_map: router::deps_map(deps),
             bot,
             me: me_stub(),
@@ -143,6 +155,35 @@ impl Harness {
     pub async fn given_bot(&self, bot: domain::bot::Bot) {
         use domain::bot::BotRepository;
         self.bots.save(&bot).await.expect("seed bot");
+    }
+
+    /// An active account at `vip_level`, as signing up on the web leaves one.
+    pub async fn given_account(&self, user_id: &str, vip_level: u8) {
+        use domain::user::UserRepository;
+        let mut user = domain::User::new(user_id.to_string(), None, NOW);
+        user.vip_level = vip_level;
+        assert!(
+            self.bots.create_user(&user).await.expect("seed account"),
+            "account {user_id} seeded twice"
+        );
+    }
+
+    /// Suspend an account, as an operator would.
+    pub async fn given_suspended(&self, user_id: &str) {
+        use domain::user::UserRepository;
+        self.bots
+            .set_status(user_id, domain::UserStatus::Suspended, NOW)
+            .await
+            .expect("suspend");
+    }
+
+    /// A one-time Telegram bind token for `user_id`, as the web hands out.
+    pub async fn given_bind_ticket(&self, user_id: &str) -> String {
+        let tickets: Arc<dyn domain::identity::LinkTicketRepository> = self.bots.clone();
+        IssueTelegramBindTicketUseCase::new(tickets, Arc::new(FixedClock(NOW)))
+            .execute(user_id)
+            .await
+            .expect("issue a bind ticket")
     }
 }
 
@@ -352,14 +393,19 @@ fn build_deps(
 
     let link_tickets: Arc<dyn domain::identity::LinkTicketRepository> = bots.clone();
     let identities: Arc<dyn domain::IdentityRepository> = bots.clone();
+    let users: Arc<dyn domain::UserRepository> = bots.clone();
 
     Deps {
-        issue_link_ticket_usecase: Arc::new(IssueLinkTicketUseCase::new(
-            link_tickets,
-            clock.clone(),
-            LINK_URL,
+        resolve_sender_usecase: Arc::new(ResolveTelegramSenderUseCase::new(
+            identities.clone(),
+            users,
         )),
-        unlink_identities_usecase: Arc::new(UnlinkIdentitiesUseCase::new(identities)),
+        bind_telegram_usecase: Arc::new(BindTelegramUseCase::new(
+            link_tickets,
+            identities.clone(),
+            clock.clone(),
+        )),
+        unbind_telegram_usecase: Arc::new(UnbindTelegramUseCase::new(identities)),
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
         add_bot_usecase: Arc::new(AddBotUseCase::new(
             bots_dyn.clone(),

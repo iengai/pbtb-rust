@@ -1,10 +1,9 @@
 // Rust
-use std::collections::HashSet;
 use teloxide::prelude::*;
-use teloxide::types::{UpdateKind, UserId};
+use teloxide::types::UpdateKind;
 
-// 可在此添加节流、统一错误拦截、日志上下文等横切逻辑。
-// 返回一个可链式组合的 Handler。
+use super::{Deps, redaction::redact};
+use crate::usecase::{SenderResolution, TelegramSender};
 
 /// Records every update that reaches the dispatcher, before any routing.
 ///
@@ -34,69 +33,109 @@ pub fn install() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
     }))
 }
 
-/// Terminates every update whose sender is not on the allowlist, before it can
-/// reach a command, callback or dialogue handler.
-///
-/// Routed as the first branch of the schema, so the handlers behind it never see
-/// an unauthorized update and need no check of their own. It also closes the
-/// `"unknown"` tenant bucket that the handlers' `user_id` fallback would
-/// otherwise create: an update carrying no sender matches no id, so it stops
-/// here.
-pub fn reject_unauthorized(
-    allowed: HashSet<String>,
-) -> teloxide::dispatching::UpdateHandler<DependencyMap> {
-    dptree::filter(move |u: Update| !is_allowed(&allowed, u.user().map(|user| user.id))).endpoint(
-        |bot: Bot, u: Update| async move {
-            log::warn!(
-                "rejected update {} from user={:?} chat={:?}: not on the allowlist",
-                u.id,
-                u.user().map(|user| user.id.0),
-                u.chat().map(|c| c.id.0)
-            );
-            // Answering costs one API call but keeps a rejection distinguishable
-            // from the bot being down; a silent drop reproduces exactly the
-            // "telebot never answers" symptom.
-            if let Some(chat) = u.chat()
-                && let Err(e) = bot
-                    .send_message(chat.id, "⛔ This bot is limited to authorized users.")
-                    .await
-            {
-                log::warn!("failed to deliver rejection notice: {e}");
-            }
-            Ok::<(), DependencyMap>(())
-        },
-    )
+/// What became of resolving an update's sender, carried in the dependency map
+/// for the branches after it.
+#[derive(Debug, Clone)]
+pub enum Sender {
+    Known(TelegramSender),
+    Unbound,
+    Suspended,
+    /// A channel post, an edited-message service update: nobody sent it.
+    Nobody,
+    /// The lookup itself failed. Redacted for the chat, logged in full.
+    Unavailable(String),
 }
 
-/// Whether an update's sender may use the bot. A sender-less update (a channel
-/// post, an edited-message service update) belongs to nobody on the list.
-fn is_allowed(allowed: &HashSet<String>, user: Option<UserId>) -> bool {
-    user.is_some_and(|id| allowed.contains(&id.0.to_string()))
+/// Resolves the sender of every update into the account behind it.
+///
+/// Routed ahead of the command, callback and dialogue branches, which extract
+/// [`TelegramSender`] and never see an update whose sender is not a known,
+/// active account. This is the only place a Telegram id is turned into a
+/// `user_id`, so no handler has a fallback tenant of its own.
+pub fn resolve_sender() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
+    dptree::entry().map_async(|u: Update, deps: Deps| async move {
+        let Some(telegram_id) = u.user().map(|user| user.id.0.to_string()) else {
+            return Sender::Nobody;
+        };
+        match deps.resolve_sender_usecase.execute(&telegram_id).await {
+            Ok(SenderResolution::Known(sender)) => Sender::Known(sender),
+            Ok(SenderResolution::Unbound) => Sender::Unbound,
+            Ok(SenderResolution::Suspended) => Sender::Suspended,
+            Err(e) => Sender::Unavailable(redact("checking your account", &e)),
+        }
+    })
+}
+
+/// The gate the handler branches sit behind: only a known sender passes, and
+/// what passes is the account, not the Telegram id.
+pub fn known_sender() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
+    dptree::filter_map(|sender: Sender| match sender {
+        Sender::Known(sender) => Some(sender),
+        _ => None,
+    })
+}
+
+/// Terminates every update the gate did not pass, telling the sender why.
+///
+/// Answering costs one API call but keeps a refusal distinguishable from the
+/// bot being down; a silent drop reproduces exactly the "telebot never answers"
+/// symptom. Nothing about any tenant is disclosed.
+pub fn refuse_unresolved(site_url: String) -> teloxide::dispatching::UpdateHandler<DependencyMap> {
+    dptree::endpoint(move |bot: Bot, u: Update, sender: Sender| {
+        let site_url = site_url.clone();
+        async move {
+            log::warn!(
+                "refused update {} from user={:?} chat={:?}: {}",
+                u.id,
+                u.user().map(|user| user.id.0),
+                u.chat().map(|c| c.id.0),
+                match &sender {
+                    Sender::Unbound => "no account bound to this telegram id",
+                    Sender::Suspended => "account suspended",
+                    Sender::Nobody => "no sender",
+                    Sender::Unavailable(_) => "sender lookup failed",
+                    Sender::Known(_) => "unreachable: a known sender was routed",
+                }
+            );
+            let text = match sender {
+                Sender::Unbound | Sender::Nobody => onboarding_text(&site_url),
+                Sender::Suspended => "⛔ This account is suspended.".to_string(),
+                Sender::Unavailable(text) => text,
+                Sender::Known(_) => return Ok(()),
+            };
+            if let Some(chat) = u.chat()
+                && let Err(e) = bot.send_message(chat.id, text).await
+            {
+                log::warn!("failed to deliver refusal notice: {e}");
+            }
+            Ok::<(), DependencyMap>(())
+        }
+    })
+}
+
+/// Where a stranger is sent. Signing up is a web action, so the bot can only
+/// point at it.
+fn onboarding_text(site_url: &str) -> String {
+    let site = site_url.trim();
+    if site.is_empty() {
+        "👋 This Telegram account is not bound to any account. Sign up on the web with \
+         Google, then bind Telegram from your account page."
+            .to_string()
+    } else {
+        format!(
+            "👋 This Telegram account is not bound to any account. Sign up at {site} with \
+             Google, then bind Telegram from your account page there."
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn allowlist(ids: &str) -> HashSet<String> {
-        ids.split(',').map(str::to_owned).collect()
-    }
-
     #[test]
-    fn allowlisted_sender_passes() {
-        assert!(is_allowed(
-            &allowlist("5351347639"),
-            Some(UserId(5351347639))
-        ));
-    }
-
-    #[test]
-    fn other_sender_is_rejected() {
-        assert!(!is_allowed(&allowlist("5351347639"), Some(UserId(42))));
-    }
-
-    #[test]
-    fn update_without_sender_is_rejected() {
-        assert!(!is_allowed(&allowlist("5351347639"), None));
+    fn onboarding_names_the_site_when_there_is_one() {
+        assert!(onboarding_text("https://example.test/").contains("https://example.test/"));
+        assert!(onboarding_text("  ").contains("Sign up on the web"));
     }
 }
