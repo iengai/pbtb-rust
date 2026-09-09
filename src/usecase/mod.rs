@@ -1,5 +1,6 @@
 mod add_bot;
 mod apply_template;
+mod bind_telegram;
 mod delete_bot;
 mod engine_routing;
 mod get_bot_config;
@@ -11,6 +12,7 @@ mod list_identities;
 mod list_templates;
 mod reconcile_stopped_task;
 mod record_running_task;
+mod resolve_telegram_sender;
 mod run_task;
 mod set_bot_runtime;
 mod set_strategy_side;
@@ -23,6 +25,10 @@ mod update_risklevel;
 
 pub use add_bot::{AddBotUseCase, AddOutcome};
 pub use apply_template::ApplyTemplateUseCase;
+pub use bind_telegram::{
+    BindOutcome, BindTelegramUseCase, IssueTelegramBindTicketUseCase, PURPOSE_TELEGRAM_BIND,
+    UnbindTelegramUseCase,
+};
 pub use delete_bot::{DeleteBotUseCase, DeleteOutcome};
 pub use engine_routing::{
     EngineRoutedResolver, EngineTaskDefinitions, LaunchTarget, LaunchTargetResolver,
@@ -36,6 +42,7 @@ pub use list_identities::ListIdentitiesUseCase;
 pub use list_templates::ListTemplatesUseCase;
 pub use reconcile_stopped_task::{ReconcileOutcome, ReconcileStoppedTaskUseCase, StopInfo};
 pub use record_running_task::{RecordRunningOutcome, RecordRunningTaskUseCase};
+pub use resolve_telegram_sender::{ResolveTelegramSenderUseCase, SenderResolution, TelegramSender};
 pub use run_task::{RunTaskUseCase, TaskRunner};
 pub use set_bot_runtime::{SetBotRuntimeUseCase, SetRuntimeOutcome};
 pub use set_strategy_side::SetStrategySideUseCase;
