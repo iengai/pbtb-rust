@@ -79,7 +79,7 @@ Listing      pk = "user_id#<user_id>", sk = "identity#<provider>#<subject>"
 
 An identity names exactly one account (conditional write); one account may
 hold several. The listing row sits in the tenant's partition and is skipped
-by `find_by_user_id` (`is_identity_row`).
+by the bot readers (`is_bot_row`).
 
 Signup writes the account row first and the `workos` identity second, so two
 signups racing for one subject leave the loser's account row behind with no
@@ -94,21 +94,24 @@ user-create | set-vip | user-status`.
 Two readers walk rows without a sort-key condition: `find_by_user_id` queries
 a whole tenant partition, and `find_all` scans the table for the daily
 return-curve collector. Both tell bot rows from the rest by shape: a bot row's
-`sk` is the bare `bot_id`, which must not contain `#`, and every other row in
-the partition carries a `<kind>#` prefix (`ecs_task_metadata#`,
-`config_switch#`, `identity#`) that the predicates in
-`src/infra/botrepository.rs` (`is_runtime_row`, `is_config_switch_row`,
-`is_identity_row`) skip. `find_all` additionally ignores any `pk` that is not a
-`user_id#` partition.
+`sk` is the bare `bot_id`, which `Bot::validate_name` keeps free of `#`, and
+every other row in the partition carries a `<kind>#` prefix
+(`ecs_task_metadata#`, `config_switch#`, `identity#`). `is_bot_row` in
+`src/infra/botrepository.rs` admits only the former, so a shape added later is
+skipped without being named; `find_all` additionally ignores any `pk` that is
+not a `user_id#` partition, and `scripts/ops/pbtb_ops.py bot-status` applies
+the same two rules.
 
-A shape that lands under `user_id#` without being registered there reaches
-`parse_bot_row`, fails as `CorruptRecord`, and takes the whole result with it:
-the tenant's bot list, every launch, and the restart lambda for that tenant via
-`find_by_user_id`; every tenant's daily snapshot via `find_all`. The rows have
-no TTL, so the failure lasts until the reader is fixed. When adding a shape,
-first write the test that the old readers still work with the new row present
-(`tests/identity_link_test.rs` has two), watch it fail, register the shape,
-then write the row.
+A new `<kind>#` row therefore needs no change to the readers, as long as it
+keeps the prefix; `tests/identity_link_test.rs` and `tests/botrepository_test.rs`
+hold the tests that the readers survive foreign rows. What still fails them is
+a bot row that does not parse: `parse_bot_row` raises `CorruptRecord` and takes
+the whole result with it — the tenant's bot list, every launch, and the restart
+lambda for that tenant via `find_by_user_id`; every tenant's daily snapshot via
+`find_all`. The rows have no TTL, so that lasts until the row or the reader is
+fixed. Binaries built before `is_bot_row` still carry one predicate per known
+shape and fail on a shape they were not taught; deploy them before writing a
+new one.
 
 ## S3 (configurations, templates, API keys)
 

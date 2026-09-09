@@ -50,6 +50,17 @@ impl Bot {
     /// Factory encapsulating the construction policy for a newly added bot.
     /// id is derived from the name, exchange defaults to Bybit, the bot starts
     /// disabled (desired state off) and runs on the default (Python) runtime.
+    /// A bot's id is its name, and the id is the row's sort key, where `#`
+    /// marks the `<kind>#` rows kept beside bots; a name carrying it would be
+    /// stored as something no reader recognises as a bot and vanish from every
+    /// listing.
+    pub fn validate_name(name: &str) -> Result<(), DomainError> {
+        if name.is_empty() || name.contains('#') {
+            return Err(DomainError::InvalidBotName(name.to_string()));
+        }
+        Ok(())
+    }
+
     pub fn create(
         user_id: String,
         name: String,
@@ -124,6 +135,19 @@ pub trait ApiKeyRepository: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_refused_when_empty_or_carrying_the_kind_separator() {
+        assert!(matches!(
+            Bot::validate_name("my#bot"),
+            Err(DomainError::InvalidBotName(_))
+        ));
+        assert!(matches!(
+            Bot::validate_name(""),
+            Err(DomainError::InvalidBotName(_))
+        ));
+        assert!(Bot::validate_name("my-bot").is_ok());
+    }
 
     #[test]
     fn create_sets_defaults() {

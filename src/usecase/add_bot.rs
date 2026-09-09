@@ -7,6 +7,7 @@ use std::sync::Arc;
 /// branch (`AlreadyExists`), not a fault: the caller confirms an overwrite
 /// before anything is written, so a re-add never silently clobbers or
 /// duplicates an existing bot.
+#[derive(Debug)]
 pub enum AddOutcome {
     Added(Bot),
     /// A bot with the requested name already exists; nothing was written.
@@ -41,6 +42,7 @@ impl AddBotUseCase {
         api_key: String,
         secret_key: String,
     ) -> Result<AddOutcome, DomainError> {
+        Bot::validate_name(&name)?;
         // Detect by name, not by id: a same-name bot whose id was not derived
         // from the name (an older row keyed on a numeric account id) would slip
         // past an id lookup and a second row would be created — the duplicate
@@ -74,6 +76,7 @@ impl AddBotUseCase {
         api_key: String,
         secret_key: String,
     ) -> Result<Bot, DomainError> {
+        Bot::validate_name(&name)?;
         let now = self.clock.now();
         let bot = match self.find_by_name(user_id, &name).await? {
             Some(existing) => Bot::new(
@@ -230,6 +233,37 @@ mod tests {
             .expect("api keys saved");
         assert_eq!(api_saved.id, "my-bot");
         assert_eq!(api_saved.exchange, Exchange::Bybit);
+    }
+
+    #[tokio::test]
+    async fn a_name_with_the_kind_separator_is_refused_before_anything_is_saved() {
+        let bots = Arc::new(InMemoryBots::default());
+        let api_keys = Arc::new(MockApiKeyRepository::default());
+        let uc = AddBotUseCase::new(bots.clone(), api_keys.clone(), Arc::new(FixedClock));
+
+        let err = uc
+            .execute(
+                "user-1",
+                "my#bot".to_string(),
+                "ak".to_string(),
+                "sk".to_string(),
+            )
+            .await
+            .expect_err("a '#' in the name is refused");
+        assert!(matches!(err, DomainError::InvalidBotName(_)), "{err}");
+        assert!(bots.get("user-1", "my#bot").is_none());
+        assert!(api_keys.saved.lock().unwrap().is_none());
+
+        let err = uc
+            .overwrite(
+                "user-1",
+                "my#bot".to_string(),
+                "ak".to_string(),
+                "sk".to_string(),
+            )
+            .await
+            .expect_err("overwrite applies the same rule");
+        assert!(matches!(err, DomainError::InvalidBotName(_)), "{err}");
     }
 
     #[tokio::test]

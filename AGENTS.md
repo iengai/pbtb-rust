@@ -10,7 +10,7 @@ Guidance for AI agents (Claude Code, Codex, etc.) working in this repo. This fil
 
 ## Documentation map
 
-Detailed docs are flat leaves under `docs/` — open the one for your task directly (README indexes the same set for humans):
+Detailed docs are flat leaves under `docs/` — open the one for your task directly:
 
 | Working on… | Read |
 |-------------|------|
@@ -35,7 +35,7 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 
 These are irreversible or trading-impacting; they are inline here on purpose, not behind a link.
 
-- 🔴 **Terraform / NAT egress.** In `terraform/envs/dev`, never run a blanket `terraform apply`. The NAT instance is the **sole egress for all trading traffic** and the telebot host, with `user_data_replace_on_change = true` — any `user_data`/AMI change **destroys + recreates** it, blackholing trading egress and taking telebot down until the next telebot-deploy. Treat such changes as a maintenance-window op **with trading quiesced first**; scope every other apply with `-target`. Any plan/apply needs `target/lambda/task_state_change_handler/bootstrap` to exist (the lambda `archive_file`). The two ECR repos are already adopted into state — never let Terraform recreate them. → [docs/deployment/overview.md](docs/deployment/overview.md)
+- 🔴 **Terraform / NAT egress.** In `terraform/envs/dev`, never run a blanket `terraform apply`. The NAT instance is the **sole egress for all trading traffic** and the telebot host, with `user_data_replace_on_change = true` — any `user_data`/AMI change **destroys + recreates** it, blackholing trading egress and taking telebot down until the next telebot-deploy. Treat such changes as a maintenance-window op **with trading quiesced first**; scope every other apply with `-target`. Any plan/apply needs `target/lambda/task_state_change_handler/bootstrap` to exist. The two ECR repos are already adopted into state — never let Terraform recreate them. → [docs/deployment/overview.md](docs/deployment/overview.md)
 - 🔴 **No double live-trading task.** A bot must never run two live tasks at once. Every launcher — the telebot "Run bot", the MCP `start_bot` tool and the Lambda auto-restart — claims the **exclusive DynamoDB start lock** (a conditional write, the gate) before `RunTask`. Do not add a launch path that bypasses it. → [docs/architecture.md](docs/architecture.md)
 - 🔴 **Tenant isolation + secrets.** Every row lives under `pk = user_id#<user_id>`. Derive `user_id` from the authenticated principal — the account a Telegram sender's identity row resolves to, or a verified token's linked subject — never from client input; treat any cross-`user_id` access as a privilege-escalation bug. Never log or surface `api_key` / `secret_key`.
 - 🔴 **Comments describe code as-is.** No edit/process narration ("previously/now/no longer", "counterpart to X"). Keep comments for the non-obvious *why*. The `comment-reviewer` agent enforces this on diffs. → [docs/conventions.md](docs/conventions.md)
@@ -54,7 +54,7 @@ These are irreversible or trading-impacting; they are inline here on purpose, no
 
 ## Working agreements
 
-- Run the `verify` skill gate (`bash .claude/skills/verify/scripts/gate.sh`) before committing; it covers fmt, check, clippy `-D warnings`, tests (dynamodb-local), terraform/workflow checks with explicit exit guards.
-- Operational questions (what is deployed, is a bot healthy, why did X fail) go through `scripts/ops/pbtb_ops.py` (`deploy-audit`, `bot-status --memory`, `telebot-logs`, `lambda-logs`, `codebuild-log`, `smoke-lambda`) so answers are reproducible.
+- Run the `verify` skill gate (`bash .claude/skills/verify/scripts/gate.sh`) before committing; it covers fmt, check, clippy `-D warnings`, tests, terraform/workflow checks and the knowledge budgets, each with an explicit exit guard.
+- Operational questions (what is deployed, is a bot healthy, why did X fail) go through `scripts/ops/pbtb_ops.py` (`deploy-audit`, `bot-status`, `telebot-logs`, `lambda-logs`) so answers are reproducible.
 - Branch `<type>/<kebab-summary>`; commit `<type>: <summary>` (lowercase imperative, ≤72 chars). Types: feat/fix/refactor/test/chore/docs. Details in [docs/conventions.md](docs/conventions.md).
 - Keep changes minimal and targeted; ask before long or destructive commands; update or add tests when behavior changes.

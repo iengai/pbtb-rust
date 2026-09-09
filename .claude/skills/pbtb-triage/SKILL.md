@@ -21,7 +21,7 @@ both so you spend your time on the actual cause.
    `docker logs telebot` on the NAT host holds the unredacted error (journald
    carries only the wrapper's output). Use the scripts, not ad-hoc CLI:
    ```
-   python scripts/ops/pbtb_ops.py telebot-logs --grep <ref>
+   python scripts/ops/pbtb_ops.py telebot-logs --app --grep <ref>
    python scripts/ops/pbtb_ops.py lambda-logs task-state --pattern "?ERROR ?panic"
    python scripts/ops/pbtb_ops.py codebuild-log <build-id>
    ```
