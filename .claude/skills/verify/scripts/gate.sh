@@ -116,5 +116,26 @@ PY
   gate workflow-yaml $RC
 fi
 
+# 8. knowledge budgets (docs/conventions.md § Knowledge placement): the files
+# every session loads and every skill description have a byte ceiling, and a
+# change to the row layout or the infra is a prompt to re-read the leaf that
+# describes it.
+python - <<'PY'; gate knowledge-budget $?
+import glob, os, re, sys
+bad = 0
+for f, lim in [("AGENTS.md", 6144), (".claude/CLAUDE.md", 1536)]:
+    n = os.path.getsize(f)
+    if n > lim:
+        print(f"  {f}: {n} bytes > {lim}"); bad = 1
+for f in glob.glob(".claude/skills/*/SKILL.md"):
+    m = re.search(r"^description:[ \t]*(.*?)\n(?=\S)", open(f, encoding="utf-8").read(), re.S | re.M)
+    n = len(m.group(1).encode("utf-8")) if m else 0
+    if n > 300:
+        print(f"  {f}: description {n} bytes > 300"); bad = 1
+sys.exit(bad)
+PY
+echo "$CHANGED" | grep -q '^src/infra/botrepository\.rs$' && echo "  (botrepository.rs changed: does docs/data-model.md still describe the rows?)"
+echo "$CHANGED" | grep -q '^terraform/' && echo "  (terraform changed: do docs/deployment/*.md and the pbtb-deploy skill still match?)"
+
 echo "== $([ $FAILS -eq 0 ] && echo ALL GATES GREEN || echo "$FAILS GATE(S) FAILED") =="
 exit $FAILS

@@ -48,9 +48,10 @@ client rather than starting at the server.
    and drops every update queued before it; to peek without consuming, omit
    the offset (`limit=3&timeout=0`). `getWebhookInfo.pending_update_count`
    stays 0 for a long-polling bot and says nothing about who is consuming.
-3. **Did an update reach a handler?** `docker logs telebot` — application logs
-   are NOT in journald, and `pbtb_ops.py telebot-logs` reads only journald, so
-   it will look convincingly empty. Every received update is one INFO line from
+3. **Did an update reach a handler?** `pbtb_ops.py telebot-logs --app` (docker
+   logs) — application logs are NOT in journald, which is what the command
+   reads without `--app`, so that view looks convincingly empty. Every received
+   update is one INFO line from
    the `middlewares::install` inspector; compare that count against the number
    of ✓✓ messages the user sent.
 4. **Did a handler wedge?** `with_deadline` logs

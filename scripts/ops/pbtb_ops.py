@@ -6,7 +6,7 @@ same answers with one command instead of re-deriving where things live:
 
   bot-status [BOT_ID|all] [--memory]   desired vs observed state per bot
   deploy-audit                         what is deployed vs what main/terraform say
-  telebot-logs [--since 30m] [--grep X] journald of the telebot service on the NAT host
+  telebot-logs [--since 30m] [--grep X] [--app] telebot logs on the NAT host (journald, or the app with --app)
   lambda-logs NAME [--since 30m] [--pattern X]
   codebuild-log BUILD_ID [--tail N]    tolerant of the corrupt JSON CloudWatch emits
   smoke-lambda NAME                    invoke with an event the handler ignores
@@ -186,7 +186,12 @@ def cmd_bot_status(a):
     bots, runtimes, switches = {}, {}, {}
     for it in items:
         pk, sk = dyn_val(it, "pk") or "", dyn_val(it, "sk") or ""
-        uid = pk.split("#", 1)[1] if "#" in pk else pk
+        # Account, identity and ticket rows live under their own partition
+        # prefixes; inside a tenant partition every non-bot row carries a
+        # `<kind>#` sort key (docs/data-model.md, "Row shapes and the readers").
+        if not pk.startswith("user_id#"):
+            continue
+        uid = pk.split("#", 1)[1]
         if sk.startswith("ecs_task_metadata#"):
             runtimes[sk.split("#", 1)[1]] = it
         elif sk.startswith("config_switch#"):
@@ -194,6 +199,8 @@ def cmd_bot_status(a):
             prev = switches.get(bid)
             if not prev or int(dyn_val(it, "applied_at") or 0) > int(dyn_val(prev, "applied_at") or 0):
                 switches[bid] = it
+        elif "#" in sk:
+            continue
         else:
             bots[sk] = (uid, it)
 
@@ -517,12 +524,18 @@ def cmd_telebot_logs(a):
         cmds.append("echo '== /etc/telebot/telebot.env (non-secret keys) =='; grep -E '^(APP__|PBTB_)' /etc/telebot/telebot.env")
     cmds.append("echo '== container =='; docker ps --filter name=telebot --format '{{.Image}} | {{.Status}}'; "
                 "echo restarts=$(docker inspect --format '{{.RestartCount}}' telebot 2>/dev/null)")
-    j = f"journalctl -u telebot --since '{mins} minutes ago' --no-pager"
+    # journald holds only the wrapper's output (docker login, image pull,
+    # "Starting Telegram bot..."); the application's own lines are in the
+    # container's log.
+    if a.app:
+        source, j = "docker logs", f"docker logs telebot --since {mins}m 2>&1"
+    else:
+        source, j = "journal", f"journalctl -u telebot --since '{mins} minutes ago' --no-pager"
     if a.grep:
         j += f" | grep -iE -A {a.context} '{a.grep}'"
     else:
         j += f" | tail -n {a.tail}"
-    cmds.append("echo '== journal =='; " + j + " || true")
+    cmds.append(f"echo '== {source} =='; " + j + " || true")
     print(ssm(nat, cmds, a, timeout_s=90))
 
 
@@ -721,12 +734,13 @@ def main(argv=None):
     s = sub.add_parser("deploy-audit", help="deployed state vs main / terraform / ECR")
     s.set_defaults(fn=cmd_deploy_audit)
 
-    s = sub.add_parser("telebot-logs", help="journald of the telebot service on the NAT host")
+    s = sub.add_parser("telebot-logs", help="telebot logs on the NAT host: journald (the wrapper) or, with --app, the application")
     s.add_argument("--since", default="30m")
     s.add_argument("--grep", help="regex; e.g. a redaction ref id like ca7f7c90")
     s.add_argument("--context", type=int, default=6)
     s.add_argument("--tail", type=int, default=60)
     s.add_argument("--env-dump", action="store_true", help="also print the non-secret env keys")
+    s.add_argument("--app", action="store_true", help="the application's own output (docker logs telebot) instead of journald")
     s.set_defaults(fn=cmd_telebot_logs)
 
     s = sub.add_parser("lambda-logs", help="CloudWatch logs of a lambda (task-state | daily-pnl | full name)")

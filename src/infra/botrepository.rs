@@ -55,39 +55,18 @@ fn parse_bot_row(
         })
 }
 
-/// A bot's partition (`pk = user_id#<user_id>`) also holds its observed-runtime /
-/// start-lock row (`sk = ecs_task_metadata#<bot_id>`). That row is not a bot, so a
-/// `find_by_user_id` query must skip it rather than try to parse it as one (which
-/// would mis-read an expected non-bot row as a `CorruptRecord` and fail the whole
-/// list). A genuinely corrupt *bot* row still fails loud — it is not skipped here.
-fn is_runtime_row(item: &HashMap<String, AttributeValue>) -> bool {
+/// A bot row's `sk` is the bare `bot_id`; every other row kept in a tenant
+/// partition (`ecs_task_metadata#…`, `config_switch#…`, `identity#…`, and any
+/// shape added later) carries a `<kind>#` prefix. The two readers that walk a
+/// partition with no sort-key condition rely on this to skip what is not a bot,
+/// so a shape they were never taught cannot reach `parse_bot_row` and fail the
+/// whole list for that tenant. `Bot::validate_name` keeps `#` out of bot ids for
+/// the same reason. A genuinely corrupt *bot* row still fails loud — it is not
+/// skipped here.
+fn is_bot_row(item: &HashMap<String, AttributeValue>) -> bool {
     item.get("sk")
         .and_then(|v| v.as_s().ok())
-        .is_some_and(|sk| sk.starts_with(ECS_TASK_METADATA_SK_PREFIX))
-}
-
-/// A bot's partition also holds its config-switch timeline rows
-/// (`sk = config_switch#<bot_id>#<applied_at>`). Like the runtime row they are
-/// not bots, so a `find_by_user_id` query must skip them rather than mis-parse
-/// one as a `CorruptRecord` and fail the whole list.
-fn is_config_switch_row(item: &HashMap<String, AttributeValue>) -> bool {
-    item.get("sk")
-        .and_then(|v| v.as_s().ok())
-        .is_some_and(|sk| sk.starts_with(CONFIG_SWITCH_SK_PREFIX))
-}
-
-/// A tenant's partition also holds the identities linked to them
-/// (`sk = identity#<provider>#<subject>`). Like the runtime and config-switch
-/// rows they are not bots, so a `find_by_user_id` query must skip them.
-///
-/// 🔴 Every new row shape that lands under a `user_id#` partition has to be
-/// added here. The query carries no sort-key condition, so a shape this does not
-/// name is not skipped — it reaches `parse_bot_row`, fails, and takes the whole
-/// list with it for that tenant.
-fn is_identity_row(item: &HashMap<String, AttributeValue>) -> bool {
-    item.get("sk")
-        .and_then(|v| v.as_s().ok())
-        .is_some_and(|sk| sk.starts_with(IDENTITY_PK_PREFIX))
+        .is_some_and(|sk| !sk.contains('#'))
 }
 
 /// Storage model for the infra layer
@@ -418,9 +397,9 @@ impl DynamoBotRepository {
 
     /// Enumerate every bot across all users via a paginated Scan. The return-curve
     /// collector has no per-user context, so it cannot use the single-partition
-    /// `find_by_user_id` Query. Non-bot rows sharing a partition (runtime and
-    /// config-switch rows) are skipped; a genuinely unparseable bot row still
-    /// fails loud, exactly as in `find_by_user_id`.
+    /// `find_by_user_id` Query. Rows that are not bots (`is_bot_row`) are
+    /// skipped; a genuinely unparseable bot row still fails loud, exactly as in
+    /// `find_by_user_id`.
     pub async fn find_all(&self) -> Result<Vec<Bot>, DomainError> {
         let mut bots = Vec::new();
         let mut start_key: Option<HashMap<String, AttributeValue>> = None;
@@ -448,7 +427,7 @@ impl DynamoBotRepository {
                 else {
                     continue;
                 };
-                if is_runtime_row(item) || is_config_switch_row(item) || is_identity_row(item) {
+                if !is_bot_row(item) {
                     continue;
                 }
                 bots.push(parse_bot_row(item, &user_id)?);
@@ -839,19 +818,16 @@ impl BotRepository for DynamoBotRepository {
             .await
             .map_err(|e| sdk_err("DynamoDB query failed", e))?;
 
-        // The query returns the whole partition, which mixes bot rows with each
-        // bot's `ecs_task_metadata#` runtime row and its `config_switch#` timeline
-        // rows; those non-bot rows are skipped. Among the rows that SHOULD be bots,
-        // a single unparseable one fails the whole list rather than silently
-        // dropping out of it — a partial list that looks complete is the same
-        // swallowed-fault trap as a collapsed `None` (docs/conventions.md § Error
-        // Handling).
+        // The query returns the whole partition, which mixes bot rows with the
+        // `<kind>#` rows kept beside them; those are skipped. Among the rows that
+        // SHOULD be bots, a single unparseable one fails the whole list rather
+        // than silently dropping out of it — a partial list that looks complete
+        // is the same swallowed-fault trap as a collapsed `None`
+        // (docs/conventions.md § Error Handling).
         output
             .items()
             .iter()
-            .filter(|item| {
-                !is_runtime_row(item) && !is_config_switch_row(item) && !is_identity_row(item)
-            })
+            .filter(|item| is_bot_row(item))
             .map(|item| parse_bot_row(item, user_id))
             .collect()
     }

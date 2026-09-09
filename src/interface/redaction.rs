@@ -32,7 +32,8 @@ pub fn redact(action: &str, err: &DomainError) -> String {
         DomainError::RiskOutOfRange { .. }
         | DomainError::LeverageOutOfRange { .. }
         | DomainError::MissingConfigPath(_)
-        | DomainError::InvalidConfig(_) => format!("⚠️ {err}"),
+        | DomainError::InvalidConfig(_)
+        | DomainError::InvalidBotName(_) => format!("⚠️ {err}"),
         DomainError::CorruptRecord(_) | DomainError::Repository { .. } => {
             let ref_id = Uuid::new_v4().simple().to_string();
             let ref_short = &ref_id[..8];

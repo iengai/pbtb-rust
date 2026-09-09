@@ -26,6 +26,11 @@ pub enum DomainError {
     MissingConfigPath(&'static str),
     #[error("invalid config: {0}")]
     InvalidConfig(String),
+    /// A bot's name is its id and the row's sort key, where `#` marks the
+    /// `<kind>#` rows kept beside bots; a name carrying it would be stored as
+    /// something no reader recognises as a bot.
+    #[error("bot name {0:?} must be non-empty and must not contain '#'")]
+    InvalidBotName(String),
     /// A persisted row was read successfully but does not parse into a domain
     /// value (e.g. an unknown exchange, an unparseable timestamp). It is a fault,
     /// not an absence: collapsing it into `Ok(None)` would let a corrupt live bot

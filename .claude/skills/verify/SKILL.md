@@ -17,10 +17,11 @@ toolchain.
 |---|---|
 | `cargo fmt --check` (host) | the format-on-edit hook and CI both assume it; runs on the host because it is a pure formatter |
 | `cargo check --workspace --all-targets` | `check` alone skips test targets — half of the last regressions were in tests |
-| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | the repo-wide gate greened in #28; the dev container's clippy 1.88 is the reference — a newer host clippy may flag more, an older one less |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | the repo-wide gate greened in #28; `rust-toolchain.toml` pins host, container and CI to one clippy, so a red is a red everywhere |
 | `cargo test --workspace` | with `dynamodb-local` up, `tests/botrepository_test.rs` exercises real condition expressions; in-memory mocks once let a `ValidationException` ship |
 | `terraform fmt -check` + `validate` (when `terraform/**` changed) | validate catches interpolation/type errors without credentials; a targeted **read-only plan** is the real proof for state moves and env changes |
 | workflow YAML parses (when `.github/workflows/**` changed) | a broken workflow fails only at dispatch time, on main |
+| knowledge budgets (`AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, skill `description` ≤ 300 B) | the always-loaded context is paid by every session; docs/conventions.md § Knowledge placement says what to demote instead of growing it |
 
 A runtime change is not verified by tests alone. If the diff touches a launch
 path, an env variable, or IAM, the verification includes the matching probe
