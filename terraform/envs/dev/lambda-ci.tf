@@ -46,11 +46,17 @@ resource "aws_iam_role_policy" "gh_lambda_deploy" {
           "lambda:InvokeFunction"
         ]
         # Bare ARN covers code update / config reads; ":*" covers published
-        # versions (PublishVersion result, version-qualified invoke).
-        Resource = [
-          module.lambda_task_state_change_handler.function_arn,
-          "${module.lambda_task_state_change_handler.function_arn}:*"
-        ]
+        # versions (PublishVersion result, version-qualified invoke). The MCP
+        # function joins the list only while it exists: lambda-deploy.yml's
+        # `mcp-http` target is what ships its code.
+        Resource = concat(
+          [
+            module.lambda_task_state_change_handler.function_arn,
+            "${module.lambda_task_state_change_handler.function_arn}:*"
+          ],
+          [for arn in module.lambda_mcp_http[*].function_arn : arn],
+          [for arn in module.lambda_mcp_http[*].function_arn : "${arn}:*"],
+        )
       }
     ]
   })
