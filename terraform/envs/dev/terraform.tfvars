@@ -113,3 +113,7 @@ s3_bucket_name = "bot-configs"
 # mcp_user_id lives in the gitignored allowlist tfvars.
 mcp_http_enabled = true
 mcp_issuer       = "https://growing-starlight-99-staging.authkit.app"
+
+# The OAuth *client* half, used only by the account-linking flow. The secret is
+# not here: Terraform holds the SSM parameter, never its value.
+link_client_id = "client_01M221M345JQQ6ASA7X68S5ZT4"
