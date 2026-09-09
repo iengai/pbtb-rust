@@ -119,16 +119,22 @@ A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `
 
 ```
 Bucket: {project}-{env}-bot-configs
-├── predefined/              # Configuration templates
-│   ├── template1.json
-│   └── template2.json
+├── predefined/              # Configuration templates, keyed by id
+│   ├── bybit-mix10-1000u-balanced-v8.json
+│   └── bybit-xrp-100u-bold-v7.json
 └── {user_id}/              # User-specific data
     └── {bot_id}/
         ├── {bot_id}.json   # Bot configuration
         └── api-keys.json   # API credentials
 ```
 
-- `predefined/` — reusable configuration templates. A template's own metadata sits under its top-level `pbtb` object (name, exchange, description, strategies), including `min_vip_level`, the lowest account level that may apply it (absent = open to all); an operator edits the object to change the gate, no deploy needed.
+- `predefined/` — reusable configuration templates. The key is the template's
+  id, `bybit-<universe>-<capital>-<profile>-<engine line>`, fixed for its life
+  (see [config-transfer.md](config-transfer.md)). The template's own metadata
+  sits under its top-level `pbtb` object: `title` / `title_zh`, what a reader is
+  shown it as; `exchange`, `description`, `strategies`; and `min_vip_level`, the
+  lowest account level that may apply it (absent = open to all). An operator
+  edits the object to change the gate, no deploy needed.
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
 - `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
 

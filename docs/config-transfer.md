@@ -10,7 +10,7 @@ Bucket: `scalable-cluster-dev-bot-configs`
 
 | Stage | S3 key | Who writes it | Custom properties touched |
 |-------|--------|---------------|---------------------------|
-| Predefined strategy | `predefined/<name>.json` | `scripts/transfer_config_to_s3.py` | `strategy_name`, `strategies`, `description` |
+| Predefined strategy | `predefined/<id>.json` | `scripts/transfer_config_to_s3.py` | `pbtb` (and nothing else) |
 | Per-bot config | `<user_id>/<bot_id>/<bot_id>.json` | telebot use cases | `live.user`, `live.forced_mode_<side>`, `bot.<side>.total_wallet_exposure_limit` (v8: `bot.<side>.risk.total_wallet_exposure_limit`), `live.leverage` |
 | API keys | `<user_id>/<bot_id>/api-keys.json` | provided per bot | — |
 
@@ -18,40 +18,69 @@ At runtime the ECS task's `entrypoint.sh` downloads `<user_id>/<bot_id>/<bot_id>
 and `<user_id>/<bot_id>/api-keys.json`, then runs `python src/main.py configs/<bot_id>.json`,
 which launches passivbot live (the user is read from `live.user`).
 
-## Stage 1 — predefined transfer (the only schema additions)
+## Stage 1 — predefined transfer (the only schema addition)
 
 A raw passivbot optimizer/strategy config is already valid; the transfer adds
-**two top-level marker properties and nothing else**:
+**one top-level `pbtb` object and nothing else**:
 
-- `strategy_name` (string) — the strategy stem. Shown in the Telegram **State**
-  view and used to attribute a bot's strategy.
-- `strategies` (array of `{name, side}`) — every side this strategy drives.
-  A single-direction strategy lists one entry; a dual-sided one lists both:
+```json
+"pbtb": {
+  "name": "bybit-mix10-1000u-balanced-v8",
+  "title": "10-coin basket · Balanced · $1k",
+  "title_zh": "十币组合 · 平衡 · $1k",
+  "exchange": "bybit",
+  "description": "…",
+  "strategies": [{ "name": "bybit-mix10-1000u-balanced-v8", "side": "long" }]
+}
+```
 
-  ```json
-  "strategy_name": "xrp-241201251009-r46x-lq",
-  "strategies": [
-    { "name": "xrp-241201251009-r46x-lq", "side": "long" },
-    { "name": "xrp-241201251009-r46x-lq", "side": "short" }
-  ]
-  ```
+- `name` — the template's id, which is also its S3 key (see below).
+- `title` / `title_zh` — what a reader is shown the template as, per language.
+- `exchange` — whose market data the strategy was tuned on.
+- `strategies` (array of `{name, side}`) — every side this strategy drives. A
+  single-direction strategy lists one entry, a dual-sided one both.
+- `description` (optional) — a free-text explanation, shown in the Telegram
+  **State** view (`• Description:`) and returned by the API. Written only when
+  the transfer is run with `--description`; absent configs show `—`.
 
-- `description` (string, optional) — a free-text strategy explanation, shown in
-  the Telegram **State** view (`• Description:`). Written only when the transfer
-  is run with `--description`; absent configs show `—`.
+Everything outside `pbtb` — `live`, `bot`, `approved_coins`, `coin_overrides`,
+`optimize`, `backtest`, `analysis`, `logging`, `disable_plotting` — is
+byte-for-byte what passivbot produced.
 
-Verified by diffing `predefined/xrp-241201251009-r46x-lq.json` against the raw
-`configs/xrp-241201251009-r46x-lq.json`: the **only** difference is these two
-keys. `live`, `bot`, `approved_coins`, `coin_overrides`, `optimize`, `backtest`,
-`analysis`, `logging`, `disable_plotting` are byte-for-byte identical.
+Older templates carried the same fields as top-level `strategy_name` /
+`strategies` / `name` / `description`. `BotConfig::meta` still reads those, for
+the per-bot configs written before the block; no template in S3 has them.
+
+### The id, and the title
+
+    id     bybit-<universe>-<capital>-<profile>-<engine line>[-<letter>]
+    e.g.   bybit-mix10-1000u-balanced-v8, bybit-xrp-100u-bold-v7
+
+Every field comes from the config: the coin universe (`xrp`, `mix3`, `mix8`,
+`mix10`) and the tuned capital are the backtest's, the engine line is
+`config_version`'s major, and the profile is the tier the measured worst
+drawdown fell in when the template was published — `guard` (<10%), `steady`
+(<25%), `balanced` (<35%), `bold` (<60%), `extreme` above it. One tuning
+published on both engine lines keeps one profile, the more cautious of the two.
+A letter disambiguates templates that agree on every field, tamest first.
+
+The id addresses the template — it is the S3 key, the site URL, and what a
+bot's stored config and its config-switch history quote — so it is **fixed for
+the life of the template**. The titles are wording and can be rewritten in
+place. What must never go in either: the optimizer run that produced it, and
+any claim about what it returns. `scripts/rename_predefined.py` carries the
+mapping from the names this store used before, and re-running it is a no-op.
 
 Run it:
 
 ```bash
 # preview
 python scripts/transfer_config_to_s3.py --config E:/projects/passivbot/configs/xrp-cus.json
-# upload a dual-sided strategy
-python scripts/transfer_config_to_s3.py --config <raw.json> --upload --profile dev
+# upload a dual-sided strategy under its id and titles
+python scripts/transfer_config_to_s3.py --config <raw.json> \
+    --name bybit-xrp-100u-steady-v8 \
+    --title "XRP only · Steady · \$100" --title-zh "XRP 单币 · 稳健 · \$100" \
+    --upload --profile dev
 # single-direction
 python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
 ```
