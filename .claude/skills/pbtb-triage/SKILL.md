@@ -52,7 +52,7 @@ both so you spend your time on the actual cause.
 | A bot is not running / keeps restarting / "Run" does nothing | [playbook: bot-not-running](references/symptom-playbooks.md#bot-not-running) |
 | A bot stopped (OOM) and was not restarted | [playbook: no-auto-restart](references/symptom-playbooks.md#no-auto-restart) |
 | GitHub Actions or CodeBuild is red | [playbook: ci-red](references/symptom-playbooks.md#ci-red) |
-| The return-curve site is stale or shows wrong data | [playbook: site-stale](references/symptom-playbooks.md#site-stale) |
+| A return curve is stale, or the console shows wrong data | [playbook: site-stale](references/symptom-playbooks.md#site-stale) |
 | A bot launched on the wrong passivbot engine, or was refused | [playbook: engine-routing](references/symptom-playbooks.md#engine-routing) |
 | "Everything looks fine but I want to be sure" | `deploy-audit` + `bot-status all --memory`, then stop |
 

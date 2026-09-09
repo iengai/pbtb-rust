@@ -1,8 +1,8 @@
 # terraform/modules/s3_chart/main.tf
 # Private bucket for the per-bot return-curve JSON. No public access and no
-# bucket policy: the collector Lambda writes and the pages-publish CI reads, both
-# via their own IAM roles, so nothing is granted at the bucket level. The site is
-# served from GitHub Pages, not from this bucket, so it never needs to be public.
+# bucket policy: the collector Lambda writes and the API function reads each
+# tenant's series for its owner, both via their own IAM roles, so nothing is
+# granted at the bucket level and nothing in it is ever published.
 resource "aws_s3_bucket" "this" {
   bucket = var.bucket_name
 

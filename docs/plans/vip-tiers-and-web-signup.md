@@ -1,6 +1,6 @@
 # 方案草案：成员 VIP 分级 + Web 自主注册
 
-状态：裁决已定（2026-09-09），按第 8 节分期开工。P0–P3 已合并（2026-09-10）；剩 P4 与上线。技术细节在开发时由实现者与同级模型 review 后定，这里只定边界和不可逆的选择。
+状态：裁决已定（2026-09-09），按第 8 节分期开工。P0–P4 已合并（2026-09-10）；剩上线。技术细节在开发时由实现者与同级模型 review 后定，这里只定边界和不可逆的选择。
 
 实施中偏离草案的两点：`APP__TELEGRAM__ALLOWED_USER_IDS` 没有收窄成管理员列表而是整个删掉（管理动作只走 ops 脚本，列表没有用处）；`src/interface/link/` 的 bot 发起 link 流程已退役但还没删，作为后续清理。
 
@@ -124,7 +124,7 @@ web「绑定 Telegram」 → POST /api/v1/me/telegram/bind-ticket
 | P1 ✅ | telebot 由 allowlist 改为身份解析 + 注入 `user_id`；`/start <token>` 绑定；未绑定提示 | P0 |
 | P2 ✅ | `POST /api/v1/signup`、`bind-ticket`、`GET /me` 带 `vip_level`；站点注册页与账户页「绑定 Telegram」 | P0 |
 | P3 ✅ | VIP：`Entitlement`、启动配额、模板 `min_vip_level`、三表面门禁与呈现、`set-vip` 脚本 | P0 |
-| P4 | 收益曲线私有化：收集器按 `{user_id}/{bot_id}` 写、API 读、站点页改登录后读、下线公开同步 | 无，但要在放开注册前合并 |
+| P4 ✅ | 收益曲线私有化：收集器按 `{user_id}/{bot_id}` 写、API 读、站点页改登录后读、下线公开同步 | 无，但要在放开注册前合并 |
 | 上线 | 部署 mcp-http + telebot → 站点 publish → 关掉「invitation only」文案 | P1–P4 |
 
 P1 与 P2 之间有一个过渡窗口：P1 上线后现有运营者必须先有 `identity#telegram` 行（P0 的脚本），否则 bot 把他当陌生人。部署顺序：P0 脚本先跑，再发 telebot。

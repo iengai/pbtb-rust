@@ -118,6 +118,11 @@ module "lambda_mcp_http" {
 
     # The deep link a Telegram bind ticket is handed out as.
     APP__TELEGRAM__BOT_USERNAME = var.telegram_bot_username
+
+    # Where the collector leaves each tenant's return curves, read back for
+    # the bot's owner.
+    APP__CHART__BUCKET_NAME = module.chart_bucket.bucket_name
+    APP__CHART__KEY_PREFIX  = local.chart_key_prefix
   }
 }
 
@@ -164,7 +169,8 @@ resource "aws_lambda_permission" "mcp_http_invoke" {
 }
 
 # The tools drive the same use cases telebot does, so they need the same access:
-# the bots table (including the CAS start lock), the config bucket, and RunTask.
+# the bots table (including the CAS start lock), the config bucket, and RunTask;
+# the REST surface adds a read of the chart bucket's per-tenant series.
 resource "aws_iam_role_policy" "mcp_http_app" {
   count = local.mcp_http_enabled
 
@@ -191,6 +197,20 @@ resource "aws_iam_role_policy" "mcp_http_app" {
           "s3:PutObject", "s3:DeleteObject"
         ]
         Resource = [local.s3_bucket_arn, "${local.s3_bucket_arn}/*"]
+      },
+      {
+        Sid      = "ReadReturnCurves"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_key_prefix}/*"
+      },
+      {
+        # ListBucket so a GetObject on a bot the collector has not written yet
+        # returns NoSuchKey (an absence) rather than AccessDenied (a fault).
+        Sid      = "ListChartBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = module.chart_bucket.bucket_arn
       },
       {
         Sid      = "EcsRunTasks"

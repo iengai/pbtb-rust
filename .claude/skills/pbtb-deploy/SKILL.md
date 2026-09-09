@@ -19,7 +19,7 @@ definition of "in sync".
 | collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | iengai |
 | lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | `AWS_PROFILE=dev` |
 | passivbot image | `python scripts/build_passivbot_image.py --tag vX.Y.Z-arm64 --no-wait`, then `pbtb_ops.py codebuild-log <build-id>` | dev profile; source at `E:/projects/passivbot` checked out at that tag |
-| return-curve site | `gh workflow run pages-publish.yml --ref main` (also daily) | iengai |
+| web console (site) | `gh workflow run pages-publish.yml --ref main` (also on every push to main touching `site/`) | iengai |
 
 ## The coupling rule (read twice)
 
