@@ -56,8 +56,9 @@ everything else.
 
 The browser gets its token with the OAuth authorization-code flow + PKCE
 against the issuer, as a **public** client (no secret), with
-`resource=<this function's URL>` so the token's `aud` is this server. The
-client id and redirect URIs live with the issuer, not here.
+`resource=<this function's URL>` so the token's `aud` is this server. The client id and redirect URIs live with the issuer, not here: see
+[workos.md](workos.md), including the environment-level CORS list the token
+endpoint needs before a browser can complete a sign-in.
 
 ## Routes
 
