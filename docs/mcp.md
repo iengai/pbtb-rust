@@ -70,8 +70,10 @@ got — a tool is never constructed for an unauthenticated caller.
 token is the whole claim, so it identifies a deployment rather than a person, and
 rotating it revokes everyone at once.
 
-`OAuthTokens` makes each caller a person. Three checks stand between a token and
-a tenant, and all three have to pass:
+`OAuthTokens` makes each caller a person. The issuer's side — which
+applications exist, how scopes and the audience are registered, and the traps
+in it — is in [workos.md](workos.md). Three checks stand between a token and a
+tenant, and all three have to pass:
 
 1. **The token verifies** against the issuer's published keys — signature,
    issuer, audience and expiry. The algorithm is taken from the published key,
