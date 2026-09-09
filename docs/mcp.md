@@ -57,7 +57,9 @@ config and the binary it started with.
 trait, so adding a transport changes no tool.
 
 `LocalOperator` is the stdio implementation. It trusts whoever started the
-process, which is sound only because on stdio the transport *is* the credential:
+process — and grants the top level, deliberately: the operator's own shell and
+the deployment's shared bearer are not tiers of the service, so `Principal::full`
+carries `MAX_VIP_LEVEL`. It is sound only because on stdio the transport *is* the credential:
 the client spawns the binary as a child of a shell the operator already
 controls. Over a network that reasoning does not hold, so the HTTP edge resolves
 a credential per request and builds the tool surface around the principal it
@@ -83,13 +85,14 @@ tenant, and all three have to pass:
    claims are required to be *present* — naming an expected value only rejects a
    claim that is there and wrong, so without that a token minted with no `aud`
    would sail through whoever it was minted for.
-2. **The subject has been linked.** `pk = identity#workos#<subject>` maps a
+2. **The subject has an account.** `pk = identity#workos#<subject>` maps a
    provider subject onto a `user_id`. Authenticating with the provider is not an
    application for an account — an unlinked subject is refused, and nothing is
-   provisioned for it.
-3. **The linked account is still on the allowlist.** This is what makes removing
-   someone from telebot remove them from here, rather than leaving a second door
-   they still hold a key to.
+   provisioned for it. The web console's `POST /api/v1/signup` is the one
+   deliberate way to create that row ([web-api.md](web-api.md)).
+3. **The account is active.** The account row (`user#<user_id>`) has to exist
+   and not be suspended: suspending someone at the bot suspends them here too,
+   rather than leaving a second door they still hold a key to.
 
 Two things about the key set are worth naming, because they are what makes step 1
 mean anything. The discovery document has to agree that it belongs to the
@@ -160,6 +163,7 @@ recycled — so every request carries its own protocol version and capabilities 
 | `APP__MCP__ISSUER` | OAuth issuer to accept tokens from. Empty selects the shared bearer. |
 | `APP__LINK__CLIENT_ID` | OAuth client id for the account-linking flow. Empty leaves its routes unserved. |
 | `APP__LINK__CLIENT_SECRET_PARAM` | SSM parameter holding the client secret. |
+| `APP__TELEGRAM__BOT_USERNAME` | The bot's `@username` (without the `@`), for the `https://t.me/<username>?start=<token>` deep link a Telegram bind ticket is handed out as. Empty hands out the bare token. |
 
 ### Discovery
 
@@ -247,7 +251,9 @@ change:
   that URL as a resource with the authorization server, and register the two
   scopes, or every token arrives read-only.
 - Nobody can reach it until their identity is linked. Signing up on the web
-  is what writes that link; until that route ships the row is written by hand:
+  (`POST /api/v1/signup`) is what writes that link and the account row. Both
+  can also be written by hand — the identity row below, and the account with
+  `python scripts/ops/pbtb_ops.py user-create`:
 
 ```bash
 aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{

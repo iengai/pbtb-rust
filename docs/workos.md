@@ -108,8 +108,11 @@ redirect URI to register with Google is the credential's `redirectUri`). There
 is no API to *create* the credential; the dashboard does that.
 
 Who a Google sign-in resolves to is still decided on our side: the `sub` must
-already be linked from the Telegram bot, or the token is refused (403, no
-`error=`). Signing in with Google is never an account.
+have an account (`POST /api/v1/signup`, an explicit click on the console's
+signup page), or the token is refused (403, no `error=`). Signing in with
+Google is never, by itself, an account. Only Google should be enabled as an
+authentication method for this environment: the console assumes a `sub` is a
+Google account, and the account model has no second sign-in.
 
 ## Gotchas (each one cost a real debugging session)
 

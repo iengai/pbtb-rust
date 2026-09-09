@@ -106,18 +106,18 @@ module "lambda_mcp_http" {
     APP__ECS__TD_PASSIVBOT_BY_ENGINE      = local.td_passivbot_by_engine
     APP__ECS__TD_PASSIVBOT_CONTAINER_NAME = var.passivbot_container_name
 
-    # The tenant every row is keyed under, and the allowlist it must appear on —
-    # the same list telebot enforces, so removing someone from the bot takes
-    # their MCP access with it.
+    # The account the shared bearer acts as; unused once an issuer is set.
     APP__MCP__USER_ID            = var.mcp_user_id
     APP__MCP__TOKEN_PARAM        = local.mcp_token_param
     APP__MCP__RESOURCE_URL_PARAM = local.mcp_resource_param
     APP__MCP__ISSUER             = var.mcp_issuer
 
     # Empty leaves the link routes unserved rather than served and failing.
-    APP__LINK__CLIENT_ID            = var.link_client_id
-    APP__LINK__CLIENT_SECRET_PARAM  = local.link_client_secret_param
-    APP__TELEGRAM__ALLOWED_USER_IDS = join(",", var.telegram_allowed_user_ids)
+    APP__LINK__CLIENT_ID           = var.link_client_id
+    APP__LINK__CLIENT_SECRET_PARAM = local.link_client_secret_param
+
+    # The deep link a Telegram bind ticket is handed out as.
+    APP__TELEGRAM__BOT_USERNAME = var.telegram_bot_username
   }
 }
 
