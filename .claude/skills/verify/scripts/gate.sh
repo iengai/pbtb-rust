@@ -12,6 +12,12 @@ MODE=auto
 for arg in "$@"; do case "$arg" in --host) MODE=host;; --container) MODE=container;; esac; done
 
 cd "$(git rev-parse --show-toplevel)" || exit 2
+# app-node bind-mounts the main checkout at /app, and a worktree under
+# .claude/worktrees/ sits beneath it. cargo has to run where THIS tree is: run
+# in /app from a worktree and every gate greens the main checkout instead.
+TOP=$(pwd -W 2>/dev/null || pwd)
+MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && (pwd -W 2>/dev/null || pwd))
+CDIR="/app${TOP#"$MAIN"}"
 FAILS=0
 gate() { # name, exit code
   if [ "$2" -eq 0 ]; then echo "GATE $1: ok"; else echo "GATE $1: FAIL"; FAILS=$((FAILS+1)); fi
@@ -36,13 +42,13 @@ if [ "$MODE" = container ] && ! container_up; then echo "app-node container is n
 
 run_cargo() { # runs a cargo command in the chosen toolchain, returns its exit code
   if [ "$MODE" = container ]; then
-    MSYS_NO_PATHCONV=1 docker exec -e CARGO_TERM_COLOR=never app-node bash -lc "cd /app && $*" ; return $?
+    MSYS_NO_PATHCONV=1 docker exec -e CARGO_TERM_COLOR=never app-node bash -lc "cd '$CDIR' && $*" ; return $?
   else
     CARGO_TERM_COLOR=never bash -lc "$*" ; return $?
   fi
 }
 
-echo "== toolchain: $MODE =="
+echo "== toolchain: $MODE == (container dir $CDIR)"
 
 # 1. fmt (always on the host: pure formatter, same rustfmt.toml)
 CARGO_TERM_COLOR=never cargo fmt --check >/dev/null 2>&1; gate fmt $?
