@@ -1,0 +1,35 @@
+import { NavLink, Outlet } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+
+export function Layout() {
+  const { session } = useAuth();
+  const who = session?.claims.email ?? session?.claims.sub ?? null;
+  return (
+    <>
+      <header className="nav">
+        <NavLink to="/bots" className="nav-brand">
+          <div className="logo" />
+          <div className="name">PBTB Console</div>
+        </NavLink>
+        <nav className="nav-links">
+          <NavLink to="/bots" className={({ isActive }) => (isActive ? "on" : "")}>
+            Bots
+          </NavLink>
+          <NavLink to="/configs" className={({ isActive }) => (isActive ? "on" : "")}>
+            Configs
+          </NavLink>
+          <NavLink to="/account" className={({ isActive }) => (isActive ? "on" : "")}>
+            Account
+          </NavLink>
+        </nav>
+        <div className="nav-user">
+          <div className="avatar" />
+          {who ? <span className="ellipsis" style={{ maxWidth: 260 }}>{who}</span> : <NavLink to="/">Sign in</NavLink>}
+        </div>
+      </header>
+      <main className="page">
+        <Outlet />
+      </main>
+    </>
+  );
+}

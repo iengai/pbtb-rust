@@ -56,11 +56,34 @@ jobs:
             | jq -s '.' > site/data/index.json
           echo "bots: $(cat site/data/index.json)"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      # The console is a Vite build; `site/data/` (synced above) and
+      # `site/templates/` are copied into `dist/` by the build. The three values
+      # are public identifiers (the API's URL, the issuer, a public OAuth client
+      # id), not secrets — see site/README.md.
+      - name: Build the console
+        working-directory: site
+        env:
+          VITE_API_URL: https://wpgsvdyyl6rb4omtrgb7ox6weu0krirm.lambda-url.ap-northeast-1.on.aws/
+          VITE_OAUTH_ISSUER: https://growing-starlight-99-staging.authkit.app
+          VITE_OAUTH_CLIENT_ID: client_01M227S251T5NA8GTGHWT1QAVB
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          test -f dist/data/index.json
+          test -f dist/404.html
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: site/dist
 
       - id: deploy
         uses: actions/deploy-pages@v4

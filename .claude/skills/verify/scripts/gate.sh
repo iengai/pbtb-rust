@@ -78,7 +78,22 @@ if echo "$CHANGED" | grep -q '^terraform/'; then
   echo "  (state moves / env changes: also run a read-only targeted plan and quote 'Plan: … to destroy')"
 fi
 
-# 6. workflows, only when touched
+# 6. the web console, only when it exists (site/package.json) — lint (tsc +
+# eslint) and the production build, which is what pages-publish runs.
+if [ -f site/package.json ]; then
+  if [ ! -d site/node_modules ]; then
+    OUT=$(cd site && npm ci 2>&1); RC=$?
+    [ $RC -ne 0 ] && { gate site-npm-ci $RC; show "$OUT" "ERR!|error"; }
+  fi
+  if [ -d site/node_modules ]; then
+    OUT=$(cd site && npm run lint 2>&1); RC=$?
+    gate site-lint $RC; [ $RC -ne 0 ] && show "$OUT" "error|✖"
+    OUT=$(cd site && npm run build 2>&1); RC=$?
+    gate site-build $RC; [ $RC -ne 0 ] && show "$OUT" "error|Error"
+  fi
+fi
+
+# 7. workflows, only when touched
 if echo "$CHANGED" | grep -q '^\.github/workflows/'; then
   RC=0
   for f in $(echo "$CHANGED" | grep '^\.github/workflows/.*\.ya\?ml$' | sort -u); do
