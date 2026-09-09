@@ -2,6 +2,15 @@ use crate::domain::bot::{ApiKeyRepository, BotRepository};
 use crate::domain::error::DomainError;
 use std::sync::Arc;
 
+/// What became of a delete. A mismatched confirmation is an expected branch,
+/// not a fault: the caller typed the wrong thing and nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeleteOutcome {
+    Deleted,
+    /// `confirm` did not name the bot; nothing was deleted.
+    ConfirmMismatch,
+}
+
 pub struct DeleteBotUseCase {
     bot_repository: Arc<dyn BotRepository + Send + Sync>,
     api_keys_repository: Arc<dyn ApiKeyRepository>,
@@ -20,15 +29,29 @@ impl DeleteBotUseCase {
 
     /// Delete a bot and the exchange credentials stored for it.
     ///
+    /// `confirm` has to equal `bot_id`. A delete drops the config and the
+    /// exchange keys and cannot be undone, so every caller names the target
+    /// twice rather than deleting on a single mistaken argument. The rule lives
+    /// here so that no adapter — or a future caller with no adapter at all — can
+    /// reach the deletion without it.
+    ///
     /// Two stores, so a fault can land between them. The credentials go first,
     /// which decides which half survives a partial failure: a bot row with no
     /// keys is visible to the user and deleting it again finishes the job, while
     /// keys with no bot row are invisible — nothing lists them and no retry is
     /// prompted, so an exchange secret outlives the bot it belonged to.
-    pub async fn execute(&self, user_id: &str, bot_id: &str) -> Result<(), DomainError> {
+    pub async fn execute(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        confirm: &str,
+    ) -> Result<DeleteOutcome, DomainError> {
+        if confirm != bot_id {
+            return Ok(DeleteOutcome::ConfirmMismatch);
+        }
         self.api_keys_repository.delete(user_id, bot_id).await?;
         self.bot_repository.delete(user_id, bot_id).await?;
-        Ok(())
+        Ok(DeleteOutcome::Deleted)
     }
 }
 
@@ -95,10 +118,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_mismatched_confirmation_deletes_nothing() {
+        let store = Arc::new(Store::default());
+        let outcome = usecase(store.clone())
+            .execute("u", "b", "not-b")
+            .await
+            .expect("no fault");
+
+        assert_eq!(outcome, DeleteOutcome::ConfirmMismatch);
+        assert!(!*store.bot_deleted.lock().unwrap());
+        assert!(!*store.keys_deleted.lock().unwrap());
+    }
+
+    #[tokio::test]
     async fn deletes_both_the_bot_and_its_keys() {
         let store = Arc::new(Store::default());
         usecase(store.clone())
-            .execute("u", "b")
+            .execute("u", "b", "b")
             .await
             .expect("delete");
 
@@ -113,7 +149,7 @@ mod tests {
             ..Default::default()
         });
         usecase(store.clone())
-            .execute("u", "b")
+            .execute("u", "b", "b")
             .await
             .expect_err("the key store refused");
 
@@ -131,7 +167,7 @@ mod tests {
             ..Default::default()
         });
         usecase(store.clone())
-            .execute("u", "b")
+            .execute("u", "b", "b")
             .await
             .expect_err("the bot store refused");
 

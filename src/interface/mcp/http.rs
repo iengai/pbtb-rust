@@ -145,9 +145,6 @@ impl HttpMcp {
 /// The status carries the whole distinction: 401 says get a better token, 403
 /// says the token is fine and the answer is still no. A client that cannot tell
 /// them apart refreshes forever against a decision no token changes.
-///
-/// Shared with the REST surface on the same host: one token, one way of being
-/// turned away.
 pub fn refuse(metadata: &Metadata, refusal: &AuthError) -> Response<Bytes> {
     // No `error=` on the 403. RFC 6750 defines the codes for token problems,
     // and this token has none — the identity behind it simply has no account

@@ -14,7 +14,7 @@ use super::auth::{Authenticator, Principal, SCOPE_READ, SCOPE_WRITE};
 use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::interface::redaction::redact;
-use crate::usecase::{SetRuntimeOutcome, StartOutcome, StopOutcome};
+use crate::usecase::{DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
 use std::str::FromStr;
 
 /// Identifies one bot. No tool takes a `user_id`: the tenant comes from the
@@ -421,22 +421,25 @@ impl BotTools {
         Parameters(args): Parameters<DeleteArgs>,
     ) -> Result<CallToolResult, McpError> {
         let principal = self.principal(SCOPE_WRITE)?;
-        if args.confirm != args.bot_id {
-            return Err(McpError::invalid_params(
-                format!("confirm must equal bot_id ({:?}) to delete it", args.bot_id),
-                None,
-            ));
-        }
-        self.deps
+        let outcome = self
+            .deps
             .delete_bot_usecase
-            .execute(&principal.user_id, &args.bot_id)
+            .execute(&principal.user_id, &args.bot_id, &args.confirm)
             .await
             .map_err(|e| {
                 Self::audit(&principal, "delete_bot", &args.bot_id, "error");
                 failed("deleting the bot", e)
             })?;
-        Self::audit(&principal, "delete_bot", &args.bot_id, "deleted");
-        Self::ok(json!({ "status": "deleted", "bot_id": args.bot_id }))
+        match outcome {
+            DeleteOutcome::ConfirmMismatch => Err(McpError::invalid_params(
+                format!("confirm must equal bot_id ({:?}) to delete it", args.bot_id),
+                None,
+            )),
+            DeleteOutcome::Deleted => {
+                Self::audit(&principal, "delete_bot", &args.bot_id, "deleted");
+                Self::ok(json!({ "status": "deleted", "bot_id": args.bot_id }))
+            }
+        }
     }
 }
 
