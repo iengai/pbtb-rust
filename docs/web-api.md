@@ -40,15 +40,21 @@ response.
 
 Identical to MCP: `Authorization: Bearer <token>`, verified by the same
 `TokenVerifier` — with an issuer configured, a WorkOS access token audienced for
-this function's URL whose subject has been linked from the Telegram bot and
-whose linked account is on the allowlist. The tenant is the token's; no route
+this function's URL whose subject has an account here (`POST /signup` is what
+creates one) and whose account is active. The tenant is the token's; no route
 takes a `user_id`, and a bot outside the caller's tenant answers exactly like a
 bot that does not exist (404).
+
+`POST /signup` is the one route that takes a verified subject *without* an
+account: it creates the account (level 0, active) and writes the `workos`
+identity, or answers with the account the subject already has. It is explicit
+so that authenticating with Google is never, by itself, an account. The
+shared-bearer transport names no subject and cannot sign anyone up (403).
 
 | Refusal | Status | `WWW-Authenticate` |
 | --- | --- | --- |
 | no token, or one that does not verify | 401 | `error="invalid_token"` + `resource_metadata` |
-| a token whose subject is not linked, or not allowlisted | 403 | `resource_metadata` only |
+| a token whose subject has no account (sign up first), or a suspended one | 403 | `resource_metadata` only |
 | a good token without the scope a route needs | 403 | `error="insufficient_scope", scope="bots:write"` |
 
 Scopes are the two MCP defines: `bots:read` for every `GET`, `bots:write` for
@@ -67,8 +73,10 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 
 | Route | Scope | Telegram equivalent | Notes |
 | --- | --- | --- | --- |
-| `GET /me` | read | Link account | `{user_id, scopes, identities:[{provider, subject}]}` |
-| `DELETE /me/identities` | write | `/unlink` | releases every identity linked to the caller, including the one this request used |
+| `POST /signup` | — | — | verified subject in, account out: 201 `created` / 200 `existing`, `{user_id, vip_level}` |
+| `GET /me` | read | — | `{user_id, vip_level, scopes, telegram, identities:[{provider, subject}]}`; `telegram` is the bound Telegram id or `null` |
+| `POST /me/telegram/bind-ticket` | write | — | `{token, url, expires_in}`: a one-time `/start` payload for the bot; `url` is the `https://t.me/<bot>?start=` deep link when `APP__TELEGRAM__BOT_USERNAME` is set |
+| `DELETE /me/telegram` | write | `/unlink` | releases the caller's bound Telegram id so another can be bound; the `workos` identity has no release route |
 | `GET /bots` | read | List | `{bots:[…]}`, each with observed `phase` |
 | `POST /bots` | write | Add bot | `{name, api_key, secret_key, overwrite?}` → 201 `added`; 409 `already_exists` unless `overwrite: true` (then 200 `overwritten`: keys rotated, id and desired state kept) |
 | `GET /bots/{id}` | read | State | bot + observed runtime + `config` described (or `null`) |

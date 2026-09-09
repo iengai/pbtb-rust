@@ -81,6 +81,11 @@ An identity names exactly one account (conditional write); one account may
 hold several. The listing row sits in the tenant's partition and is skipped
 by `find_by_user_id` (`is_identity_row`).
 
+Signup writes the account row first and the `workos` identity second, so two
+signups racing for one subject leave the loser's account row behind with no
+identity pointing at it. Such a row is inert — nothing resolves to it and it
+holds no data — and is tolerated rather than cleaned up.
+
 Operator commands for these rows: `python scripts/ops/pbtb_ops.py user-show |
 user-create | set-vip | user-status`.
 

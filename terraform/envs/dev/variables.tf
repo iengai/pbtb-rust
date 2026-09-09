@@ -127,25 +127,16 @@ variable "telebot_memory" {
   default     = "256m"
 }
 
-variable "telegram_allowed_user_ids" {
-  description = "Telegram user ids the MCP function may act as (APP__TELEGRAM__ALLOWED_USER_IDS); mcp_user_id must be one of them. The bot itself resolves senders through the telegram identity rows and does not read this. Real value lives in the gitignored telebot-allowlist.auto.tfvars; this repo is public and the ids identify real accounts."
-  type        = list(string)
-
-  validation {
-    condition     = length(var.telegram_allowed_user_ids) > 0
-    error_message = "telegram_allowed_user_ids must not be empty: the MCP function refuses to start with mcp_user_id off the list."
-  }
-
-  validation {
-    condition     = alltrue([for id in var.telegram_allowed_user_ids : can(regex("^[0-9]+$", id))])
-    error_message = "telegram_allowed_user_ids must be bare numeric Telegram user ids; base-env is parsed by grep+cut and docker --env-file, which do not shell-quote."
-  }
-}
-
 variable "site_url" {
   description = "The web console (APP__TELEGRAM__SITE_URL): where the bot sends a sender no account has bound."
   type        = string
   default     = "https://iengai.github.io/pbtb-rust/"
+}
+
+variable "telegram_bot_username" {
+  description = "The telebot's @username without the @ (APP__TELEGRAM__BOT_USERNAME), for the https://t.me/<username>?start=<token> deep link the web console hands out to bind a Telegram account. Empty hands out the token alone."
+  type        = string
+  default     = ""
 }
 
 variable "github_repo" {
@@ -196,7 +187,7 @@ variable "mcp_http_enabled" {
 variable "mcp_user_id" {
   type        = string
   default     = ""
-  description = "Telegram user id the MCP endpoint acts as. Must appear in telegram_allowed_user_ids."
+  description = "The account the MCP endpoint's shared bearer acts as. Unused once mcp_issuer is set: each caller is then their own account."
 
   validation {
     condition     = !var.mcp_http_enabled || can(regex("^[0-9]+$", var.mcp_user_id))

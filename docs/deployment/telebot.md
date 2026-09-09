@@ -35,7 +35,7 @@ TELEBOT_TOKEN_PARAM=/scalable-cluster/dev/telebot/teloxide-token
 TELEBOT_MEMORY=<memory-cap>
 ```
 
-The bot has no allowlist. Every update's sender is resolved through the `identity#telegram#<id>` row to the account behind it ([docs/data-model.md](../data-model.md)); a sender no account has bound is pointed at `APP__TELEGRAM__SITE_URL` to sign up and bind, and a suspended account is turned away. Who may drive the bot is therefore a row, changed with `python scripts/ops/pbtb_ops.py user-create --telegram` / `user-status`, not a deploy. `var.telegram_allowed_user_ids` (the gitignored `telebot-allowlist.auto.tfvars`) now only feeds the MCP function.
+The bot has no allowlist. Every update's sender is resolved through the `identity#telegram#<id>` row to the account behind it ([docs/data-model.md](../data-model.md)); a sender no account has bound is pointed at `APP__TELEGRAM__SITE_URL` to sign up and bind, and a suspended account is turned away. Who may drive the bot is therefore a row, changed with `python scripts/ops/pbtb_ops.py user-create --telegram` / `user-status`, not a deploy. There is no allowlist variable in Terraform any more; a leftover `telebot-allowlist.auto.tfvars` only draws an "undeclared variable" warning and can be deleted.
 
 **Adding a base-env variable is a two-step deploy, in this order:** apply `-target=aws_ssm_parameter.telebot_base_env` first, then run `telebot-deploy`. Reversed, the new image starts before `base-env` carries the variable, fails config load, and telebot goes offline until the apply lands.
 

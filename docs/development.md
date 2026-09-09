@@ -139,6 +139,7 @@ How those variables reach the process is environment-specific and external to th
 | `APP__S3__ENDPOINT_URL` | S3 endpoint override (local dev) |
 | `APP__MCP__USER_ID` | The Telegram user id `mcp_stdio` acts as; must be on `APP__TELEGRAM__ALLOWED_USER_IDS`. Only the MCP binaries read either. See [docs/mcp.md](mcp.md). |
 | `APP__TELEGRAM__SITE_URL` | The web console the bot points an unbound sender at. Optional; empty leaves the directions generic. |
+| `APP__TELEGRAM__BOT_USERNAME` | The bot's `@username`, read by `mcp_http` for the Telegram bind deep link. Optional; empty hands out the bare `/start` token. |
 
 To drive the bot locally your Telegram id has to be bound to an account: `python scripts/ops/pbtb_ops.py user-create <id> --telegram <id>` against the local table (or the `telegram` identity rows by hand, see [docs/data-model.md](data-model.md)).
 
