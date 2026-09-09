@@ -1,3 +1,4 @@
+use super::chart::ChartConfig;
 use super::dynamodb::DynamoDBConfig;
 use super::ecs::EcsConfig;
 use super::link::LinkConfig;
@@ -20,6 +21,10 @@ pub struct Configs {
     /// Only `mcp_http` reads this, and only when the link flow is configured.
     #[serde(default)]
     pub link: LinkConfig,
+    /// The chart bucket the API reads return series from. Only `mcp_http`
+    /// needs it; absent, the returns route answers that it is not available.
+    #[serde(default)]
+    pub chart: Option<ChartConfig>,
 }
 
 /// Build the config from `APP__*` environment variables, the single config

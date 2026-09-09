@@ -12,7 +12,8 @@ use pbtb_rust::infra::client::{
     setup_dynamodb_with_configs, setup_ecs_with_configs, setup_s3_with_configs,
 };
 use pbtb_rust::infra::{
-    DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3TemplateRepository,
+    DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3ReturnCurveRepository,
+    S3TemplateRepository,
 };
 use pbtb_rust::interface::{api, mcp};
 use pbtb_rust::usecase::*;
@@ -48,7 +49,18 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         S3BotConfigRepository::new(s3_client.clone(), bucket_name.clone()),
     );
     let api_keys: Arc<dyn domain::ApiKeyRepository> =
-        Arc::new(S3ApiKeyRepository::new(s3_client, bucket_name));
+        Arc::new(S3ApiKeyRepository::new(s3_client.clone(), bucket_name));
+    // The chart bucket is in the same account and region as the config bucket,
+    // so the one client serves both; only the bucket differs.
+    let get_bot_returns_usecase = configs.chart.as_ref().map(|chart| {
+        let curves: Arc<dyn domain::ReturnCurveRepository> =
+            Arc::new(S3ReturnCurveRepository::new(
+                s3_client,
+                chart.bucket_name.clone(),
+                chart.key_prefix.clone(),
+            ));
+        Arc::new(GetBotReturnsUseCase::new(curves))
+    });
 
     let clock = Arc::new(SystemClock);
     let bots: Arc<dyn domain::BotRepository> = bot_repository.clone();
@@ -131,6 +143,7 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         mcp,
         add_bot_usecase,
         get_template_usecase,
+        get_bot_returns_usecase,
         list_identities_usecase,
         signup_usecase,
         issue_bind_ticket_usecase,

@@ -37,8 +37,8 @@ use super::mcp::http::{Metadata, bearer, insufficient_scope, refuse};
 use super::redaction::redact;
 use crate::domain::error::{DomainError, Retryability};
 use crate::usecase::{
-    AddBotUseCase, GetTemplateUseCase, IssueTelegramBindTicketUseCase, ListIdentitiesUseCase,
-    SignupOutcome, SignupUseCase, UnbindTelegramUseCase,
+    AddBotUseCase, GetBotReturnsUseCase, GetTemplateUseCase, IssueTelegramBindTicketUseCase,
+    ListIdentitiesUseCase, SignupOutcome, SignupUseCase, UnbindTelegramUseCase,
 };
 
 /// Every route lives under this prefix, so the MCP protocol keeps `/` and the
@@ -47,13 +47,16 @@ pub const PREFIX: &str = "/api/v1";
 
 /// The use cases the routes drive: everything the MCP tools have, plus what
 /// the web needs that a tool must not offer or has no use for — key entry,
-/// template description, and the account itself: signing up, and the Telegram
-/// id it speaks through.
+/// template description, a bot's return curve, and the account itself:
+/// signing up, and the Telegram id it speaks through.
 #[derive(Clone)]
 pub struct Deps {
     pub mcp: mcp::Deps,
     pub add_bot_usecase: Arc<AddBotUseCase>,
     pub get_template_usecase: Arc<GetTemplateUseCase>,
+    /// `None` where no chart bucket is configured; the route then says so
+    /// rather than failing.
+    pub get_bot_returns_usecase: Option<Arc<GetBotReturnsUseCase>>,
     pub list_identities_usecase: Arc<ListIdentitiesUseCase>,
     pub signup_usecase: Arc<SignupUseCase>,
     pub issue_bind_ticket_usecase: Arc<IssueTelegramBindTicketUseCase>,
@@ -234,6 +237,7 @@ impl WebApi {
             (&Method::PUT, ["bots", id, "sides"]) => h.set_side(id, parse(body)?).await,
             (&Method::PUT, ["bots", id, "runtime"]) => h.set_runtime(id, parse(body)?).await,
             (&Method::POST, ["bots", id, "template"]) => h.apply_template(id, parse(body)?).await,
+            (&Method::GET, ["bots", id, "returns"]) => h.bot_returns(id).await,
             (&Method::GET, ["bots", _, "balance"]) | (&Method::POST, ["bots", _, "unstuck"]) => {
                 Err(ApiError::NotAvailable)
             }

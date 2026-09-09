@@ -27,7 +27,10 @@ use serde_json::Value;
 use teloxide::prelude::*;
 use teloxide::types::Me;
 
-use fakes::{FixedClock, InMemoryApiKeys, InMemoryBotConfigs, InMemoryTemplates, RecordingEcs};
+use fakes::{
+    FixedClock, InMemoryApiKeys, InMemoryBotConfigs, InMemoryReturnCurves, InMemoryTemplates,
+    RecordingEcs,
+};
 use telegram::FakeTelegram;
 
 pub const CLUSTER_ARN: &str = "arn:aws:ecs:us-east-1:000000000000:cluster/test";
@@ -54,6 +57,7 @@ pub struct Harness {
     pub api_keys: Arc<InMemoryApiKeys>,
     pub ecs: Arc<RecordingEcs>,
     pub templates: Arc<InMemoryTemplates>,
+    pub curves: Arc<InMemoryReturnCurves>,
     schema: teloxide::dispatching::UpdateHandler<DependencyMap>,
     deps_map: DependencyMap,
     bot: Bot,
@@ -111,6 +115,7 @@ impl Harness {
             api_keys,
             ecs,
             templates,
+            curves: Arc::new(InMemoryReturnCurves::default()),
             schema: router::schema(SITE_URL.to_string()),
             deps_map: router::deps_map(deps),
             bot,
@@ -251,6 +256,7 @@ impl Harness {
                 clock.clone(),
             )),
             get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
+            get_bot_returns_usecase: Some(Arc::new(GetBotReturnsUseCase::new(self.curves.clone()))),
             list_identities_usecase: Arc::new(ListIdentitiesUseCase::new(identities.clone())),
             signup_usecase: Arc::new(SignupUseCase::new(identities.clone(), users, clock.clone())),
             issue_bind_ticket_usecase: Arc::new(IssueTelegramBindTicketUseCase::new(

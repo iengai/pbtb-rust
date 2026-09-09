@@ -8,6 +8,7 @@ pub mod entitlement;
 pub mod error;
 pub mod exchange;
 pub mod identity;
+pub mod returncurve;
 pub mod runtime;
 pub mod secret;
 pub mod user;
@@ -21,6 +22,7 @@ pub use engine::{EngineVersion, Runtime};
 pub use identity::{
     IdentityRepository, LinkOutcome, LinkTicket, LinkTicketRepository, LinkedIdentity,
 };
+pub use returncurve::ReturnCurveRepository;
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};
 pub use secret::{random_token, token_digest};
 pub use user::{User, UserRepository, UserStatus};

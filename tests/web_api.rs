@@ -387,6 +387,42 @@ async fn the_bot_detail_describes_the_config_without_dumping_it() {
     );
 }
 
+// ---------------------------------------------------------------- return curves
+
+#[tokio::test]
+async fn a_return_curve_is_read_under_the_callers_own_tenant() {
+    let h = harness!();
+    h.given_bot(a_bot(USER, "abot")).await;
+    h.given_bot(a_bot(USER, "quiet")).await;
+    h.given_bot(a_bot(SOMEONE_ELSE, "abot")).await;
+    let mine = json!({ "id": "abot", "name": "abot", "points": [{ "ts": 1, "index": 100.0 }] });
+    h.curves.put(USER, "abot", mine.clone());
+    h.curves.put(
+        SOMEONE_ELSE,
+        "abot",
+        json!({ "id": "abot", "name": "THEIRS" }),
+    );
+    let api = h.http_api(TOKEN);
+
+    let curve = api.handle(get("/bots/abot/returns")).await;
+    assert_eq!(curve.status(), StatusCode::OK);
+    assert_eq!(
+        body(&curve),
+        mine,
+        "the series comes back as the collector wrote it, and it is the caller's"
+    );
+
+    let none_yet = api.handle(get("/bots/quiet/returns")).await;
+    assert_eq!(
+        none_yet.status(),
+        StatusCode::NOT_FOUND,
+        "a bot the collector has not written is an absence, not a fault"
+    );
+
+    let not_mine = api.handle(get("/bots/no-such/returns")).await;
+    assert_eq!(not_mine.status(), StatusCode::NOT_FOUND);
+}
+
 // ---------------------------------------------------------------- templates
 
 #[tokio::test]
