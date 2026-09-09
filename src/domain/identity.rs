@@ -1,6 +1,11 @@
 use crate::domain::error::DomainError;
 use async_trait::async_trait;
 
+/// The identity providers a subject can come from. A subject is only unique
+/// within its provider, so the pair is the key everywhere.
+pub const PROVIDER_WORKOS: &str = "workos";
+pub const PROVIDER_TELEGRAM: &str = "telegram";
+
 /// An external identity that has been linked to a tenant.
 ///
 /// The link is what turns a token's subject into a `user_id`. It exists only

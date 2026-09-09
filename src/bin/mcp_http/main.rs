@@ -22,6 +22,7 @@ use anyhow::{Context, bail};
 use lambda_http::{Body, Error, Request, Response, http, run, service_fn};
 use pbtb_rust::config::configs::{Configs, load_config};
 use pbtb_rust::domain::identity::LinkTicketRepository;
+use pbtb_rust::domain::identity::PROVIDER_WORKOS;
 use pbtb_rust::domain::{IdentityRepository, SystemClock};
 use pbtb_rust::infra::DynamoBotRepository;
 use pbtb_rust::infra::client::setup_dynamodb_with_configs;
@@ -30,9 +31,6 @@ use pbtb_rust::interface::link::{LinkFlow, OAuthClient, PATH_CALLBACK};
 use pbtb_rust::interface::mcp::http::Metadata;
 use pbtb_rust::interface::mcp::{HttpMcp, OAuthTokens, StaticToken, TokenVerifier};
 use std::sync::Arc;
-
-/// The provider half of an identity key. One authorization server, so one name.
-const PROVIDER: &str = "workos";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -156,7 +154,7 @@ async fn build_link(
         identities,
         Arc::new(SystemClock),
         OAuthClient::discover(issuer, client_id, secret, redirect_uri).await?,
-        PROVIDER,
+        PROVIDER_WORKOS,
     )))
 }
 

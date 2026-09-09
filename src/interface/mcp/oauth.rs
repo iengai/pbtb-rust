@@ -20,11 +20,7 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 
 use super::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerifier};
-use crate::domain::identity::IdentityRepository;
-
-/// Names the provider half of an identity: a subject is only unique within the
-/// issuer that minted it.
-const PROVIDER: &str = "workos";
+use crate::domain::identity::{IdentityRepository, PROVIDER_WORKOS};
 
 /// How long a fetched key set is trusted before an unknown `kid` is allowed to
 /// trigger another fetch. Without a floor, a stream of tokens carrying invented
@@ -253,7 +249,7 @@ impl TokenVerifier for OAuthTokens {
 
         let link = self
             .identities
-            .find_link(PROVIDER, &claims.sub)
+            .find_link(PROVIDER_WORKOS, &claims.sub)
             .await
             .map_err(|e| AuthError::Forbidden(format!("identity lookup failed: {e}")))?
             .ok_or_else(|| {
