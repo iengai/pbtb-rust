@@ -4,8 +4,7 @@
 Templates live in S3 under ``predefined/``; each one is a complete passivbot
 config with its ``backtest`` window already set plus a ``pbtb`` block carrying
 the display metadata. The script runs each template through the passivbot
-backtester that matches its engine line and writes, under ``site/templates``
-(``site/data`` is the return-curve data the pages workflow syncs with ``--delete``):
+backtester that matches its engine line and writes, under ``site/templates``:
 
 * ``index.json`` - one row per template with headline metrics, sorted by name
 * ``<name>.json`` - the row plus a downsampled, index-normalized equity curve

@@ -90,6 +90,7 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start; 403 `insufficient_level` for a template above the caller's level |
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
+| `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it (a normalized index, no balances); 404 until it has; 501 where no chart bucket is configured |
 | `GET /templates` | read | Choose config | `{templates:[{name, min_vip_level}]}`; nothing is hidden by level |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
 

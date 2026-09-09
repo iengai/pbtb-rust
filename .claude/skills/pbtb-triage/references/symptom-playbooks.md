@@ -112,12 +112,12 @@ A bot OOM-stopped and nothing relaunched it.
 
 ## site-stale
 
-1. `gh run list -R iengai/pbtb-rust --workflow=pages-publish.yml --limit 3`.
-2. If the last run failed at OIDC → publish role trust must be
-   `environment:github-pages`.
-3. If runs are green but data is old → the collector: `lambda-logs daily-pnl --since 1d`
-   and `aws s3 ls s3://scalable-cluster-dev-return-charts/charts/` timestamps.
-4. `gh api repos/iengai/pbtb-rust/pages --jq .build_type` must be `workflow`.
+1. A stale *curve* is the collector, not the site: `lambda-logs daily-pnl --since 1d`
+   and `aws s3 ls s3://scalable-cluster-dev-return-charts/charts/<user_id>/` timestamps.
+   The API reads that object as-is (`GET /api/v1/bots/{id}/returns`), so a 404 there
+   means the collector never wrote the bot.
+2. A stale *page*: `gh run list -R iengai/pbtb-rust --workflow=pages-publish.yml --limit 3`;
+   `gh api repos/iengai/pbtb-rust/pages --jq .build_type` must be `workflow`.
 
 ## engine-routing
 

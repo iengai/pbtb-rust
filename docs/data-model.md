@@ -132,6 +132,10 @@ Bucket: {project}-{env}-bot-configs
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
 - `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
 
+## S3 (return curves)
+
+The chart bucket (`{project}-{env}-return-charts`) is the daily collector's, keyed by tenant like the config bucket: `charts/{user_id}/{bot_id}.json` is the series the API serves to the bot's owner (`GET /api/v1/bots/{id}/returns`), `_state/{user_id}/{bot_id}.json` the accumulated ledger only the collector reads. Nothing in it is published; the console reads curves through the API after sign-in. The prefix is one Terraform local shared by the collector and the API function.
+
 ## Tenant isolation
 
 `user_id` is the tenant isolation boundary. Every DynamoDB row lives under `pk = "user_id#<user_id>"`, and every S3 object lives under the `{user_id}/` prefix, so a caller must only ever touch their own data. Derive the `user_id` from the authenticated principal (the account a Telegram sender's `telegram` identity row resolves to, or a verified token's linked subject), never from client-supplied input, and validate it before any read or write. Treat any cross-`user_id` access as a privilege-escalation bug.

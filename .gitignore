@@ -28,9 +28,5 @@ __pycache__/
 /.reasonix/
 /reasonix.toml
 
-# Chart data is published by CI (pages-publish), never committed — it holds
-# live account performance and would otherwise ship stale/sample numbers.
-/site/data/
-
 # Raw backtest output, logs and the S3 template mirror of scripts/backtest_templates.py.
 /.cache/

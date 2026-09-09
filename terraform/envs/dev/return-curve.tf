@@ -9,6 +9,12 @@
 #     -target=module.lambda_daily_pnl_snapshot
 # and the collector bootstrap must be built first (target/lambda/daily_pnl_snapshot/bootstrap).
 
+locals {
+  # The prefix the collector writes each tenant's series under and the API
+  # reads it from; one value so the two cannot drift apart.
+  chart_key_prefix = "charts"
+}
+
 module "chart_bucket" {
   source = "../../modules/s3_chart"
 
@@ -32,6 +38,7 @@ module "lambda_daily_pnl_snapshot" {
   config_bucket_name  = module.s3_bucket.bucket_name
   chart_bucket_name   = module.chart_bucket.bucket_name
   chart_bucket_arn    = module.chart_bucket.bucket_arn
+  chart_key_prefix    = local.chart_key_prefix
 
   # In-VPC egress via the NAT instance's fixed EIP (IP-whitelisted Bybit keys).
   # Reuses the same subnet/SG references the ECS module consumes; does NOT touch

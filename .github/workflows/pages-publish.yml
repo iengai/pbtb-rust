@@ -1,30 +1,27 @@
 name: pages-publish
 
-# Pull the per-bot return JSON from the private chart bucket and publish the
-# static site (site/) to GitHub Pages. The bucket stays private; this workflow's
-# scoped OIDC role is the only reader. Runs after the collector's daily schedule.
+# Build the static console (site/) and publish it to GitHub Pages. The page is
+# code and the committed template backtests only: every tenant's data, the
+# return curves included, reaches the browser through the API after sign-in,
+# so this workflow needs no cloud credentials.
 #
 # One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
 
 on:
-  schedule:
-    - cron: '30 1 * * *' # 30 min after the collector's 01:00 UTC run
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages-publish.yml']
   workflow_dispatch:
 
 permissions:
-  id-token: write # OIDC -> assume the read role
   contents: read
   pages: write # deploy to GitHub Pages
+  id-token: write # deploy-pages authenticates the deployment with an OIDC token
 
 # Never run two publishes at once (they race on the Pages deployment).
 concurrency:
   group: pages
   cancel-in-progress: true
-
-env:
-  AWS_REGION: ap-northeast-1
-  CHART_BUCKET: scalable-cluster-dev-return-charts
-  CHART_PREFIX: charts
 
 jobs:
   publish:
@@ -35,37 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_PAGES_PUBLISH_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Sync chart data from S3 and build the bot index
-        run: |
-          set -euo pipefail
-          mkdir -p site/data
-          aws s3 sync "s3://$CHART_BUCKET/$CHART_PREFIX/" site/data/ --delete
-          # Build data/index.json = [{id,name}]: id is the stable filename stem
-          # (the fetch key); name is the current display name read from the file.
-          find site/data -maxdepth 1 -name '*.json' ! -name 'index.json' -printf '%f\n' \
-            | sed 's/\.json$//' \
-            | while IFS= read -r id; do
-                jq -c --arg id "$id" '{id: $id, name: (.name // $id)}' "site/data/$id.json"
-              done \
-            | jq -s '.' > site/data/index.json
-          echo "bots: $(cat site/data/index.json)"
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: site/package-lock.json
 
-      # The console is a Vite build; `site/data/` (synced above) and
-      # `site/templates/` are copied into `dist/` by the build. The three values
-      # are public identifiers (the API's URL, the issuer, a public OAuth client
-      # id), not secrets — see site/README.md.
+      # The console is a Vite build; `site/templates/` is copied into `dist/` by
+      # the build. The three values are public identifiers (the API's URL, the
+      # issuer, a public OAuth client id), not secrets — see site/README.md.
       - name: Build the console
         working-directory: site
         env:
@@ -76,7 +51,7 @@ jobs:
           set -euo pipefail
           npm ci
           npm run build
-          test -f dist/data/index.json
+          test -f dist/templates/index.json
           test -f dist/404.html
 
       - uses: actions/configure-pages@v5
