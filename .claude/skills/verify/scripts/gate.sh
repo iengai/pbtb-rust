@@ -12,12 +12,6 @@ MODE=auto
 for arg in "$@"; do case "$arg" in --host) MODE=host;; --container) MODE=container;; esac; done
 
 cd "$(git rev-parse --show-toplevel)" || exit 2
-# app-node bind-mounts the main checkout at /app, and a worktree under
-# .claude/worktrees/ sits beneath it. cargo has to run where THIS tree is: run
-# in /app from a worktree and every gate greens the main checkout instead.
-TOP=$(pwd -W 2>/dev/null || pwd)
-MAIN=$(cd "$(git rev-parse --git-common-dir)/.." && (pwd -W 2>/dev/null || pwd))
-CDIR="/app${TOP#"$MAIN"}"
 FAILS=0
 gate() { # name, exit code
   if [ "$2" -eq 0 ]; then echo "GATE $1: ok"; else echo "GATE $1: FAIL"; FAILS=$((FAILS+1)); fi
@@ -40,15 +34,33 @@ if [ "$MODE" = auto ]; then
 fi
 if [ "$MODE" = container ] && ! container_up; then echo "app-node container is not running"; exit 2; fi
 
+# The container mounts the MAIN checkout at /app. A worktree under
+# .claude/worktrees/<name> is visible there as /app/.claude/worktrees/<name> and
+# gets a target dir of its own, so two sessions' builds do not overwrite each
+# other's test binaries. A checkout outside the main root is not visible in the
+# container at all, and the cargo gates would silently verify someone else's tree.
+CDIR=/app; CTARGET=/app/target
+if [ "$MODE" = container ]; then
+  MAIN_ROOT=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  TOP=$(git rev-parse --show-toplevel)
+  if [ "$TOP" != "$MAIN_ROOT" ]; then
+    REL=${TOP#"$MAIN_ROOT"/}
+    if [ "$REL" = "$TOP" ]; then
+      echo "this checkout ($TOP) is outside the container's /app mount: work under .claude/worktrees/ or run --host"; exit 2
+    fi
+    CDIR="/app/$REL"; CTARGET="/app/target/worktrees/$(basename "$TOP")"
+  fi
+fi
+
 run_cargo() { # runs a cargo command in the chosen toolchain, returns its exit code
   if [ "$MODE" = container ]; then
-    MSYS_NO_PATHCONV=1 docker exec -e CARGO_TERM_COLOR=never app-node bash -lc "cd '$CDIR' && $*" ; return $?
+    MSYS_NO_PATHCONV=1 docker exec -e CARGO_TERM_COLOR=never -e CARGO_TARGET_DIR="$CTARGET" app-node bash -lc "cd '$CDIR' && $*" ; return $?
   else
     CARGO_TERM_COLOR=never bash -lc "$*" ; return $?
   fi
 }
 
-echo "== toolchain: $MODE == (container dir $CDIR)"
+echo "== toolchain: $MODE$([ "$CDIR" != /app ] && echo " ($CDIR, target $CTARGET)") =="
 
 # 1. fmt (always on the host: pure formatter, same rustfmt.toml)
 CARGO_TERM_COLOR=never cargo fmt --check >/dev/null 2>&1; gate fmt $?
