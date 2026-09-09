@@ -40,16 +40,16 @@ export class AuthRefused extends Error {
 }
 
 type Handlers = {
-  token: () => string | null;
+  token: () => Promise<string | null>;
   refuse: (reason: "unlinked" | "expired" | "scope") => void;
 };
-let handlers: Handlers = { token: () => null, refuse: () => {} };
+let handlers: Handlers = { token: async () => null, refuse: () => {} };
 export function setAuthHandlers(h: Handlers): void {
   handlers = h;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const token = handlers.token();
+  const token = await handlers.token();
   if (!token) {
     handlers.refuse("expired");
     throw new AuthRefused("expired");

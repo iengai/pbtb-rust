@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import {
+  accessToken,
   beginLogin,
   clearSession,
   loadSession,
@@ -38,15 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const clearReason = useCallback(() => setReason(null), []);
 
-  // The API client reads the token and reports refusals through these rather
-  // than through React, so a fetch outside a component (a poll) behaves the same.
-  setAuthHandlers({
-    token: () => {
-      const s = loadSession();
-      return s?.access_token ?? null;
-    },
-    refuse,
-  });
+  // The API client reads the token — renewing it when it has expired — and
+  // reports refusals through these rather than through React, so a fetch
+  // outside a component (a poll) behaves the same.
+  setAuthHandlers({ token: accessToken, refuse });
 
   const value = useMemo<Auth>(
     () => ({ session, reason, login: beginLogin, signOut, refuse, adopt, clearReason }),

@@ -18,7 +18,6 @@ export function Account() {
   const action = useAction();
 
   const egress = import.meta.env.VITE_EGRESS_IP as string | undefined;
-  const minutesLeft = session ? Math.max(0, Math.round((session.expires_at - Date.now() / 1000) / 60)) : 0;
   const mySub = session?.claims.sub;
 
   return (
@@ -88,7 +87,8 @@ export function Account() {
             <div className="card">
               <div className="card-title sm">Session</div>
               <div className="sub" style={{ marginBottom: 10 }}>
-                Scopes: {me.data.scopes.join(", ") || "none"} · expires in {minutesLeft} min
+                Scopes: {me.data.scopes.join(", ") || "none"} · renewed in the background until you sign
+                out
               </div>
               <button type="button" className="btn" onClick={signOut}>
                 Sign out
