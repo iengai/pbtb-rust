@@ -15,7 +15,8 @@ use crate::domain::engine::Runtime;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::interface::mcp::auth::Principal;
 use crate::usecase::{
-    AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome, TemplatePreview,
+    AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome, TemplateListing,
+    TemplatePreview,
 };
 
 pub(super) struct Handlers<'a> {
@@ -69,6 +70,10 @@ pub(super) struct TemplateBody {
 impl Handlers<'_> {
     fn user_id(&self) -> &str {
         &self.principal.user_id
+    }
+
+    fn vip_level(&self) -> u8 {
+        self.principal.vip_level
     }
 
     /// Record a write with everything an audit needs: who, what, which bot, and
@@ -301,7 +306,7 @@ impl Handlers<'_> {
             .deps
             .mcp
             .start_bot_usecase
-            .execute(self.user_id(), bot_id)
+            .execute(self.user_id(), self.vip_level(), bot_id)
             .await
             .map_err(|e| {
                 self.audit("start_bot", bot_id, "error");
@@ -458,7 +463,7 @@ impl Handlers<'_> {
         self.deps
             .mcp
             .apply_template_usecase
-            .execute(self.user_id(), bot_id, &body.name)
+            .execute(self.user_id(), self.vip_level(), bot_id, &body.name)
             .await
             .map_err(|e| {
                 self.audit("apply_template", bot_id, "error");
@@ -470,16 +475,18 @@ impl Handlers<'_> {
 
     // ---------------------------------------------------------------- templates
 
+    /// Every template with the level it asks for. Nothing is hidden by level:
+    /// what a higher level unlocks is part of the catalogue.
     pub async fn list_templates(&self) -> ApiResult {
         require(self.principal, READ)?;
-        let names = self
+        let templates = self
             .deps
             .mcp
             .list_templates_usecase
             .execute()
             .await
             .map_err(|e| ApiError::from_domain("listing templates", e))?;
-        Self::ok(json!({ "templates": names }))
+        Self::ok(json!({ "templates": templates.iter().map(describe_listing).collect::<Vec<_>>() }))
     }
 
     /// A template described, never dumped: the parameters are what make the
@@ -579,6 +586,11 @@ fn describe_config(config: &BotConfig) -> Value {
     })
 }
 
+/// A template as the chooser lists it: its name and the level it asks for.
+fn describe_listing(listing: &TemplateListing) -> Value {
+    json!({ "name": listing.name, "min_vip_level": listing.min_vip_level })
+}
+
 /// A template described through the same accessors a bot's config is, since a
 /// template is a config before any bot has claimed it. Risk and leverage are
 /// left out: they are per-bot settings, not properties of the template.
@@ -587,6 +599,7 @@ fn describe_template(preview: &TemplatePreview) -> Value {
         "name": preview.template.name,
         "version": preview.template.version,
         "description": preview.template.description,
+        "min_vip_level": preview.template.min_vip_level(),
     });
     if let Value::Object(fields) = describe_config(&preview.config) {
         for (key, value) in fields {

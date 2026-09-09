@@ -80,6 +80,9 @@ pub(crate) enum ApiError {
     NotFound,
     /// The bot is not in a state that admits this write right now.
     Conflict(Value),
+    /// The account's level does not allow this: `{error, ...}` with the code
+    /// (`quota_exceeded`, `insufficient_level`) and the numbers behind it.
+    Forbidden(Value),
     /// A use-case fault, already redacted to what the caller may see.
     Failed { message: String, retryable: bool },
     /// A telebot feature that is a placeholder there and so a placeholder here.
@@ -96,6 +99,17 @@ impl ApiError {
             | DomainError::LeverageOutOfRange { .. }
             | DomainError::MissingConfigPath(_)
             | DomainError::InvalidConfig(_) => Self::BadRequest(err.to_string()),
+            DomainError::QuotaExceeded { limit } => Self::Forbidden(json!({
+                "error": "quota_exceeded",
+                "limit": limit,
+                "message": err.to_string(),
+            })),
+            DomainError::InsufficientLevel { required, current } => Self::Forbidden(json!({
+                "error": "insufficient_level",
+                "required": required,
+                "current": current,
+                "message": err.to_string(),
+            })),
             other => Self::Failed {
                 message: redact(action, &other),
                 retryable: matches!(other.retryability(), Retryability::Transient),
@@ -239,6 +253,7 @@ impl WebApi {
             }
             ApiError::NotFound => respond(StatusCode::NOT_FOUND, json!({ "error": "not found" })),
             ApiError::Conflict(body) => respond(StatusCode::CONFLICT, body),
+            ApiError::Forbidden(body) => respond(StatusCode::FORBIDDEN, body),
             ApiError::Failed { message, retryable } => {
                 let status = if retryable {
                     StatusCode::SERVICE_UNAVAILABLE

@@ -4,6 +4,7 @@ pub mod clock;
 pub mod configswitch;
 pub mod configtemplate;
 pub mod engine;
+pub mod entitlement;
 pub mod error;
 pub mod exchange;
 pub mod identity;

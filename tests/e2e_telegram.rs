@@ -11,6 +11,7 @@ use common::{CONTAINER_NAME, Harness, NOW, SITE_URL, TD_V7};
 use pbtb_rust::domain::IdentityRepository;
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
+use pbtb_rust::domain::configtemplate::ConfigTemplate;
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::identity::PROVIDER_TELEGRAM;
@@ -20,11 +21,15 @@ use serde_json::json;
 const BOT_ID: &str = "alpha";
 
 fn a_bot() -> Bot {
+    named_bot(BOT_ID)
+}
+
+fn named_bot(id: &str) -> Bot {
     Bot::new(
-        BOT_ID.to_string(),
+        id.to_string(),
         USER_ID.to_string(),
         Exchange::Bybit,
-        BOT_ID.to_string(),
+        id.to_string(),
         "KEY-DO-NOT-LEAK".to_string(),
         "SECRET-DO-NOT-LEAK".to_string(),
         false,
@@ -36,15 +41,33 @@ fn a_bot() -> Bot {
 
 /// A v7 config, which routes the launch to the v7 task definition.
 fn a_config() -> BotConfig {
+    config_of(BOT_ID)
+}
+
+fn config_of(bot_id: &str) -> BotConfig {
     BotConfig {
         user_id: USER_ID.to_string(),
-        bot_id: BOT_ID.to_string(),
+        bot_id: bot_id.to_string(),
         bot_type: BotType::default(),
         template_name: "test".to_string(),
         template_version: None,
         config_data: json!({ "config_version": "v7.12.0", "live": {} }),
         created_at: NOW,
         updated_at: NOW,
+    }
+}
+
+/// A v7 template that asks for `min_vip_level`.
+fn a_template(name: &str, min_vip_level: u8) -> ConfigTemplate {
+    ConfigTemplate {
+        name: name.to_string(),
+        description: None,
+        version: None,
+        config_data: json!({
+            "config_version": "v7.12.0",
+            "pbtb": { "min_vip_level": min_vip_level },
+            "live": {},
+        }),
     }
 }
 
@@ -333,4 +356,74 @@ async fn stop_issues_a_stoptask_for_the_launched_task() {
     let stops = h.ecs.stops();
     assert_eq!(stops.len(), 1, "exactly one StopTask: {stops:?}");
     assert_eq!(stops[0].1, "task-1", "stopping the task that was launched");
+}
+
+// The harness seeds the operator at VIP 0: one running bot, open templates only.
+
+#[tokio::test]
+async fn a_second_bot_is_refused_at_level_zero_until_the_first_is_stopped() {
+    let h = harness!();
+    for id in [BOT_ID, "beta"] {
+        h.given_bot(named_bot(id)).await;
+        h.configs.put(config_of(id));
+    }
+
+    assert!(
+        h.send(callback(USER_ID, &format!("select_bot:{BOT_ID}")))
+            .await
+    );
+    assert!(h.send(text_message(USER_ID, "Run bot")).await);
+    assert!(h.send(callback(USER_ID, "select_bot:beta")).await);
+    assert!(h.send(text_message(USER_ID, "Run bot")).await);
+
+    let transcript = h.transcript().await;
+    assert!(
+        transcript.contains("stop one first"),
+        "the refusal says what to do: {transcript}"
+    );
+    assert_eq!(
+        h.ecs.launches().len(),
+        1,
+        "the ceiling holds before ECS is reached"
+    );
+
+    assert!(
+        h.send(callback(USER_ID, &format!("select_bot:{BOT_ID}")))
+            .await
+    );
+    assert!(h.send(text_message(USER_ID, "Stop bot")).await);
+    assert!(h.send(callback(USER_ID, "select_bot:beta")).await);
+    assert!(h.send(text_message(USER_ID, "Run bot")).await);
+    assert_eq!(h.ecs.launches().len(), 2, "the freed slot is usable");
+}
+
+#[tokio::test]
+async fn a_locked_template_is_marked_in_the_list_and_refused_on_tap() {
+    let h = harness!();
+    h.given_bot(a_bot()).await;
+    h.templates.add(a_template("open", 0));
+    h.templates.add(a_template("gated", 3));
+
+    assert!(
+        h.send(callback(USER_ID, &format!("select_bot:{BOT_ID}")))
+            .await
+    );
+    assert!(h.send(text_message(USER_ID, "Choose config...")).await);
+
+    let wire = h.telegram.wire().await;
+    assert!(
+        wire.contains("📄 open") && wire.contains("🔒 gated (VIP 3)"),
+        "both are listed, one locked: {wire}"
+    );
+
+    assert!(h.send(callback(USER_ID, "select_template:gated")).await);
+    let transcript = h.transcript().await;
+    assert!(
+        transcript.contains("needs VIP 3"),
+        "the tap says which level unlocks it: {transcript}"
+    );
+    assert!(
+        h.configs.get_saved(&USER_ID.to_string(), BOT_ID).is_none(),
+        "nothing was applied"
+    );
 }

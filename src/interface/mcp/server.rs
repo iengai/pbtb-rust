@@ -7,7 +7,7 @@ use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabiliti
 use rmcp::{tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::Deps;
 use super::auth::{Authenticator, Principal, SCOPE_READ, SCOPE_WRITE};
@@ -223,17 +223,23 @@ impl BotTools {
         }))
     }
 
-    /// The configuration templates a bot can be switched to.
+    /// The configuration templates a bot can be switched to, each with the
+    /// VIP level it asks for (`apply_template` refuses one above the
+    /// caller's).
     #[tool(annotations(read_only_hint = true))]
     pub async fn list_templates(&self) -> Result<CallToolResult, McpError> {
         self.principal(SCOPE_READ)?;
-        let names = self
+        let templates = self
             .deps
             .list_templates_usecase
             .execute()
             .await
             .map_err(|e| failed("listing templates", e))?;
-        Self::ok(json!({ "templates": names }))
+        let templates: Vec<Value> = templates
+            .iter()
+            .map(|t| json!({ "name": t.name, "min_vip_level": t.min_vip_level }))
+            .collect();
+        Self::ok(json!({ "templates": templates }))
     }
 
     /// Turn a bot on: record the intent and launch its task if none is running.
@@ -250,7 +256,7 @@ impl BotTools {
         let outcome = self
             .deps
             .start_bot_usecase
-            .execute(&principal.user_id, &args.bot_id)
+            .execute(&principal.user_id, principal.vip_level, &args.bot_id)
             .await
             .map_err(|e| {
                 Self::audit(&principal, "start_bot", &args.bot_id, "error");
@@ -317,7 +323,12 @@ impl BotTools {
         let principal = self.principal(SCOPE_WRITE)?;
         self.deps
             .apply_template_usecase
-            .execute(&principal.user_id, &args.bot_id, &args.template_name)
+            .execute(
+                &principal.user_id,
+                principal.vip_level,
+                &args.bot_id,
+                &args.template_name,
+            )
             .await
             .map_err(|e| {
                 Self::audit(&principal, "apply_template", &args.bot_id, "error");

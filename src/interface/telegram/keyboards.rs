@@ -1,5 +1,6 @@
-// Rust
 use crate::domain::engine::Runtime;
+use crate::domain::entitlement;
+use crate::usecase::TemplateListing;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
 pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
@@ -104,15 +105,23 @@ pub(crate) fn template_confirm_keyboard(template_name: &str) -> InlineKeyboardMa
     ]])
 }
 
-/// Create inline keyboard for template list
-/// Each template is shown as a button with callback data containing template_name
-pub(crate) fn template_list_keyboard(templates: &[String]) -> InlineKeyboardMarkup {
+/// Inline keyboard for the template list: one button per template
+/// (`select_template:<name>`). A template above `vip_level` is shown locked
+/// with the level it asks for; it stays tappable so the refusal can say why.
+pub(crate) fn template_list_keyboard(
+    templates: &[TemplateListing],
+    vip_level: u8,
+) -> InlineKeyboardMarkup {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    for template_name in templates {
-        let button_text = format!("📄 {template_name}");
+    for template in templates {
+        let template_name = &template.name;
+        let button_text = if entitlement::meets(vip_level, template.min_vip_level) {
+            format!("📄 {template_name}")
+        } else {
+            format!("🔒 {template_name} (VIP {})", template.min_vip_level)
+        };
 
-        // Callback data format: "select_template:<template_name>"
         let callback_data = format!("select_template:{template_name}");
 
         let button = InlineKeyboardButton::callback(button_text, callback_data);

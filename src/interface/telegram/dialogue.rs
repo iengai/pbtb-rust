@@ -258,9 +258,10 @@ async fn handle_start_state(
                             bot.send_message(
                                 msg.chat.id,
                                 "⚙️ Choose a configuration template:\n\n\
-                                Select one of the predefined templates below to view details."
+                                Select one of the predefined templates below to view details. \
+                                🔒 marks the ones above your VIP level."
                             )
-                                .reply_markup(super::keyboards::template_list_keyboard(&templates))
+                                .reply_markup(super::keyboards::template_list_keyboard(&templates, sender.vip_level))
                                 .await?;
                         }
                     }
@@ -337,7 +338,7 @@ async fn handle_start_state(
                 let text = if let Some(ref bot_id) = ctx.selected_bot_id {
                     let user_id = sender.user_id.clone();
 
-                    match deps.start_bot_usecase.execute(&user_id, bot_id).await {
+                    match deps.start_bot_usecase.execute(&user_id, sender.vip_level, bot_id).await {
                         Ok(StartOutcome::Started { .. }) => format!("▶️ Bot {bot_id} is starting up."),
                         Ok(StartOutcome::AlreadyRunning) => format!("▶️ Bot {bot_id} is already running."),
                         Ok(StartOutcome::AlreadyStarting) => format!("⏳ Bot {bot_id} is already starting — give it a few seconds."),

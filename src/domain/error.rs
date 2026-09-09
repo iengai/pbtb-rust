@@ -31,6 +31,14 @@ pub enum DomainError {
     /// something no reader recognises as a bot.
     #[error("bot name {0:?} must be non-empty and must not contain '#'")]
     InvalidBotName(String),
+    /// The account already has as many bots switched on as its level allows
+    /// (`entitlement::max_running_bots`). The user's to resolve by stopping
+    /// one, so it is echoed with the ceiling rather than redacted.
+    #[error("your level allows {limit} running bot{} at a time; stop one first", if *limit == 1 { "" } else { "s" })]
+    QuotaExceeded { limit: usize },
+    /// The template asks for a higher level than the account has.
+    #[error("this config needs VIP {required}; your account is VIP {current}")]
+    InsufficientLevel { required: u8, current: u8 },
     /// A persisted row was read successfully but does not parse into a domain
     /// value (e.g. an unknown exchange, an unparseable timestamp). It is a fault,
     /// not an absence: collapsing it into `Ok(None)` would let a corrupt live bot
