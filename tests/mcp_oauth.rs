@@ -6,9 +6,6 @@
 
 mod common;
 
-use std::collections::HashSet;
-use std::sync::Arc;
-
 use bytes::Bytes;
 use common::oauth::{FakeIssuer, SUBJECT, now};
 use common::telegram::USER_ID;
@@ -18,8 +15,8 @@ use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
+use pbtb_rust::interface::mcp::HttpMcp;
 use pbtb_rust::interface::mcp::http::Metadata;
-use pbtb_rust::interface::mcp::{HttpMcp, OAuthTokens, TokenVerifier};
 use serde_json::{Value, json};
 
 const BOT_ID: &str = "alpha";
@@ -68,27 +65,16 @@ fn a_config() -> BotConfig {
     }
 }
 
-/// The edge with the real OAuth verifier pointed at a stand-in issuer.
-///
-/// `allowed` is the telegram allowlist, passed separately from the linked tenant
-/// so a test can put an identity in the table and still leave its account off
-/// the list — which is what revoking someone from the bot looks like from here.
-async fn edge(h: &Harness, issuer: &FakeIssuer, allowed: HashSet<String>) -> HttpMcp {
-    let verifier = OAuthTokens::discover(issuer.issuer(), RESOURCE, h.bots.clone(), allowed)
-        .await
-        .expect("the issuer publishes discovery and a key set");
-
+/// The edge with the real OAuth verifier pointed at a stand-in issuer, over
+/// the harness's own identity and account rows.
+async fn edge(h: &Harness, issuer: &FakeIssuer) -> HttpMcp {
     h.http_mcp_with(
-        Arc::new(verifier) as Arc<dyn TokenVerifier>,
+        h.oauth_verifier(&issuer.issuer()).await,
         Metadata {
             resource: RESOURCE.to_string(),
             authorization_servers: vec![issuer.issuer()],
         },
     )
-}
-
-fn only(user_id: &str) -> HashSet<String> {
-    HashSet::from([user_id.to_string()])
 }
 
 fn meta() -> Value {
@@ -142,7 +128,7 @@ async fn a_linked_subject_reaches_its_own_bots() {
     h.given_link(PROVIDER, SUBJECT, &tenant()).await;
 
     let token = issuer.token(issuer.claims(SUBJECT, "bots:read", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -166,7 +152,7 @@ async fn an_unlinked_subject_is_refused_without_being_given_an_account() {
     let issuer = FakeIssuer::start().await;
 
     let token = issuer.token(issuer.claims("user_nobody_has_linked", "bots:read", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -186,17 +172,32 @@ async fn an_unlinked_subject_is_refused_without_being_given_an_account() {
 }
 
 #[tokio::test]
-async fn a_linked_account_off_the_allowlist_loses_access() {
+async fn a_suspended_account_loses_access_with_its_link_intact() {
     let h = harness!();
     let issuer = FakeIssuer::start().await;
     h.given_bot(a_bot()).await;
     h.given_link(PROVIDER, SUBJECT, &tenant()).await;
+    h.given_suspended(&tenant()).await;
 
-    // The link survives; the account is simply no longer allowed to use the bot.
-    // Removing someone from telegram has to take their MCP access with it, or the
-    // allowlist is a door with a second key still in circulation.
+    // Suspending an account has to take its MCP access with it, or suspension
+    // is a door with a second key still in circulation.
     let token = issuer.token(issuer.claims(SUBJECT, "bots:read", RESOURCE));
-    let response = edge(&h, &issuer, only("someone-else"))
+    let response = edge(&h, &issuer)
+        .await
+        .handle(call(&token, tool("list_bots", json!({}))))
+        .await;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_link_to_an_account_that_has_no_row_admits_nobody() {
+    let h = harness!();
+    let issuer = FakeIssuer::start().await;
+    h.given_link(PROVIDER, SUBJECT, "acct-without-a-row").await;
+
+    let token = issuer.token(issuer.claims(SUBJECT, "bots:read", RESOURCE));
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -213,7 +214,7 @@ async fn a_token_minted_for_another_resource_is_refused() {
     // The same user, the same issuer, a token they got for some other API.
     // Honouring it would let any service they also authorized replay it here.
     let token = issuer.token(issuer.claims(SUBJECT, "bots:write", "https://elsewhere.example/"));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -229,7 +230,7 @@ async fn an_expired_token_is_refused() {
 
     let mut claims = issuer.claims(SUBJECT, "bots:read", RESOURCE);
     claims["exp"] = json!(now() - 3600);
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&issuer.token(claims), tool("list_bots", json!({}))))
         .await;
@@ -249,7 +250,7 @@ async fn a_token_signed_by_an_unpublished_key_is_refused() {
         "not-a-published-key",
         issuer.claims(SUBJECT, "bots:read", RESOURCE),
     );
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -266,7 +267,7 @@ async fn a_read_only_token_cannot_start_a_bot() {
     h.given_link(PROVIDER, SUBJECT, &tenant()).await;
 
     let token = issuer.token(issuer.claims(SUBJECT, "bots:read", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("start_bot", json!({ "bot_id": BOT_ID }))))
         .await;
@@ -294,7 +295,7 @@ async fn a_token_that_asked_for_write_can_start_a_bot() {
     h.given_link(PROVIDER, SUBJECT, &tenant()).await;
 
     let token = issuer.token(issuer.claims(SUBJECT, "bots:read bots:write", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("start_bot", json!({ "bot_id": BOT_ID }))))
         .await;
@@ -315,7 +316,7 @@ async fn a_token_signed_with_a_published_secret_is_refused() {
     h.given_link(PROVIDER, SUBJECT, &tenant()).await;
 
     let token = issuer.forge_symmetric(issuer.claims(SUBJECT, "bots:write", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -342,7 +343,7 @@ async fn a_token_with_no_scopes_cannot_even_list() {
     // read access would make the scope claim decorative — this surface lists
     // every bot in the tenant and hands over its full trading config.
     let token = issuer.token(issuer.claims(SUBJECT, "openid profile email", RESOURCE));
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&token, tool("list_bots", json!({}))))
         .await;
@@ -366,7 +367,7 @@ async fn a_token_with_no_issuer_claim_is_refused() {
 
     let mut claims = issuer.claims(SUBJECT, "bots:read", RESOURCE);
     claims.as_object_mut().expect("claims").remove("iss");
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&issuer.token(claims), tool("list_bots", json!({}))))
         .await;
@@ -384,7 +385,7 @@ async fn a_token_with_no_audience_is_refused() {
     // every token the issuer ever minted for anything.
     let mut claims = issuer.claims(SUBJECT, "bots:read", RESOURCE);
     claims.as_object_mut().expect("claims").remove("aud");
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&issuer.token(claims), tool("list_bots", json!({}))))
         .await;
@@ -401,7 +402,7 @@ async fn a_token_that_never_expires_is_refused() {
     // A token with no `exp` is a token that is stolen once and useful forever.
     let mut claims = issuer.claims(SUBJECT, "bots:read", RESOURCE);
     claims.as_object_mut().expect("claims").remove("exp");
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&issuer.token(claims), tool("list_bots", json!({}))))
         .await;
@@ -417,7 +418,7 @@ async fn a_token_from_another_issuer_is_refused() {
 
     let mut claims = issuer.claims(SUBJECT, "bots:read", RESOURCE);
     claims["iss"] = json!("https://not-our-issuer.example");
-    let response = edge(&h, &issuer, only(&tenant()))
+    let response = edge(&h, &issuer)
         .await
         .handle(call(&issuer.token(claims), tool("list_bots", json!({}))))
         .await;

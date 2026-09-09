@@ -25,8 +25,8 @@ pub async fn mcp_deps(configs: &Configs) -> anyhow::Result<mcp::Deps> {
     Ok(wire(configs).await?.mcp)
 }
 
-/// Wire the REST surface: the tool set plus the three use cases the web needs
-/// — key entry, template description, and the identity list.
+/// Wire the REST surface: the tool set plus what the web needs — key entry,
+/// template description, the identity list, signup and Telegram binding.
 #[allow(dead_code)]
 pub async fn api_deps(configs: &Configs) -> anyhow::Result<api::Deps> {
     wire(configs).await
@@ -71,7 +71,13 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     ));
     let get_template_usecase = Arc::new(GetTemplateUseCase::new(templates.clone()));
     let list_identities_usecase = Arc::new(ListIdentitiesUseCase::new(identities.clone()));
-    let unlink_identities_usecase = Arc::new(UnlinkIdentitiesUseCase::new(identities));
+    let users: Arc<dyn domain::UserRepository> = bot_repository.clone();
+    let tickets: Arc<dyn domain::LinkTicketRepository> = bot_repository.clone();
+    let signup_usecase = Arc::new(SignupUseCase::new(identities.clone(), users, clock.clone()));
+    let issue_bind_ticket_usecase =
+        Arc::new(IssueTelegramBindTicketUseCase::new(tickets, clock.clone()));
+    let unbind_telegram_usecase = Arc::new(UnbindTelegramUseCase::new(identities));
+    let bot_username = configs.telegram.bot_username.clone();
 
     let mcp = mcp::Deps {
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots.clone())),
@@ -126,6 +132,9 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         add_bot_usecase,
         get_template_usecase,
         list_identities_usecase,
-        unlink_identities_usecase,
+        signup_usecase,
+        issue_bind_ticket_usecase,
+        unbind_telegram_usecase,
+        bot_username,
     })
 }

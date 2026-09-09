@@ -12,6 +12,7 @@ use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
 use crate::domain::botconfig::BotConfig;
 use crate::domain::engine::Runtime;
+use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::interface::mcp::auth::Principal;
 use crate::usecase::{
     AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome, TemplatePreview,
@@ -98,9 +99,15 @@ impl Handlers<'_> {
             .map_err(|e| ApiError::from_domain("listing linked identities", e))?;
         let mut scopes: Vec<&String> = self.principal.scopes.iter().collect();
         scopes.sort();
+        let telegram = identities
+            .iter()
+            .find(|(provider, _)| provider == PROVIDER_TELEGRAM)
+            .map(|(_, subject)| subject.clone());
         Self::ok(json!({
             "user_id": self.user_id(),
+            "vip_level": self.principal.vip_level,
             "scopes": scopes,
+            "telegram": telegram,
             "identities": identities
                 .into_iter()
                 .map(|(provider, subject)| json!({ "provider": provider, "subject": subject }))
@@ -108,20 +115,43 @@ impl Handlers<'_> {
         }))
     }
 
-    /// Release every identity linked to the caller — including the one this
-    /// request authenticated with, which stops resolving on the next request.
-    pub async fn unlink_identities(&self) -> ApiResult {
+    /// A one-time token that binds whichever Telegram account opens it to the
+    /// caller's account. Handed out as the bot's deep link when the bot's
+    /// username is known, and as the bare `/start` payload otherwise.
+    pub async fn bind_ticket(&self) -> ApiResult {
         require(self.principal, WRITE)?;
-        let released = self
+        let token = self
             .deps
-            .unlink_identities_usecase
+            .issue_bind_ticket_usecase
             .execute(self.user_id())
             .await
             .map_err(|e| {
-                self.audit("unlink_identities", "-", "error");
-                ApiError::from_domain("unlinking identities", e)
+                self.audit("bind_ticket", "-", "error");
+                ApiError::from_domain("preparing the bind link", e)
             })?;
-        self.audit("unlink_identities", "-", "released");
+        self.audit("bind_ticket", "-", "issued");
+        let username = self.deps.bot_username.trim().trim_start_matches('@');
+        let url = (!username.is_empty()).then(|| format!("https://t.me/{username}?start={token}"));
+        Self::ok(json!({
+            "token": token,
+            "url": url,
+            "expires_in": LINK_TICKET_TTL,
+        }))
+    }
+
+    /// Release the caller's Telegram id, so another can be bound.
+    pub async fn unbind_telegram(&self) -> ApiResult {
+        require(self.principal, WRITE)?;
+        let released = self
+            .deps
+            .unbind_telegram_usecase
+            .execute(self.user_id())
+            .await
+            .map_err(|e| {
+                self.audit("unbind_telegram", "-", "error");
+                ApiError::from_domain("unbinding telegram", e)
+            })?;
+        self.audit("unbind_telegram", "-", "released");
         Self::ok(json!({ "released": released }))
     }
 

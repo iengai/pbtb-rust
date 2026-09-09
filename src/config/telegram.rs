@@ -25,6 +25,14 @@ pub struct TelegramConfig {
     /// Env: APP__TELEGRAM__SITE_URL.
     #[serde(default)]
     pub site_url: String,
+
+    /// The bot's `@username`, for the `https://t.me/<username>?start=<token>`
+    /// deep link the web hands out to bind a Telegram account. Empty hands out
+    /// the token alone.
+    ///
+    /// Env: APP__TELEGRAM__BOT_USERNAME.
+    #[serde(default)]
+    pub bot_username: String,
 }
 
 impl TelegramConfig {
@@ -61,6 +69,7 @@ mod tests {
         TelegramConfig {
             allowed_user_ids: ids.to_string(),
             site_url: String::new(),
+            bot_username: String::new(),
         }
     }
 

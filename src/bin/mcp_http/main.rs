@@ -23,7 +23,7 @@ use lambda_http::{Body, Error, Request, Response, http, run, service_fn};
 use pbtb_rust::config::configs::{Configs, load_config};
 use pbtb_rust::domain::identity::LinkTicketRepository;
 use pbtb_rust::domain::identity::PROVIDER_WORKOS;
-use pbtb_rust::domain::{IdentityRepository, SystemClock};
+use pbtb_rust::domain::{IdentityRepository, SystemClock, UserRepository};
 use pbtb_rust::infra::DynamoBotRepository;
 use pbtb_rust::infra::client::setup_dynamodb_with_configs;
 use pbtb_rust::interface::api::WebApi;
@@ -62,20 +62,6 @@ struct Server {
 async fn build() -> anyhow::Result<Server> {
     let configs: Configs = load_config().context("Failed to load config")?;
 
-    let user_id = configs.mcp.user_id.trim().to_string();
-    if user_id.is_empty() {
-        bail!("APP__MCP__USER_ID: set it to the Telegram user id this server acts as");
-    }
-    // The same allowlist the bot enforces, checked here too: an operator removed
-    // from telebot loses MCP access with them, rather than keeping a second door.
-    let allowed = configs
-        .telegram
-        .allowlist()
-        .context("APP__TELEGRAM__ALLOWED_USER_IDS")?;
-    if !allowed.contains(&user_id) {
-        bail!("APP__MCP__USER_ID={user_id} is not on APP__TELEGRAM__ALLOWED_USER_IDS");
-    }
-
     let ssm = aws_sdk_ssm::Client::new(
         &aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
@@ -90,6 +76,12 @@ async fn build() -> anyhow::Result<Server> {
 
     let issuer = configs.mcp.issuer.trim().to_string();
     let (tokens, metadata): (Arc<dyn TokenVerifier>, Metadata) = if issuer.is_empty() {
+        // The shared bearer stands for one account, named here because the
+        // token itself names nobody.
+        let user_id = configs.mcp.user_id.trim().to_string();
+        if user_id.is_empty() {
+            bail!("APP__MCP__USER_ID: set it to the account the shared bearer acts as");
+        }
         let token = read_param(&ssm, &configs.mcp.token_param, "APP__MCP__TOKEN_PARAM").await?;
         (
             Arc::new(StaticToken::new(token, user_id)),
@@ -97,10 +89,10 @@ async fn build() -> anyhow::Result<Server> {
         )
     } else {
         let (client, table) = setup_dynamodb_with_configs(&configs).await;
-        let identities: Arc<dyn IdentityRepository> =
-            Arc::new(DynamoBotRepository::new(client, table));
-        let verifier =
-            OAuthTokens::discover(&issuer, &resource, identities, allowed.clone()).await?;
+        let repository = Arc::new(DynamoBotRepository::new(client, table));
+        let identities: Arc<dyn IdentityRepository> = repository.clone();
+        let users: Arc<dyn UserRepository> = repository;
+        let verifier = OAuthTokens::discover(&issuer, &resource, identities, users).await?;
         (
             Arc::new(verifier),
             Metadata {

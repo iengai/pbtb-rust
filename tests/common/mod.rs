@@ -42,6 +42,8 @@ pub const RESOURCE: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/";
 pub const LINK_URL: &str = "https://abc123.lambda-url.ap-northeast-1.on.aws/link";
 /// The web console the bot points a stranger at.
 pub const SITE_URL: &str = "https://console.example.test/";
+/// The bot's username, for the bind deep link.
+pub const BOT_USERNAME: &str = "pbtb_test_bot";
 
 pub struct Harness {
     /// Holds the fixture's table (and its container, when it started one).
@@ -238,17 +240,35 @@ impl Harness {
     fn api_deps(&self) -> api::Deps {
         let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
         let identities: Arc<dyn domain::IdentityRepository> = self.bots.clone();
+        let users: Arc<dyn domain::UserRepository> = self.bots.clone();
+        let tickets: Arc<dyn domain::LinkTicketRepository> = self.bots.clone();
+        let clock = Arc::new(FixedClock(NOW));
         api::Deps {
             mcp: self.mcp_deps(),
             add_bot_usecase: Arc::new(AddBotUseCase::new(
                 bots_dyn,
                 self.api_keys.clone(),
-                Arc::new(FixedClock(NOW)),
+                clock.clone(),
             )),
             get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
             list_identities_usecase: Arc::new(ListIdentitiesUseCase::new(identities.clone())),
-            unlink_identities_usecase: Arc::new(UnlinkIdentitiesUseCase::new(identities)),
+            signup_usecase: Arc::new(SignupUseCase::new(identities.clone(), users, clock.clone())),
+            issue_bind_ticket_usecase: Arc::new(IssueTelegramBindTicketUseCase::new(
+                tickets, clock,
+            )),
+            unbind_telegram_usecase: Arc::new(UnbindTelegramUseCase::new(identities)),
+            bot_username: BOT_USERNAME.to_string(),
         }
+    }
+
+    /// The OAuth verifier over this harness's rows, pointed at a stand-in
+    /// issuer: the only verifier that can identify a subject with no account.
+    pub async fn oauth_verifier(&self, issuer: &str) -> Arc<dyn mcp::TokenVerifier> {
+        let verifier =
+            mcp::OAuthTokens::discover(issuer, RESOURCE, self.bots.clone(), self.bots.clone())
+                .await
+                .expect("the issuer publishes discovery and a key set");
+        Arc::new(verifier)
     }
 
     /// The account-linking flow over the same repositories, pointed at a

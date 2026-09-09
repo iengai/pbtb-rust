@@ -75,6 +75,7 @@ impl Authenticator for ReadOnly {
         Some(Principal {
             user_id: USER_ID.to_string(),
             scopes: HashSet::from([SCOPE_READ.to_string()]),
+            vip_level: 0,
         })
     }
 }
