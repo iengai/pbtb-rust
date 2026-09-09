@@ -147,9 +147,16 @@ already be linked from the Telegram bot, or the token is refused (403, no
   `applicationId` only, or it errors "mutually exclusive".
 - **The issuer is behind Cloudflare.** Python's default `urllib` user agent
   gets a 403 (error 1010); set a browser-ish `User-Agent`.
+- **Access tokens last five minutes.** `accessTokenExpiry = 300` on the
+  environment's default AuthKit application (`maxSessionTime` is a year,
+  `inactivityTimeout` two days). A client that does not renew looks like it
+  logs the user out every five minutes; the console asks for `offline_access`
+  and refreshes (`site/src/auth/oauth.ts`), sending the same `resource` on the
+  refresh so the new token keeps the API's audience. WorkOS rotates the
+  refresh token on each use, so only one exchange may be in flight.
 - **Token shape we rely on:** `sub` = the WorkOS user id (`user_…`), `scope` =
-  `"bots:read bots:write email openid"`, `aud` = the resource URI, `iss` = the
-  issuer. The `email` claim rides in the id token as well; the console shows it
+  `"bots:read bots:write email openid"` (plus `offline_access` for the
+  console), `aud` = the resource URI, `iss` = the issuer. The `email` claim rides in the id token as well; the console shows it
   in the header.
 
 ## Verifying from the command line
