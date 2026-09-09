@@ -142,9 +142,9 @@ fn sent_message_stub() -> Value {
 
 pub const CHAT_ID: i64 = 4242;
 pub const GROUP_ID: i64 = -1_001_234_567_890;
-/// The Telegram id the harness treats as the allowlisted operator.
+/// The Telegram id `Harness::start` binds to the operator's account.
 pub const USER_ID: u64 = 5_351_347_639;
-/// A Telegram id that is never on the allowlist.
+/// A Telegram id no account has bound.
 pub const STRANGER_ID: u64 = 111_222_333;
 
 /// A text message update, as the Bot API delivers it.
@@ -163,8 +163,8 @@ pub fn text_message(user_id: u64, text: &str) -> Value {
 
 /// The same message sent in a group the bot is in.
 ///
-/// The allowlist filters who may drive the bot, not who can read what it posts,
-/// so anything the bot replies with here is visible to every member.
+/// Sender resolution decides who may drive the bot, not who can read what it
+/// posts, so anything the bot replies with here is visible to every member.
 pub fn group_message(user_id: u64, text: &str) -> Value {
     json!({
         "update_id": 3,
@@ -197,8 +197,7 @@ pub fn callback(user_id: u64, data: &str) -> Value {
     })
 }
 
-/// An update with no sender at all (a channel post), which no allowlist entry
-/// can match.
+/// An update with no sender at all (a channel post), which resolves to nobody.
 pub fn senderless() -> Value {
     json!({
         "update_id": 3,

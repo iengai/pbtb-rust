@@ -5,19 +5,26 @@ use std::collections::HashSet;
 
 #[derive(Debug, Deserialize)]
 pub struct TelegramConfig {
-    /// The Telegram user ids allowed to reach any handler, comma-separated
-    /// (`5351347639,12345678`). Every other update is answered with a refusal
-    /// and dropped before routing — see
-    /// `interface::telegram::middlewares::reject_unauthorized`. Parsed at
-    /// process start by `parse_allowed_user_ids`, where an empty list fails
-    /// startup rather than leaving the bot open to anyone who finds it.
+    /// The Telegram user ids the MCP binaries may act as, comma-separated
+    /// (`5351347639,12345678`); `APP__MCP__USER_ID` must be one of them. The
+    /// bot itself does not read this: it resolves each sender through the
+    /// `telegram` identity rows instead.
     ///
     /// A `String` rather than a `Vec<String>` because `Environment` tries `i64`
     /// before its list separator: a single numeric id would arrive as an
     /// integer and refuse to deserialize into a list.
     ///
     /// Env: APP__TELEGRAM__ALLOWED_USER_IDS.
+    #[serde(default)]
     pub allowed_user_ids: String,
+
+    /// The web console, where accounts are created and a Telegram id is bound.
+    /// The bot points a sender it does not know there; empty leaves the
+    /// directions generic.
+    ///
+    /// Env: APP__TELEGRAM__SITE_URL.
+    #[serde(default)]
+    pub site_url: String,
 }
 
 impl TelegramConfig {
@@ -53,6 +60,7 @@ mod tests {
     fn config(ids: &str) -> TelegramConfig {
         TelegramConfig {
             allowed_user_ids: ids.to_string(),
+            site_url: String::new(),
         }
     }
 

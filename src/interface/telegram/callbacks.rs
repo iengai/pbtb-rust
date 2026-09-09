@@ -8,6 +8,8 @@ use crate::domain::engine::Runtime;
 use crate::usecase::SetRuntimeOutcome;
 use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
+
+use crate::usecase::TelegramSender;
 use teloxide::types::CallbackQuery;
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
@@ -22,11 +24,12 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                 |bot: Bot,
                  q: CallbackQuery,
                  deps: Deps,
+                 sender: TelegramSender,
                  dialogue: MyDialogue,
                  bot_context: MyBotContext| async move {
                     super::with_deadline(
                         "handle_callback",
-                        handle_callback(bot, q, deps, dialogue, bot_context),
+                        handle_callback(bot, q, deps, &sender, dialogue, bot_context),
                     )
                     .await
                     .map_err(|_e| DependencyMap::new())
@@ -38,6 +41,7 @@ async fn handle_callback(
     bot: Bot,
     q: CallbackQuery,
     deps: Deps,
+    sender: &TelegramSender,
     dialogue: MyDialogue,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
@@ -45,31 +49,31 @@ async fn handle_callback(
 
     // Check if this is a bot selection callback
     if data.starts_with("select_bot:") {
-        handle_bot_selection(bot, q, deps, bot_context).await?;
+        handle_bot_selection(bot, q, deps, sender, bot_context).await?;
         return Ok(());
     }
 
     // Check if this is a strategy-side toggle callback
     if data.starts_with("toggle_side:") {
-        handle_toggle_side(bot, q, deps, bot_context).await?;
+        handle_toggle_side(bot, q, deps, sender, bot_context).await?;
         return Ok(());
     }
 
     // Picking the image the selected bot launches on.
     if data.starts_with("set_runtime:") {
-        handle_set_runtime(bot, q, deps, bot_context).await?;
+        handle_set_runtime(bot, q, deps, sender, bot_context).await?;
         return Ok(());
     }
 
     // Tapping a template name shows a confirmation modal (preview), not an apply.
     if data.starts_with("select_template:") {
-        handle_template_selection(bot, q, dialogue, bot_context, deps).await?;
+        handle_template_selection(bot, q, dialogue, bot_context, deps, sender).await?;
         return Ok(());
     }
 
     // Confirming the modal is what actually applies the template.
     if data.starts_with("confirm_template:") {
-        handle_confirm_template(bot, q, bot_context, deps).await?;
+        handle_confirm_template(bot, q, bot_context, deps, sender).await?;
         return Ok(());
     }
 
@@ -125,13 +129,14 @@ async fn handle_bot_selection(
     bot: Bot,
     q: CallbackQuery,
     deps: Deps,
+    sender: &TelegramSender,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
     if let Some(data) = &q.data
         && data.starts_with("select_bot:")
     {
         let bot_id = data.strip_prefix("select_bot:").unwrap_or("").to_string();
-        let user_id = q.from.id.to_string();
+        let user_id = sender.user_id.clone();
 
         // Answer callback to remove loading state
         bot.answer_callback_query(&q.id)
@@ -197,6 +202,7 @@ async fn handle_template_selection(
     _dialogue: MyDialogue,
     bot_context: MyBotContext,
     deps: Deps,
+    sender: &TelegramSender,
 ) -> anyhow::Result<()> {
     let template_name = match q
         .data
@@ -206,7 +212,7 @@ async fn handle_template_selection(
         Some(name) => name.to_string(),
         None => return Ok(()),
     };
-    let user_id = q.from.id.to_string();
+    let user_id = sender.user_id.clone();
 
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
@@ -254,6 +260,7 @@ async fn handle_confirm_template(
     q: CallbackQuery,
     bot_context: MyBotContext,
     deps: Deps,
+    sender: &TelegramSender,
 ) -> anyhow::Result<()> {
     let template_name = match q
         .data
@@ -263,7 +270,7 @@ async fn handle_confirm_template(
         Some(name) => name.to_string(),
         None => return Ok(()),
     };
-    let user_id = q.from.id.to_string();
+    let user_id = sender.user_id.clone();
 
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
@@ -317,6 +324,7 @@ async fn handle_toggle_side(
     bot: Bot,
     q: CallbackQuery,
     deps: Deps,
+    sender: &TelegramSender,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
     let side = q
@@ -325,7 +333,7 @@ async fn handle_toggle_side(
         .and_then(|d| d.strip_prefix("toggle_side:"))
         .unwrap_or("")
         .to_string();
-    let user_id = q.from.id.to_string();
+    let user_id = sender.user_id.clone();
 
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
@@ -394,6 +402,7 @@ async fn handle_set_runtime(
     bot: Bot,
     q: CallbackQuery,
     deps: Deps,
+    sender: &TelegramSender,
     bot_context: MyBotContext,
 ) -> anyhow::Result<()> {
     let Some(runtime) = q
@@ -408,7 +417,7 @@ async fn handle_set_runtime(
             .await?;
         return Ok(());
     };
-    let user_id = q.from.id.to_string();
+    let user_id = sender.user_id.clone();
 
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,

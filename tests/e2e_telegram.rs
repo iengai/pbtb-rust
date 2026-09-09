@@ -6,12 +6,14 @@
 
 mod common;
 
-use common::telegram::{STRANGER_ID, USER_ID, callback, senderless, text_message};
-use common::{CONTAINER_NAME, Harness, NOW, TD_V7};
+use common::telegram::{STRANGER_ID, USER_ID, callback, group_message, senderless, text_message};
+use common::{CONTAINER_NAME, Harness, NOW, SITE_URL, TD_V7};
+use pbtb_rust::domain::IdentityRepository;
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
+use pbtb_rust::domain::identity::PROVIDER_TELEGRAM;
 use pbtb_rust::domain::runtime::{BotRuntimeRepository, RuntimePhase};
 use serde_json::json;
 
@@ -57,7 +59,7 @@ macro_rules! harness {
 }
 
 #[tokio::test]
-async fn stranger_is_refused_and_learns_nothing() {
+async fn stranger_is_pointed_at_the_web_and_learns_nothing() {
     let h = harness!();
     h.given_bot(a_bot()).await;
 
@@ -65,12 +67,12 @@ async fn stranger_is_refused_and_learns_nothing() {
 
     assert!(
         handled,
-        "the guard must claim the update, not let it fall through"
+        "the gate must claim the update, not let it fall through"
     );
     let wire = h.telegram.wire().await;
     assert!(
-        h.transcript().await.contains("authorized"),
-        "stranger should get a refusal, got: {wire}"
+        h.transcript().await.contains(SITE_URL),
+        "a stranger should be told where to sign up, got: {wire}"
     );
     assert!(
         !wire.contains(BOT_ID),
@@ -86,16 +88,165 @@ async fn update_without_a_sender_is_refused() {
 
     assert!(
         handled,
-        "a senderless update matches no allowlist entry and must stop at the guard"
+        "a senderless update resolves to nobody and must stop at the gate"
     );
     assert!(
         !h.transcript().await.contains("Your bots"),
-        "the 'unknown' tenant bucket must stay unreachable"
+        "no tenant may be reached without a sender"
     );
 }
 
 #[tokio::test]
-async fn allowlisted_user_sees_their_own_bots() {
+async fn a_suspended_account_is_turned_away() {
+    let h = harness!();
+    h.given_bot(a_bot()).await;
+    h.given_suspended(&USER_ID.to_string()).await;
+
+    assert!(h.send(text_message(USER_ID, "/list")).await);
+
+    let wire = h.telegram.wire().await;
+    assert!(h.transcript().await.contains("suspended"), "got: {wire}");
+    assert!(!wire.contains(BOT_ID), "got: {wire}");
+}
+
+#[tokio::test]
+async fn a_bind_link_from_the_web_binds_the_sender_who_opens_it() {
+    let h = harness!();
+    h.given_account("acct-new", 0).await;
+    let token = h.given_bind_ticket("acct-new").await;
+
+    assert!(
+        h.send(text_message(STRANGER_ID, &format!("/start {token}")))
+            .await
+    );
+    assert!(
+        h.transcript().await.contains("bound"),
+        "got: {}",
+        h.transcript().await
+    );
+
+    // Bound to the ticket's account, which nothing in the message named.
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    let link = identities
+        .find_link(PROVIDER_TELEGRAM, &STRANGER_ID.to_string())
+        .await
+        .expect("find")
+        .expect("the sender is now bound");
+    assert_eq!(link.user_id, "acct-new");
+
+    // And the next update from that sender acts as that account.
+    h.given_bot(Bot::new(
+        "theirs".to_string(),
+        "acct-new".to_string(),
+        Exchange::Bybit,
+        "theirs".to_string(),
+        "ak".to_string(),
+        "sk".to_string(),
+        false,
+        Runtime::Py,
+        NOW,
+        NOW,
+    ))
+    .await;
+    assert!(h.send(text_message(STRANGER_ID, "/list")).await);
+    assert!(h.telegram.wire().await.contains("theirs"));
+
+    // The link is spent.
+    assert!(
+        h.send(text_message(999_000_111, &format!("/start {token}")))
+            .await
+    );
+    assert!(
+        h.transcript()
+            .await
+            .contains("invalid, expired or already used"),
+        "got: {}",
+        h.transcript().await
+    );
+}
+
+#[tokio::test]
+async fn a_bind_link_refuses_a_group_and_a_telegram_id_already_bound_elsewhere() {
+    let h = harness!();
+    h.given_account("acct-new", 0).await;
+
+    let token = h.given_bind_ticket("acct-new").await;
+    assert!(
+        h.send(group_message(STRANGER_ID, &format!("/start {token}")))
+            .await
+    );
+    assert!(h.transcript().await.contains("private chat"));
+
+    // The operator's Telegram id belongs to the operator's account; a ticket
+    // for another account cannot take it.
+    let token = h.given_bind_ticket("acct-new").await;
+    assert!(
+        h.send(text_message(USER_ID, &format!("/start {token}")))
+            .await
+    );
+    assert!(
+        h.transcript()
+            .await
+            .contains("bound to a different account"),
+        "got: {}",
+        h.transcript().await
+    );
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    assert_eq!(
+        identities
+            .find_link(PROVIDER_TELEGRAM, &USER_ID.to_string())
+            .await
+            .expect("find")
+            .expect("still bound")
+            .user_id,
+        USER_ID.to_string()
+    );
+}
+
+#[tokio::test]
+async fn an_account_speaks_through_one_telegram_id_until_it_unbinds() {
+    let h = harness!();
+
+    // The operator already has a Telegram id; a second cannot be added.
+    let token = h.given_bind_ticket(&USER_ID.to_string()).await;
+    assert!(
+        h.send(text_message(STRANGER_ID, &format!("/start {token}")))
+            .await
+    );
+    assert!(
+        h.transcript()
+            .await
+            .contains("already has a Telegram account bound"),
+        "got: {}",
+        h.transcript().await
+    );
+
+    // Unbinding from the bot releases it; the sender is a stranger afterwards.
+    assert!(h.send(text_message(USER_ID, "/unlink")).await);
+    assert!(h.transcript().await.contains("Unbound"));
+    assert!(h.send(text_message(USER_ID, "/list")).await);
+    assert!(h.transcript().await.contains(SITE_URL));
+
+    // And a fresh ticket binds the new id.
+    let token = h.given_bind_ticket(&USER_ID.to_string()).await;
+    assert!(
+        h.send(text_message(STRANGER_ID, &format!("/start {token}")))
+            .await
+    );
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    assert_eq!(
+        identities
+            .find_link(PROVIDER_TELEGRAM, &STRANGER_ID.to_string())
+            .await
+            .expect("find")
+            .expect("bound")
+            .user_id,
+        USER_ID.to_string()
+    );
+}
+
+#[tokio::test]
+async fn a_bound_user_sees_their_own_bots() {
     let h = harness!();
     h.given_bot(a_bot()).await;
 

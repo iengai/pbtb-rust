@@ -1,4 +1,5 @@
 // Rust
+pub mod bind;
 pub mod callbacks;
 pub mod commands;
 pub mod dialogue;
@@ -121,9 +122,11 @@ pub struct Deps {
     // Runtime / desired-state management
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
 
-    // Account linking (the browser leg lives in `interface::link`)
-    pub issue_link_ticket_usecase: Arc<IssueLinkTicketUseCase>,
-    pub unlink_identities_usecase: Arc<UnlinkIdentitiesUseCase>,
+    // Who the sender is, and binding/unbinding the Telegram id an account
+    // speaks through (the ticket is minted on the web)
+    pub resolve_sender_usecase: Arc<ResolveTelegramSenderUseCase>,
+    pub bind_telegram_usecase: Arc<BindTelegramUseCase>,
+    pub unbind_telegram_usecase: Arc<UnbindTelegramUseCase>,
 
     // ECS actuation (desired state -> real RunTask/StopTask)
     pub start_bot_usecase: Arc<StartBotUseCase>,
