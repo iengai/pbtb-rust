@@ -105,4 +105,4 @@ Bucket: {project}-{env}-bot-configs
 
 ## Tenant isolation
 
-`user_id` is the tenant isolation boundary. Every DynamoDB row lives under `pk = "user_id#<user_id>"`, and every S3 object lives under the `{user_id}/` prefix, so a caller must only ever touch their own data. Derive the `user_id` from the authenticated Telegram user, never from client-supplied input, and validate it before any read or write. Treat any cross-`user_id` access as a privilege-escalation bug.
+`user_id` is the tenant isolation boundary. Every DynamoDB row lives under `pk = "user_id#<user_id>"`, and every S3 object lives under the `{user_id}/` prefix, so a caller must only ever touch their own data. Derive the `user_id` from the authenticated principal (the account a Telegram sender's `telegram` identity row resolves to, or a verified token's linked subject), never from client-supplied input, and validate it before any read or write. Treat any cross-`user_id` access as a privilege-escalation bug.

@@ -60,7 +60,9 @@ locals {
     "APP__ECS__REGION=${var.region}",
     "APP__ECS__CLUSTER_ARN=${local.ecs_cluster_arn}",
     "APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=${var.passivbot_container_name}",
-    "APP__TELEGRAM__ALLOWED_USER_IDS=${join(",", var.telegram_allowed_user_ids)}",
+    # Where the bot sends a sender it does not know: accounts are created and a
+    # Telegram id is bound on the web.
+    "APP__TELEGRAM__SITE_URL=${var.site_url}",
     # Not APP__-prefixed: the binary never reads it. telebot-deploy resolves each
     # family's revision into APP__ECS__TD_PASSIVBOT_BY_ENGINE at deploy time.
     "PBTB_PASSIVBOT_FAMILIES=${local.passivbot_families}",
@@ -69,9 +71,6 @@ locals {
     "TELEBOT_IMAGE=${local.telebot_image}",
     "TELEBOT_TOKEN_PARAM=${local.telebot_token_param}",
     "TELEBOT_MEMORY=${var.telebot_memory}",
-    # Where the "Link account" button points. Empty until the endpoint exists,
-    # which is what hides the button.
-    "APP__LINK__URL=${local.link_enabled == 1 ? "${trimsuffix(aws_lambda_function_url.mcp_http[0].function_url, "/")}/link" : ""}",
   ])
 }
 

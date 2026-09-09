@@ -246,8 +246,8 @@ change:
 - The endpoint starts requiring a token audienced for `mcp_http_url`. Register
   that URL as a resource with the authorization server, and register the two
   scopes, or every token arrives read-only.
-- Nobody can reach it until their identity is linked. That is what the bot's
-  **Link account** button is for; see below. The row can also be written by hand:
+- Nobody can reach it until their identity is linked. Signing up on the web
+  is what writes that link; until that route ships the row is written by hand:
 
 ```bash
 aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{
@@ -261,12 +261,23 @@ aws dynamodb put-item --table-name scalable-cluster-dev-bots --item '{
 Note the row is read with a strongly consistent get: deleting it revokes access
 on the next request, not eventually.
 
-## Linking an account
+## Identities
+
+Two providers map onto an account (`docs/data-model.md`): `workos`, the subject
+a token presents, written once at signup and never released; and `telegram`,
+the sender id the bot sees, bound from the web (`/start <token>` in the bot
+redeems a one-time ticket the console minted for the signed-in account) and
+released by `/unlink` in the bot or from the account page. One account holds at
+most one Telegram id, and a Telegram id names one account.
+
+### The bot-initiated link flow (retired)
 
 `src/interface/link/` is the only place this crate is an OAuth *client* rather
-than a resource server. The two roles share an authorization server and nothing
-else — one project, so the subject a link records is the subject a token later
-presents.
+than a resource server. It was the bot-initiated direction — a **Link account**
+button minting a ticket the browser redeemed — and the bot no longer offers it:
+accounts are created on the web, so the `workos` identity exists before any
+Telegram id does. The module stays until signup replaces it. What follows
+describes it as it still runs.
 
 🔴 **The browser never gets to say which account it is linking.** The tenant is
 established before the browser is involved and travels server-side the whole way:
@@ -289,10 +300,9 @@ callback row is keyed by the `state` and a cookie the redirect set together, so 
 `state` read out of a Referer header, a proxy log or a browser history addresses
 nothing on its own.
 
-**The button only answers in a private chat.** The URL behind it is a bearer
-credential for one account, and an inline button renders for everyone in the
-chat: in a group the first member to tap it would link their own identity to the
-sender's tenant. The allowlist filters who may drive the bot, not who can read
+**A bind link is honoured only in a private chat**: it is a bearer credential
+for one account, and in a group the first member to open it would bind their
+own Telegram id to the sender's account. Sender resolution decides who may drive the bot, not who can read
 what it posts.
 
 Binding is asymmetric: one Telegram account may hold several identities, but an
@@ -331,20 +341,16 @@ aws ssm put-parameter --overwrite --type SecureString \
 Then `telebot-deploy`, which is what puts `APP__LINK__URL` on the bot. Until it
 has one, the button says linking is not set up rather than producing a dead end.
 
-### Unlinking
+### Unbinding
 
-`/unlink` in the bot releases every identity linked to the caller. It is the way
-back from a link that went to the wrong place — the wrong account signed in, or
-someone else's link followed — and without one a link is permanent: the identity
-can never be claimed by whoever should hold it, because `ClaimedByAnother` is
-terminal.
+`/unlink` in the bot releases the caller's own Telegram id, so another can be
+bound from the web; the `workos` identity has no release path, because it is
+the account. Releasing is scoped to the caller's own links by a condition on
+the delete, so it is not a way to take an identity off someone else.
 
-Releasing is scoped to the caller's own links by a condition on the delete, so it
-is not a way to take an identity off someone else.
-
-A link written by hand needs both rows, or `/unlink` will not see it: the
+A link written by hand needs both rows, or the listing will not see it: the
 identity row above, and the tenant's own listing —
-`pk = user_id#<telegram id>`, `sk = identity#workos#<subject>`.
+`pk = user_id#<user id>`, `sk = identity#<provider>#<subject>`.
 
 Note that enabling the table's TTL is part of this and touches the live bots
 table. It is safe by inspection — no other row shape carries `expires_at` — but
