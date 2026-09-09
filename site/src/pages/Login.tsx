@@ -1,7 +1,7 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { configured } from "../auth/oauth";
-import { Google, Link } from "../components/icons";
+import { Google } from "../components/icons";
 import { Notice } from "../components/ui";
 import { LangSwitch, useT } from "../i18n/locale";
 
@@ -21,12 +21,6 @@ export function Login() {
           <h1>{t.auth.signIn}</h1>
           <div className="lead">{t.auth.lead}</div>
         </div>
-        {reason === "unlinked" && (
-          <Notice icon={<Link />}>
-            <div style={{ fontWeight: 600 }}>{t.auth.unlinkedTitle}</div>
-            <div style={{ marginTop: 4 }}>{t.auth.unlinkedBody()}</div>
-          </Notice>
-        )}
         {reason === "expired" && <Notice tone="info">{t.auth.expiredNotice}</Notice>}
         {reason === "scope" && <Notice tone="info">{t.auth.scopeNotice()}</Notice>}
         {!configured() && <Notice>{t.auth.notConfigured()}</Notice>}
@@ -34,7 +28,7 @@ export function Login() {
           <Google />
           {t.auth.continueWithGoogle}
         </button>
-        <div className="fine">{t.auth.invitationOnly}</div>
+        <div className="fine">{t.auth.newHere}</div>
       </div>
     </div>
   );

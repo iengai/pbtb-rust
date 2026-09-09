@@ -3,24 +3,29 @@ import { account as en } from "../en/account";
 export const account: typeof en = {
   title: "账户",
   loading: "账户",
-  identities: {
-    title: "已绑定的身份",
-    lead: () => (
-      <>
-        {"映射到这个 Telegram 账户的登录方式。解绑其中一个，所有登录都会退出。要绑定新的登录方式，请在 Telegram 机器人里点击 "}
-        <b>Link account</b>
-        {"（绑定账户），这里没有绑定入口。"}
-      </>
-    ),
-    none: "还没有绑定任何身份。",
-    via: (provider, current) => `Google 登录 · ${provider}${current ? " · 当前会话" : ""}`,
-    unlink: "解绑",
+  signIn: {
+    title: "登录方式",
+    lead: "创建这个账户时使用的 Google 账户。它就是账户的身份，不能更换或解绑。",
+    via: "Google 登录 · WorkOS",
   },
   telegram: {
-    title: "Telegram 账户",
-    userId: "用户 ID",
-    allowlist: "白名单",
-    allowed: "已允许",
+    title: "Telegram",
+    lead: "可以在机器人聊天里操作你机器人的 Telegram 账户。每个账户只能绑一个；要换绑先解绑。",
+    bound: "Telegram 用户 ID · 已绑定",
+    unbind: "解绑",
+    none: "还没有绑定 Telegram 账户。",
+    bind: "绑定 Telegram 账户",
+    ticketLead: (minutes) => `用你要绑定的 Telegram 账户打开下面的链接。链接只能用一次，${minutes} 分钟后失效。`,
+    open: "在 Telegram 中打开",
+    ifNotOpen: "如果链接打不开，把它携带的 /start 命令发给机器人。",
+    sendThis: "在与机器人的私聊里发送这条命令。",
+    done: "已完成 — 检查绑定",
+  },
+  summary: {
+    title: "账户",
+    id: "账户 ID",
+    level: "等级",
+    vip: (level) => `VIP ${level}`,
     bots: "机器人",
   },
   egress: {
@@ -35,8 +40,8 @@ export const account: typeof en = {
     noScopes: "无",
     signOut: "退出登录",
   },
-  unlinkAll: {
-    title: "解绑全部身份？",
-    body: "绑定到这个 Telegram 账户的所有登录方式都会被释放，包括你正在使用的这个。你会在这里退出登录，之后可以从 Telegram 机器人重新绑定。",
+  unbind: {
+    title: "解绑 Telegram？",
+    body: "已绑定的 Telegram 账户将不能再操作你的机器人。你的账户、机器人和这个登录方式都不受影响，之后可以再绑定另一个 Telegram 账户。",
   },
 };

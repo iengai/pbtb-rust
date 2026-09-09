@@ -11,10 +11,15 @@ import { ConfigDetail } from "./pages/ConfigDetail";
 import { Configs } from "./pages/Configs";
 import { Login } from "./pages/Login";
 import { Returns } from "./pages/Returns";
+import { Signup } from "./pages/Signup";
 
 function RequireAuth() {
-  const { session } = useAuth();
-  return session ? <Outlet /> : <Navigate to="/" replace />;
+  const { session, reason } = useAuth();
+  if (!session) return <Navigate to="/" replace />;
+  // Signed in, but the API knows no account for this subject: every page
+  // behind here would only be refused again.
+  if (reason === "unlinked") return <Navigate to="/signup" replace />;
+  return <Outlet />;
 }
 
 function NotFound() {
@@ -31,6 +36,7 @@ export function App() {
     <Routes>
       <Route path="/" element={<Login />} />
       <Route path="/callback" element={<Callback />} />
+      <Route path="/signup" element={<Signup />} />
       <Route element={<Layout />}>
         <Route path="/configs" element={<Configs />} />
         <Route path="/configs/:name" element={<ConfigDetail />} />

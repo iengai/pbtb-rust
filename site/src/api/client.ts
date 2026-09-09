@@ -24,13 +24,17 @@ export class ApiError extends Error {
   }
 }
 
-/** The server refused the token; the auth layer has already dropped it. */
+/**
+ * The server refused the token. For "expired" and "scope" the auth layer has
+ * dropped the session; for "unlinked" it keeps it, because the token is good
+ * and what is missing is an account — the signup page's job.
+ */
 export class AuthRefused extends Error {
   kind: "unlinked" | "expired" | "scope";
   constructor(kind: "unlinked" | "expired" | "scope") {
     super(
       kind === "unlinked"
-        ? "This account is not linked to a bot account yet."
+        ? "This Google account has no account here yet."
         : kind === "scope"
           ? "The session lacks a scope this action needs — sign in again."
           : "The session has expired — sign in again.",
@@ -89,7 +93,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   me: () => request<Me>("GET", "/me"),
-  unlinkIdentities: () => request<{ released: number }>("DELETE", "/me/identities"),
+  /** Create the account behind the signed-in subject, or find the one it has. */
+  signup: () =>
+    request<{ status: "created" | "existing"; user_id: string; vip_level: number }>("POST", "/signup"),
+  bindTicket: () =>
+    request<{ token: string; url: string | null; expires_in: number }>("POST", "/me/telegram/bind-ticket"),
+  unbindTelegram: () => request<{ released: number }>("DELETE", "/me/telegram"),
 
   listBots: () => request<{ bots: BotSummary[] }>("GET", "/bots"),
   getBot: (id: string) => request<BotDetail>("GET", `/bots/${encodeURIComponent(id)}`),

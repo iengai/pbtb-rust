@@ -38,7 +38,10 @@ export type BotDetail = BotSummary & {
 
 export type Me = {
   user_id: string;
+  vip_level: number;
   scopes: string[];
+  /** The bound Telegram user id, or null. */
+  telegram: string | null;
   identities: { provider: string; subject: string }[];
 };
 

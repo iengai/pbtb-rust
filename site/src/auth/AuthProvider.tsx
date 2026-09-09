@@ -15,7 +15,8 @@ type Auth = {
   reason: LoginReason | null;
   login: () => Promise<void>;
   signOut: () => void;
-  // The API refused the token: drop it and remember why for the login page.
+  // The API refused the token: remember why, and drop it unless the token is
+  // fine and only the account is missing.
   refuse: (reason: LoginReason) => void;
   adopt: (s: Session) => void;
   clearReason: () => void;
@@ -28,8 +29,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [reason, setReason] = useState<LoginReason | null>(() => takeLoginReason());
 
   const refuse = useCallback((why: LoginReason) => {
-    clearSession();
-    setSession(null);
+    // A verified token with no account keeps its session: the signup page
+    // needs exactly that token to create the account.
+    if (why !== "unlinked") {
+      clearSession();
+      setSession(null);
+    }
     setReason(why);
   }, []);
   const signOut = useCallback(() => refuse("signed_out"), [refuse]);
