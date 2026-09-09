@@ -130,6 +130,24 @@ resource "aws_lambda_function_url" "mcp_http" {
   authorization_type = "NONE"
 }
 
+# Since October 2025 a function URL needs `lambda:InvokeFunction` as well as
+# `lambda:InvokeFunctionUrl`; with only the latter AWS refuses at the edge and
+# the function's own bearer check never runs. Creating the URL grants the
+# InvokeFunctionUrl half on its own, so this is the missing one.
+#
+# The condition is what keeps `Principal = "*"` from meaning "anyone may call
+# this function": it allows only invocations that arrive through the URL, so a
+# direct Invoke API call from any AWS account matches nothing and is denied.
+resource "aws_lambda_permission" "mcp_http_invoke" {
+  count = local.mcp_http_enabled
+
+  statement_id             = "FunctionURLInvokeAllowPublicAccess"
+  action                   = "lambda:InvokeFunction"
+  function_name            = module.lambda_mcp_http[0].function_name
+  principal                = "*"
+  invoked_via_function_url = true
+}
+
 # The tools drive the same use cases telebot does, so they need the same access:
 # the bots table (including the CAS start lock), the config bucket, and RunTask.
 resource "aws_iam_role_policy" "mcp_http_app" {

@@ -105,3 +105,11 @@ passivbot_shadows = {
 log_retention_days = 30
 
 s3_bucket_name = "bot-configs"
+
+# --- MCP endpoint -----------------------------------------------------------
+# A Lambda Function URL open to the internet. With an issuer set there is no
+# shared bearer at all: every caller presents a token from AuthKit, and a
+# subject with no identity row is refused rather than given an account.
+# mcp_user_id lives in the gitignored allowlist tfvars.
+mcp_http_enabled = true
+mcp_issuer       = "https://growing-starlight-99-staging.authkit.app"
