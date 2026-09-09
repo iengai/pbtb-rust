@@ -87,6 +87,13 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 Config changes take effect on a bot's next start. A running task keeps the
 config and the binary it started with.
 
+Balance and unstuck are placeholders in telebot too (`$0.00` / "coming soon"),
+so the API mirrors them rather than inventing behaviour. A real balance has an
+infrastructure cost, not a code cost: the exchange keys are IP-whitelisted to
+the NAT's elastic IP, and `mcp_http` runs outside the VPC with no NAT egress,
+so it cannot reach the exchange at all. Doing it means moving the function into
+the VPC behind the NAT, which is its own piece of work.
+
 Errors: `400 {error}` for the caller's own input (including the validation
 errors a use case raises, verbatim), `404 {error:"not found"}`, `409 {status,…}`
 for a write the bot's state does not admit right now, and `500`/`503
