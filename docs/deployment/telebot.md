@@ -27,7 +27,7 @@ APP__S3__ENDPOINT_URL=https://s3.<region>.amazonaws.com
 APP__ECS__REGION=<region>
 APP__ECS__CLUSTER_ARN=arn:aws:ecs:<region>:<account>:cluster/scalable-cluster-dev-cluster
 APP__ECS__TD_PASSIVBOT_CONTAINER_NAME=<container-name>
-APP__TELEGRAM__ALLOWED_USER_IDS=<comma-separated telegram user ids>
+APP__TELEGRAM__SITE_URL=https://iengai.github.io/pbtb-rust/
 TELEBOT_REGION=<region>
 TELEBOT_ECR_REGISTRY=<account>.dkr.ecr.<region>.amazonaws.com
 TELEBOT_IMAGE=<telebot-repo-url>:<tag>
@@ -35,9 +35,9 @@ TELEBOT_TOKEN_PARAM=/scalable-cluster/dev/telebot/teloxide-token
 TELEBOT_MEMORY=<memory-cap>
 ```
 
-`APP__TELEGRAM__ALLOWED_USER_IDS` is the bot's only access control: an update from any other sender is answered with a refusal and dropped before routing, and the binary refuses to start on an empty list rather than serve everyone. Its value comes from `var.telegram_allowed_user_ids`, which lives in the gitignored `terraform/envs/dev/telebot-allowlist.auto.tfvars` (see the committed `.example`) — this repo is public and the ids identify real accounts. Terraform loads `*.auto.tfvars` on every apply including `-target`-scoped ones, so a host without that file fails the apply instead of publishing an empty allowlist.
+The bot has no allowlist. Every update's sender is resolved through the `identity#telegram#<id>` row to the account behind it ([docs/data-model.md](../data-model.md)); a sender no account has bound is pointed at `APP__TELEGRAM__SITE_URL` to sign up and bind, and a suspended account is turned away. Who may drive the bot is therefore a row, changed with `python scripts/ops/pbtb_ops.py user-create --telegram` / `user-status`, not a deploy. `var.telegram_allowed_user_ids` (the gitignored `telebot-allowlist.auto.tfvars`) now only feeds the MCP function.
 
-**Changing the allowlist is a two-step deploy, in this order:** apply `-target=aws_ssm_parameter.telebot_base_env` first, then run `telebot-deploy`. Reversed, the new image starts before `base-env` carries the variable, fails config load, and telebot goes offline until the apply lands.
+**Adding a base-env variable is a two-step deploy, in this order:** apply `-target=aws_ssm_parameter.telebot_base_env` first, then run `telebot-deploy`. Reversed, the new image starts before `base-env` carries the variable, fails config load, and telebot goes offline until the apply lands.
 
 The one value `telebot-deploy` appends at deploy time is `APP__ECS__TD_PASSIVBOT_BY_ENGINE` — the task-def per engine line and runtime as `7=<arn>,8=<arn>,8rs=<arn>`, each family (from base-env `PBTB_PASSIVBOT_FAMILIES`) resolved to a revision. A key is `<major>[rs]`: a bare major is the Python passivbot image of that line, `rs` the pb-runner image. A bot launches on the entry matching its config's `config_version` major and its own `runtime` attribute (`py` default; see RUNBOOK "pb-runner runtime").
 

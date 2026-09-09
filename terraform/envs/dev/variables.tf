@@ -128,18 +128,24 @@ variable "telebot_memory" {
 }
 
 variable "telegram_allowed_user_ids" {
-  description = "Telegram user ids allowed to use the telebot (APP__TELEGRAM__ALLOWED_USER_IDS). Real value lives in the gitignored telebot-allowlist.auto.tfvars; this repo is public and the ids identify real accounts."
+  description = "Telegram user ids the MCP function may act as (APP__TELEGRAM__ALLOWED_USER_IDS); mcp_user_id must be one of them. The bot itself resolves senders through the telegram identity rows and does not read this. Real value lives in the gitignored telebot-allowlist.auto.tfvars; this repo is public and the ids identify real accounts."
   type        = list(string)
 
   validation {
     condition     = length(var.telegram_allowed_user_ids) > 0
-    error_message = "telegram_allowed_user_ids must not be empty: telebot refuses to start without an allowlist, and an empty one would take the bot offline."
+    error_message = "telegram_allowed_user_ids must not be empty: the MCP function refuses to start with mcp_user_id off the list."
   }
 
   validation {
     condition     = alltrue([for id in var.telegram_allowed_user_ids : can(regex("^[0-9]+$", id))])
     error_message = "telegram_allowed_user_ids must be bare numeric Telegram user ids; base-env is parsed by grep+cut and docker --env-file, which do not shell-quote."
   }
+}
+
+variable "site_url" {
+  description = "The web console (APP__TELEGRAM__SITE_URL): where the bot sends a sender no account has bound."
+  type        = string
+  default     = "https://iengai.github.io/pbtb-rust/"
 }
 
 variable "github_repo" {
