@@ -9,6 +9,7 @@ pub mod exchange;
 pub mod identity;
 pub mod runtime;
 pub mod secret;
+pub mod user;
 
 pub use bot::{ApiKeyRepository, Bot, BotRepository};
 pub use botconfig::RiskLevel;
@@ -21,3 +22,4 @@ pub use identity::{
 };
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};
 pub use secret::{random_token, token_digest};
+pub use user::{User, UserRepository, UserStatus};
