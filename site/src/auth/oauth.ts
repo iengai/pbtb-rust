@@ -6,6 +6,12 @@
 // The issuer's access tokens last five minutes, so `offline_access` is asked
 // for and `accessToken()` renews the session from the refresh token; nothing
 // else in the app is aware that the token underneath it changes.
+//
+// The session lives in `localStorage`, so closing the tab does not end it. The
+// HttpOnly-cookie alternative needs a backend on the site's own domain to hold
+// the token: the API is on a Lambda Function URL, a different registrable
+// domain, whose cookies the browser would treat as third-party. What that
+// costs is in `site/README.md`.
 
 import { challengeFor, randomToken } from "./pkce";
 
@@ -18,9 +24,12 @@ export const SCOPES = "openid offline_access bots:read bots:write";
 
 export const REDIRECT_URI = `${window.location.origin}${import.meta.env.BASE_URL}callback`;
 
+// The flow state and the reason to show on the login page belong to one tab
+// and one round trip; the session is shared with every tab.
 const FLOW_KEY = "pbtb.oauth.flow";
-const TOKEN_KEY = "pbtb.token";
 const REASON_KEY = "pbtb.login.reason";
+const TOKEN_KEY = "pbtb.token";
+const RENEW_LOCK = "pbtb.token.renew";
 
 export type Session = {
   access_token: string;
@@ -143,16 +152,34 @@ let renewal: Promise<Session | null> | null = null;
 export async function accessToken(): Promise<string | null> {
   const s = loadSession();
   if (!s) return null;
-  if (s.expires_at - SKEW > Math.floor(Date.now() / 1000)) return s.access_token;
+  if (fresh(s)) return s.access_token;
   // One exchange at a time: a rotated refresh token used twice is spent, and
   // several requests can find the token expired in the same tick.
-  renewal ??= renew(s).finally(() => {
+  renewal ??= renew().finally(() => {
     renewal = null;
   });
   return (await renewal)?.access_token ?? null;
 }
 
-async function renew(s: Session): Promise<Session | null> {
+function fresh(s: Session): boolean {
+  return s.expires_at - SKEW > Math.floor(Date.now() / 1000);
+}
+
+// The session is shared with every open tab and WorkOS spends a refresh token
+// the moment it is used, so two tabs renewing at once would knock each other
+// out. The lock serializes them across tabs; the one that gets in second reads
+// the session again and finds it already renewed. Without `navigator.locks`
+// (Safari before 15.4) this is the single-tab behaviour it was.
+async function renew(): Promise<Session | null> {
+  const locks: LockManager | undefined = navigator.locks;
+  if (!locks) return exchange(loadSession());
+  return await locks.request(RENEW_LOCK, () => exchange(loadSession()));
+}
+
+async function exchange(s: Session | null): Promise<Session | null> {
+  // Gone means another tab signed out while this one waited for the lock.
+  if (!s) return null;
+  if (fresh(s)) return s;
   if (!s.refresh_token) {
     clearSession();
     return null;
@@ -190,14 +217,14 @@ export function decodeClaims(jwt: string): Claims {
 
 export function loadSession(): Session | null {
   try {
-    const raw = sessionStorage.getItem(TOKEN_KEY);
+    const raw = localStorage.getItem(TOKEN_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as Session;
     // An expired access token is not a dead session while a refresh token is
     // there to renew it.
     const spent = s.expires_at <= Math.floor(Date.now() / 1000) && !s.refresh_token;
     if (!s.access_token || spent) {
-      sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
       return null;
     }
     return s;
@@ -207,11 +234,11 @@ export function loadSession(): Session | null {
 }
 
 export function saveSession(s: Session): void {
-  sessionStorage.setItem(TOKEN_KEY, JSON.stringify(s));
+  localStorage.setItem(TOKEN_KEY, JSON.stringify(s));
 }
 
 export function clearSession(reason?: LoginReason): void {
-  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
   if (reason) sessionStorage.setItem(REASON_KEY, reason);
 }
 
