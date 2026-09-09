@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Project verification gate for pbtb-rust. Use it before committing, pushing, opening or updating a PR, or merging anything — and whenever the user asks "验证一下 / 跑一下测试 / 能合吗 / clippy 过了吗". It runs the exact gates this repo relies on (fmt on the host, check / clippy -D warnings / tests in the dev container with dynamodb-local, terraform fmt+validate when infra changed) with explicit exit guards, because `set -e` does not stop multi-step commands in this harness and a green-looking chain has merged red code here before.
+description: Verification gate for pbtb-rust. Use before committing, pushing, opening or updating a PR, or merging, and on 验证一下 / 跑一下测试 / 能合吗 / clippy 过了吗. Runs fmt on the host and check / clippy -D warnings / tests in the dev container, each with an explicit exit guard.
 ---
 
 # verify

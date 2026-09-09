@@ -1,20 +1,19 @@
 ---
 name: pbtb-ship
-description: Getting a change from a working tree onto main in this repo — branch naming, the verification gate, rebasing a stale or conflicting PR, pushing and opening/updating/merging the PR with the right GitHub account. Use it whenever the user asks to commit, push, 提交, 开 PR, 更新 PR, 合并, "修一下这个 PR", or hands you a PR that is CONFLICTING; and whenever you are about to run git push, gh pr create, or gh pr merge yourself. Getting the account or the rebase strategy wrong here has produced a 403, a mangled commit subject, and a merge with a red clippy gate — this skill prevents all three.
+description: Get a change from the working tree onto main: branch naming, the verify gate, rebasing a stale or conflicting PR, push / PR / merge with the right GitHub account. Use on commit, push, open or update a PR, merge, a CONFLICTING PR, and before running git push, gh pr create or gh pr merge yourself.
 ---
 
 # pbtb ship
 
 ## Accounts (the #1 source of friction)
 
-- Two GitHub accounts are logged in on this machine. Only the **repo owner
-  account** (`gh repo view --json owner -q .owner.login`; here `iengai`) has
-  push rights and the `workflow` scope; the other is the default and gets a 403
-  on push and a "workflow scope" error on dispatch.
+- Two GitHub accounts are logged in on this machine. The **repo owner
+  account** (`gh repo view --json owner -q .owner.login`; here `iengai`) is the
+  default and the only one with push rights and the `workflow` scope; the other
+  gets a 403 on push and a "workflow scope" error on dispatch.
 - Before any `git push`, `gh pr create/merge/comment`, `gh workflow run`,
-  `gh secret set`: `gh auth switch --user <owner>`. **Switch back** to the
-  default account afterwards (`gh auth status` shows which is active). Keep
-  both in one command so the switch cannot be forgotten.
+  `gh secret set`: confirm with `gh auth status` that `iengai` is active. If it
+  is not, `gh auth switch --user iengai` and stay there; do not switch back.
 - Never combine an account switch with a parallel background command that also
   switches; the active account is process-global.
 
@@ -22,9 +21,11 @@ description: Getting a change from a working tree onto main in this repo — bra
 
 - Branch names follow AGENTS.md: `<type>/<kebab-case>` (`feat/…`, `fix/…`,
   `refactor/…`, `chore/…`, `infra/…`). Rename an auto-created `claude/…` branch
-  before pushing.
-- Commit subjects: `type(scope): imperative summary`, body explains *why* and
-  the decision, ends with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+  before pushing, and before the PR exists: renaming the branch behind an open
+  PR closes that PR.
+- Commit subjects: `<type>: <summary>` (lowercase imperative, ≤72 chars, the
+  types in docs/conventions.md); the body explains *why* and the decision and
+  ends with the `Co-Authored-By:` line the session instructions give you.
 - Feed multi-line messages with `git commit -F - <<'EOF' … EOF` — NOT the
   PowerShell `@'…'@` form, which in bash produces a literal `@` subject.
 - One logical change per commit; a rollout that touches domain, wiring, and
@@ -33,8 +34,12 @@ description: Getting a change from a working tree onto main in this repo — bra
 ## The gate is not optional
 
 Run the project `verify` skill (`bash .claude/skills/verify/scripts/gate.sh`)
-and quote its `GATE …` lines in the PR. Do not push a red gate "to fix in CI":
-this repo has no clippy/test CI on PRs, so a red gate merges red.
+and quote its `GATE …` lines in the PR. `verify.yml` runs the same script on
+every PR, so a green local gate is enough to merge without waiting for CI —
+except when the change touches a workflow, `rust-toolchain.toml`, a Dockerfile,
+or `tests/common/`: the DynamoDB fixture has a testcontainers branch that only
+CI exercises, and PR #49 was green locally while 13 tests failed there. Never
+push a red gate "to fix in CI".
 
 ## Rebasing a stale PR
 

@@ -84,6 +84,27 @@ by `find_by_user_id` (`is_identity_row`).
 Operator commands for these rows: `python scripts/ops/pbtb_ops.py user-show |
 user-create | set-vip | user-status`.
 
+### Row shapes and the readers
+
+Two readers walk rows without a sort-key condition: `find_by_user_id` queries
+a whole tenant partition, and `find_all` scans the table for the daily
+return-curve collector. Both tell bot rows from the rest by shape: a bot row's
+`sk` is the bare `bot_id`, which must not contain `#`, and every other row in
+the partition carries a `<kind>#` prefix (`ecs_task_metadata#`,
+`config_switch#`, `identity#`) that the predicates in
+`src/infra/botrepository.rs` (`is_runtime_row`, `is_config_switch_row`,
+`is_identity_row`) skip. `find_all` additionally ignores any `pk` that is not a
+`user_id#` partition.
+
+A shape that lands under `user_id#` without being registered there reaches
+`parse_bot_row`, fails as `CorruptRecord`, and takes the whole result with it:
+the tenant's bot list, every launch, and the restart lambda for that tenant via
+`find_by_user_id`; every tenant's daily snapshot via `find_all`. The rows have
+no TTL, so the failure lasts until the reader is fixed. When adding a shape,
+first write the test that the old readers still work with the new row present
+(`tests/identity_link_test.rs` has two), watch it fail, register the shape,
+then write the row.
+
 ## S3 (configurations, templates, API keys)
 
 A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `predefined/` and per-bot data under `{user_id}/{bot_id}/`.

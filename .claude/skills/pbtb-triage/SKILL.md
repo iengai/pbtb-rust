@@ -1,6 +1,6 @@
 ---
 name: pbtb-triage
-description: Autonomous debugging for this trading system (telebot, passivbot ECS bots, the restart and collector lambdas, CI builds, the return-curve site). Use this the moment anything in the deployment misbehaves or the user reports a problem — a Telegram error with a "ref:" id, a bot that is not running or keeps restarting, a failed GitHub Actions / CodeBuild run, a lambda that stopped restarting bots, a stale website — even if they only paste a screenshot, a log line, or say "看一下 / 查一下 / 报错了". Use it BEFORE proposing any fix; it encodes where every component lives and the root causes that have already bitten this project.
+description: Debug this trading system before proposing any fix: a Telegram error with a "ref:" id, a bot not running or restarting in a loop, a red GitHub Actions or CodeBuild run, the restart lambda not restarting bots, a stale return-curve site — even from only a screenshot or a log line.
 ---
 
 # pbtb triage
@@ -17,8 +17,9 @@ both so you spend your time on the actual cause.
    them, and which quirks will otherwise cost you 20 minutes (telebot is NOT in
    ECS; the ECS host is NOT SSM-managed; Git Bash mangles `/aws/...` paths).
 2. **Get the primary evidence** — the line with the real cause, not the symptom.
-   A Telegram "ref: xxxxxxxx" is a redaction id; the matching `journalctl` line
-   on the NAT host holds the unredacted error. Use the scripts, not ad-hoc CLI:
+   A Telegram "ref: xxxxxxxx" is a redaction id; the matching line in
+   `docker logs telebot` on the NAT host holds the unredacted error (journald
+   carries only the wrapper's output). Use the scripts, not ad-hoc CLI:
    ```
    python scripts/ops/pbtb_ops.py telebot-logs --grep <ref>
    python scripts/ops/pbtb_ops.py lambda-logs task-state --pattern "?ERROR ?panic"
