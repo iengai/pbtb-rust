@@ -4,7 +4,7 @@ Persistent state lives in two AWS stores: a single DynamoDB table for bot metada
 
 ## DynamoDB (single table)
 
-One table holds two row kinds under a shared partition key `pk = "user_id#<user_id>"`. The sort key (`sk`) distinguishes the two kinds.
+One table holds the tenant's rows under a shared partition key `pk = "user_id#<user_id>"` (the sort key `sk` distinguishes the kinds), plus the account, identity and link-ticket rows under partition prefixes of their own.
 
 ```
 Bot row      pk = "user_id#<user_id>", sk = "<bot_id>"
@@ -45,6 +45,44 @@ The observed `BotRuntime` for a bot — whether the ECS task is actually running
 | `task_id` | ECS task identifier |
 | `task_updated_at` | Timestamp of the last observed update |
 | `task_current_version` | Version counter for the runtime row |
+
+### Account row
+
+The account behind a tenant: whether it exists, what level it holds, and
+whether it is allowed in. Under its own partition prefix (`user#`, not the
+tenant's `user_id#`), so the bot readers never meet it.
+
+```
+Account row  pk = "user#<user_id>", sk = "profile"
+             Attributes: vip_level (0..9), status (active | suspended),
+                         email, created_at, updated_at
+```
+
+`user_id` is opaque and minted here (32 hex chars for new accounts); it is
+neither a Telegram id nor an identity provider's subject, so a change of
+provider or of WorkOS environment touches identity rows only, never the
+tenant's data. Accounts that predate the row keep the id their data already
+lives under.
+
+### Identity rows
+
+An external identity mapped onto an account. Two providers: `workos` (the
+subject a token presents; the primary identity, written at signup and never
+released) and `telegram` (the sender id the bot sees; can be released and
+bound again).
+
+```
+Identity     pk = "identity#<provider>#<subject>", sk = "profile"
+             Attributes: user_id, email, linked_at
+Listing      pk = "user_id#<user_id>", sk = "identity#<provider>#<subject>"
+```
+
+An identity names exactly one account (conditional write); one account may
+hold several. The listing row sits in the tenant's partition and is skipped
+by `find_by_user_id` (`is_identity_row`).
+
+Operator commands for these rows: `python scripts/ops/pbtb_ops.py user-show |
+user-create | set-vip | user-status`.
 
 ## S3 (configurations, templates, API keys)
 
