@@ -59,17 +59,35 @@ workflow sets them inline.
 OAuth 2.1 authorization code + PKCE (S256, WebCrypto) as a public client —
 hand-rolled in `src/auth/oauth.ts`; the AuthKit JS SDK is not used because it
 talks to a different endpoint and mints a token for a different audience.
-`state` and the code verifier live in `sessionStorage` for the round trip; the
-access token lives in memory + `sessionStorage` and is dropped on the first
-401. It is only good for five minutes (`accessTokenExpiry` on the AuthKit
+`state` and the code verifier live in `sessionStorage` for the round trip —
+they belong to one tab and one redirect. A 403 without an `error=` code (a
+verified subject nobody has linked from the Telegram bot) shows the "not
+linked" login variant; a 403 with `insufficient_scope` asks for a fresh
+sign-in with both scopes.
+
+### The session
+
+An access token is good for five minutes (`accessTokenExpiry` on the AuthKit
 application), so the login asks for `offline_access` too and the API client
 renews the token from the refresh token whenever it is within a minute of
-expiring — one exchange at a time, since WorkOS rotates the refresh token on
-every use. Signing out, a revoked session or a spent refresh token is what
-ends the session, not the clock. A 403 without an `error=` code (a verified
-subject nobody has linked from the Telegram bot) shows the "not linked" login
-variant; a 403 with
-`insufficient_scope` asks for a fresh sign-in with both scopes.
+expiring. Signing out, a revoked session, or a spent refresh token is what
+ends a session — not the clock, and not closing the tab: it is kept in
+`localStorage`. WorkOS rotates the refresh token on every use, so only one
+exchange may run at a time; `navigator.locks` serializes the tabs, and the tab
+that gets in second re-reads the session and finds it already renewed.
+
+The stricter answer — an HttpOnly, SameSite cookie the JavaScript cannot read
+— needs a backend on the site's own domain to hold the token and proxy the
+API. The API is a Lambda Function URL on `amazonaws.com`, so its cookies are
+third-party to `github.io` and Safari and Firefox drop them outright; the
+alternative is not a cookie flag but the custom domain + CloudFront migration
+described under **Deploy**, plus a Lambda that keeps the refresh token instead
+of verifying a JWT. What is left to lose to XSS is bounded by what the token
+is: five minutes, `aud` fixed to this API, `bots:read`/`bots:write`, and a
+refresh token that rotates — and an XSS on this origin could call the API as
+the user with or without a readable token. The bundle carries no third-party
+script, and the three `innerHTML` sites are the charts, which interpolate
+numbers and `escapeXml` the one label that comes from data.
 
 `/configs` and `/configs/:name` render without a token (static data). Every
 other page requires one; `/bots/:id` polls the API every 15 s.
