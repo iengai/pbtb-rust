@@ -23,13 +23,13 @@ mod update_risklevel;
 
 pub use add_bot::{AddBotUseCase, AddOutcome};
 pub use apply_template::ApplyTemplateUseCase;
-pub use delete_bot::DeleteBotUseCase;
+pub use delete_bot::{DeleteBotUseCase, DeleteOutcome};
 pub use engine_routing::{
     EngineRoutedResolver, EngineTaskDefinitions, LaunchTarget, LaunchTargetResolver,
 };
 pub use get_bot_config::GetBotConfigUseCase;
 pub use get_bot_runtime::GetBotRuntimeUseCase;
-pub use get_template::GetTemplateUseCase;
+pub use get_template::{GetTemplateUseCase, TemplatePreview};
 pub use issue_link_ticket::{IssueLinkTicketUseCase, PURPOSE_START};
 pub use list_bots::ListBotsUseCase;
 pub use list_identities::ListIdentitiesUseCase;

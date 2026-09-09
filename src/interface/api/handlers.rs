@@ -11,10 +11,11 @@ use serde_json::{Value, json};
 use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
 use crate::domain::botconfig::BotConfig;
-use crate::domain::configtemplate::ConfigTemplate;
 use crate::domain::engine::Runtime;
 use crate::interface::mcp::auth::Principal;
-use crate::usecase::{AddOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
+use crate::usecase::{
+    AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome, TemplatePreview,
+};
 
 pub(super) struct Handlers<'a> {
     pub deps: &'a Deps,
@@ -239,23 +240,26 @@ impl Handlers<'_> {
     /// Delete a bot, its config and its stored exchange keys. Not reversible.
     pub async fn delete_bot(&self, bot_id: &str, body: ConfirmBody) -> ApiResult {
         require(self.principal, WRITE)?;
-        if body.confirm != bot_id {
-            return Err(ApiError::BadRequest(format!(
-                "confirm must equal the bot id ({bot_id:?}) to delete it"
-            )));
-        }
         self.find_bot(bot_id).await?;
-        self.deps
+        let outcome = self
+            .deps
             .mcp
             .delete_bot_usecase
-            .execute(self.user_id(), bot_id)
+            .execute(self.user_id(), bot_id, &body.confirm)
             .await
             .map_err(|e| {
                 self.audit("delete_bot", bot_id, "error");
                 ApiError::from_domain("deleting the bot", e)
             })?;
-        self.audit("delete_bot", bot_id, "deleted");
-        Self::ok(json!({ "status": "deleted", "bot_id": bot_id }))
+        match outcome {
+            DeleteOutcome::ConfirmMismatch => Err(ApiError::BadRequest(format!(
+                "confirm must equal the bot id ({bot_id:?}) to delete it"
+            ))),
+            DeleteOutcome::Deleted => {
+                self.audit("delete_bot", bot_id, "deleted");
+                Self::ok(json!({ "status": "deleted", "bot_id": bot_id }))
+            }
+        }
     }
 
     /// Turn a bot on. Idempotent by construction: the launch claims the
@@ -453,14 +457,14 @@ impl Handlers<'_> {
     /// anywhere.
     pub async fn get_template(&self, name: &str) -> ApiResult {
         require(self.principal, READ)?;
-        let template = self
+        let preview = self
             .deps
             .get_template_usecase
             .execute(name)
             .await
             .map_err(|e| ApiError::from_domain("reading the template", e))?
             .ok_or(ApiError::NotFound)?;
-        Self::ok(describe_template(&template))
+        Self::ok(describe_template(&preview))
     }
 
     // ---------------------------------------------------------------- helpers
@@ -546,19 +550,15 @@ fn describe_config(config: &BotConfig) -> Value {
 }
 
 /// A template described through the same accessors a bot's config is, since a
-/// template is a config before any bot has claimed it.
-fn describe_template(template: &ConfigTemplate) -> Value {
-    // The accessors live on `BotConfig`; the tenant and bot ids on this
-    // throwaway are never read.
-    let described = BotConfig::from_template(String::new(), String::new(), template, 0)
-        .ok()
-        .map(|config| describe_config(&config));
+/// template is a config before any bot has claimed it. Risk and leverage are
+/// left out: they are per-bot settings, not properties of the template.
+fn describe_template(preview: &TemplatePreview) -> Value {
     let mut body = json!({
-        "name": template.name,
-        "version": template.version,
-        "description": template.description,
+        "name": preview.template.name,
+        "version": preview.template.version,
+        "description": preview.template.description,
     });
-    if let Some(Value::Object(fields)) = described {
+    if let Value::Object(fields) = describe_config(&preview.config) {
         for (key, value) in fields {
             if key != "updated_at" && key != "risk" && key != "leverage" {
                 body[key] = value;

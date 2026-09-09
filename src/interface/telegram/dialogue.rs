@@ -788,7 +788,11 @@ async fn confirm_delete(
                         .map(|user| user.id.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
 
-                    match deps.delete_bot_usecase.execute(&user_id, &bot_id).await {
+                    match deps
+                        .delete_bot_usecase
+                        .execute(&user_id, &bot_id, &bot_id)
+                        .await
+                    {
                         Ok(_) => {
                             // Clear the selected bot from context
                             bot_context

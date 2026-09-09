@@ -1,8 +1,20 @@
+use crate::domain::botconfig::BotConfig;
 use crate::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
 use crate::domain::error::DomainError;
 use std::sync::Arc;
 
-/// Read one predefined template by name, as stored.
+/// A template as stored, and the config a bot would hold after applying it.
+///
+/// The config belongs to no tenant and no bot: its ids are empty and its
+/// timestamp zero. It exists so a caller can describe the template — sides,
+/// coins, strategies — through the same accessors a bot's config offers,
+/// without a bot to apply it to.
+pub struct TemplatePreview {
+    pub template: ConfigTemplate,
+    pub config: BotConfig,
+}
+
+/// Read one predefined template by name and derive its preview.
 pub struct GetTemplateUseCase {
     template_repository: Arc<dyn ConfigTemplateRepository>,
 }
@@ -19,10 +31,12 @@ impl GetTemplateUseCase {
     pub async fn execute(
         &self,
         template_name: &str,
-    ) -> Result<Option<ConfigTemplate>, DomainError> {
+    ) -> Result<Option<TemplatePreview>, DomainError> {
         if !self.template_repository.exists(template_name).await? {
             return Ok(None);
         }
-        self.template_repository.get(template_name).await.map(Some)
+        let template = self.template_repository.get(template_name).await?;
+        let config = BotConfig::from_template(String::new(), String::new(), &template, 0)?;
+        Ok(Some(TemplatePreview { template, config }))
     }
 }
