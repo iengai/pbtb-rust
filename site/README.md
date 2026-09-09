@@ -61,8 +61,14 @@ hand-rolled in `src/auth/oauth.ts`; the AuthKit JS SDK is not used because it
 talks to a different endpoint and mints a token for a different audience.
 `state` and the code verifier live in `sessionStorage` for the round trip; the
 access token lives in memory + `sessionStorage` and is dropped on the first
-401. A 403 without an `error=` code (a verified subject nobody has linked from
-the Telegram bot) shows the "not linked" login variant; a 403 with
+401. It is only good for five minutes (`accessTokenExpiry` on the AuthKit
+application), so the login asks for `offline_access` too and the API client
+renews the token from the refresh token whenever it is within a minute of
+expiring — one exchange at a time, since WorkOS rotates the refresh token on
+every use. Signing out, a revoked session or a spent refresh token is what
+ends the session, not the clock. A 403 without an `error=` code (a verified
+subject nobody has linked from the Telegram bot) shows the "not linked" login
+variant; a 403 with
 `insufficient_scope` asks for a fresh sign-in with both scopes.
 
 `/configs` and `/configs/:name` render without a token (static data). Every
@@ -82,18 +88,45 @@ links through the SPA router.
   `capital_resets[ts]`). The id is an opaque hash; the console finds a bot's
   chart by matching the API's bot `name` against `index.json`.
 - `templates/index.json` — `[{name, engine, exchange, coins, start, end,
-  description, metrics}]`; `templates/<name>.json` — the same plus
-  `strategies[{name, side}]` and `points[{ts, equity, balance}]` normalized to
-  100 at the backtest start. `metrics` follow passivbot's `analysis.json`
-  (`gain` is the final/starting ratio, `adg*` and `drawdown_worst` are
-  fractions). The description is the author's free text and is rendered
-  verbatim. **Never put strategy parameters in these files.**
+  metrics}]`; `templates/<name>.json` — the same plus `starting_balance`,
+  `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
+  100 at the backtest start, and the `source_sha` / `generated_at` the
+  pipeline uses to skip unchanged templates. `metrics` follow passivbot's
+  `analysis.json` (`gain` is the final/starting ratio, `adg*` and
+  `drawdown_worst` are fractions). **Never put strategy parameters in these
+  files**, and that includes the template's `description`: the authors' notes
+  name leverage, position counts and exposure caps, so the description is
+  deliberately absent here and reaches a signed-in tenant only through
+  `GET /api/v1/templates/{name}`.
 
-The two template files in the repo are placeholder fixtures until the backtest
-pipeline (`docs/web-frontend-plan.md` §3) publishes the real set.
+`templates/` is generated, committed output of `scripts/backtest_templates.py`
+(its docstring has the flags). The script syncs the `predefined/` templates
+from S3 and reruns each one through the passivbot engine its name selects
+(`-v810` → the `passivbot` checkout at v8.1.0, everything else → the `pb-v712`
+worktree at v7.12.0, both siblings of this repo with their own venv). A
+template is reproducible from its own file — window, coins and exchange are
+inside it — which is why the pipeline reruns rather than mining passivbot's
+`backtests/` directory, whose runs are named by pid and timestamp with no link
+back to a config. It is CPU-bound and runs on a developer machine; a template
+whose artifact already carries the same `source_sha` and engine is skipped, so
+a rerun after adding or editing templates only costs the changed ones. Commit
+the resulting JSON.
+
+Four of the `xrp` templates come close to liquidation inside their
+window (`backtest_completion_ratio < 1`); the pages badge them rather than
+headline the pre-wipe gain.
 
 ## Deploy
 
 `.github/workflows/pages-publish.yml`: sync S3 → `site/data/`, `npm ci && npm
 run build` in `site/`, upload `site/dist`. Daily, or `gh workflow run
 pages-publish.yml --ref main`.
+
+GitHub Pages is enough: the app is static, the OAuth redirect URI is just a
+path on the Pages origin, the API sits on the Lambda with CORS, and the only
+values in the bundle are public identifiers. The repository being public does
+not matter for the same reason. What would justify moving is a private site
+(pointless while the API does the authentication), a custom domain (Pages
+supports one), or server rendering (nothing needs it). If one of those ever
+applies, an S3 + CloudFront origin in the same Terraform is the replacement;
+the front end does not change.
