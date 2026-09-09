@@ -87,6 +87,21 @@ passivbot_engines = {
 passivbot_shadows = {
   xxbot = { user_id = "5351347639", bot_id = "516903813" }
 
+  # The cleanest parity measurement available. abot's config and paper2's are
+  # byte-identical apart from `live.user` -- 232 keys, one difference -- and
+  # paper2 is on the Rust runtime while abot is still Python. That looks like
+  # a runtime A/B and is not one: paper2 holds ~42 USDT against abot's ~264,
+  # so its orders sit against the exchange minimum, and over the thirteen days
+  # when BOTH were on Python paper2 returned 0.13%/day against abot's 0.62%.
+  # Five-to-one, before any runtime changed. PnL between those two accounts
+  # cannot separate the runtime from the account size.
+  #
+  # A shadow on abot removes the confound entirely: same account, same moment,
+  # same orders on the book, and the measurement is the reconciliation itself
+  # (`cancels=0 creates=0 matched=N`) rather than a PnL difference that needs
+  # weeks to clear its own noise.
+  abot = { user_id = "5351347639", bot_id = "415196485" }
+
   # NOT a parity shadow: DollarDigger (436713564) trades a v7.12.0 config, so
   # pb-runner cannot run its config at all. This one runs the v8.1.0 migration
   # of the same strategy (predefined/bybit-cap300-iter1-winner-v810.json --
