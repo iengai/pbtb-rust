@@ -11,6 +11,13 @@ prints one line per gate. Pass `--host` to force the host toolchain (fast
 signal when Docker Desktop is down) or `--container` to insist on the reference
 toolchain.
 
+The container mounts the main checkout at `/app`. From a worktree under
+`.claude/worktrees/<name>` the script runs cargo in
+`/app/.claude/worktrees/<name>` with `CARGO_TARGET_DIR=/app/target/worktrees/<name>`,
+so parallel sessions never overwrite each other's test binaries (the first run
+in a worktree is a cold build). A checkout outside the main root is not visible
+in the container; the script refuses rather than verify the main tree by mistake.
+
 ## What "verified" means here
 
 | Gate | Why it is required |
