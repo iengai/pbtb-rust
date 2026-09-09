@@ -151,9 +151,9 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 
 `templates/` is generated, committed output of `scripts/backtest_templates.py`
 (its docstring has the flags). The script syncs the `predefined/` templates
-from S3 and reruns each one through the passivbot engine its name selects
-(`-v810` → the `passivbot` checkout at v8.1.0, everything else → the `pb-v712`
-worktree at v7.12.0, both siblings of this repo with their own venv). A
+from S3 and reruns each one through the passivbot engine its `config_version`
+selects (v8 → the `passivbot` checkout at v8.1.0, v7 → the `pb-v712` worktree
+at v7.12.0, both siblings of this repo with their own venv). A
 template is reproducible from its own file — window, coins and exchange are
 inside it — which is why the pipeline reruns rather than mining passivbot's
 `backtests/` directory, whose runs are named by pid and timestamp with no link
@@ -162,9 +162,9 @@ whose artifact already carries the same `source_sha` and engine is skipped, so
 a rerun after adding or editing templates only costs the changed ones. Commit
 the resulting JSON.
 
-Four of the `xrp` templates come close to liquidation inside their
-window (`backtest_completion_ratio < 1`); the pages badge them rather than
-headline the pre-wipe gain.
+The `extreme`-profile templates come close to liquidation inside their window
+(`backtest_completion_ratio < 1`); the pages badge them rather than headline the
+pre-wipe gain.
 
 ## Deploy
 

@@ -157,10 +157,16 @@ class Template:
 
 
 def detect_engine(name: str, config: dict) -> str:
+    """The engine line to backtest a template on: its ``config_version``'s
+    major, or — on one carrying none — the ``-v7``/``-v8`` field of its id,
+    past the letter that disambiguates siblings."""
     version = str(config.get("config_version") or "")
-    if name.endswith("-v810") or version.startswith("v8"):
-        return "v8"
-    return "v7"
+    if version:
+        return "v8" if version.startswith("v8") else "v7"
+    fields = name.split("-")
+    if len(fields[-1]) == 1:
+        fields.pop()
+    return "v8" if fields[-1] == "v8" else "v7"
 
 
 def sync_templates(templates_dir: Path, profile: str) -> None:
@@ -329,6 +335,10 @@ def build_artifact(template: Template, result_dir: Path) -> dict:
     analysis = json.loads((result_dir / "analysis.json").read_text(encoding="utf-8"))
     return {
         "name": template.name,
+        # What a reader is shown the template as, against the name that
+        # addresses it. Absent on a template published before titles.
+        "title": template.pbtb.get("title"),
+        "title_zh": template.pbtb.get("title_zh"),
         "engine": ENGINE_VERSION[template.engine],
         "exchange": template.exchange,
         "coins": template.coins,
@@ -353,7 +363,9 @@ def write_json(path: Path, data) -> None:
 
 def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
-    index_fields = ("name", "engine", "exchange", "coins", "start", "end", "metrics")
+    index_fields = (
+        "name", "title", "title_zh", "engine", "exchange", "coins", "start", "end", "metrics",
+    )
     rows = []
     for path in sorted(OUTPUT_DIR.glob("*.json")):
         if path.name == "index.json":

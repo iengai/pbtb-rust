@@ -3,11 +3,17 @@
 
 A raw passivbot optimizer/strategy config (e.g. the files under
 `E:/projects/passivbot/configs`) is almost ready to use as one of our
-predefined strategies. The ONLY things our platform adds on top of the stock
-passivbot schema are these top-level marker properties:
+predefined strategies. The ONLY thing our platform adds on top of the stock
+passivbot schema is one top-level `pbtb` object:
 
-  * `strategy_name` (string) — the strategy's stem, shown in the Telegram State
-    view and used to attribute a bot's strategy.
+  * `name` (string) — the template's id, and its S3 key. Fixed for the life of
+    the template: config-switch history rows and a bot's stored config quote it.
+    The grammar is `bybit-<universe>-<capital>-<profile>-<engine line>`, e.g.
+    `bybit-mix10-1000u-balanced-v8` (see scripts/rename_predefined.py).
+  * `title` / `title_zh` (string) — what a reader is shown the template as, in
+    each language the console renders. Wording, not identity: rewrite either in
+    place without moving the object.
+  * `exchange` (string) — whose market data the strategy was tuned on.
   * `strategies` (array of {name, side}) — every side this strategy drives. A
     single-direction strategy lists one entry; a dual-sided one lists both
     `long` and `short`. A combined bot ends up with one entry per side, possibly
@@ -25,8 +31,9 @@ Usage:
   # Preview what would be written (no upload):
   python scripts/transfer_config_to_s3.py --config E:/projects/passivbot/configs/xrp-cus.json
 
-  # Dual-sided strategy (default), upload to predefined/<name>.json:
-  python scripts/transfer_config_to_s3.py --config <raw.json> --upload --profile dev
+  # Dual-sided strategy (default), upload to predefined/<id>.json:
+  python scripts/transfer_config_to_s3.py --config <raw.json> --name bybit-xrp-100u-steady-v8 \
+      --title "XRP only · Steady · $100" --title-zh "XRP 单币 · 稳健 · $100" --upload --profile dev
 
   # Single-direction strategy:
   python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
@@ -34,7 +41,7 @@ Usage:
   # With a strategy explanation:
   python scripts/transfer_config_to_s3.py --config <raw.json> --description "XRP grid, low leverage" --upload --profile dev
 
-The strategy name defaults to the input file's stem; override with --name.
+The id defaults to the input file's stem; override with --name.
 """
 
 import argparse
@@ -49,8 +56,16 @@ DEFAULT_PREFIX = "predefined/"
 VALID_SIDES = ("long", "short")
 
 
-def transform(raw: dict, name: str, sides: list[str], description: str | None = None) -> dict:
-    """Return a copy of `raw` with our marker properties injected.
+def transform(
+    raw: dict,
+    name: str,
+    sides: list[str],
+    description: str | None = None,
+    title: str | None = None,
+    title_zh: str | None = None,
+    exchange: str | None = None,
+) -> dict:
+    """Return a copy of `raw` with our `pbtb` block injected.
 
     Pure function — this is the documented transfer contract. It does not mutate
     the input and touches nothing else in the config.
@@ -64,10 +79,15 @@ def transform(raw: dict, name: str, sides: list[str], description: str | None = 
             raise ValueError(f"invalid side {side!r}; expected one of {VALID_SIDES}")
 
     out = dict(raw)
-    out["strategy_name"] = name
-    out["strategies"] = [{"name": name, "side": side} for side in sides]
-    if description:
-        out["description"] = description
+    out["pbtb"] = {
+        "name": name,
+        "title": title or name,
+        "title_zh": title_zh or title or name,
+        "exchange": exchange
+        or next(iter((raw.get("backtest") or {}).get("exchanges") or []), None),
+        "description": description,
+        "strategies": [{"name": name, "side": side} for side in sides],
+    }
     return out
 
 
@@ -76,11 +96,17 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", required=True, help="path to the raw passivbot config json")
     parser.add_argument("--name", default=None,
-                        help="strategy name (default: input file stem)")
+                        help="template id, and its S3 key (default: input file stem)")
+    parser.add_argument("--title", default=None,
+                        help="what a reader is shown the template as (default: the id)")
+    parser.add_argument("--title-zh", dest="title_zh", default=None,
+                        help="the same in Chinese (default: --title)")
+    parser.add_argument("--exchange", default=None,
+                        help="market data the strategy was tuned on (default: the backtest's)")
     parser.add_argument("--sides", default="long,short",
                         help="comma-separated sides this strategy drives (default: long,short)")
     parser.add_argument("--description", default=None,
-                        help="free-text strategy explanation, stored as top-level `description`")
+                        help="free-text strategy explanation, stored as `pbtb.description`")
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     parser.add_argument("--prefix", default=DEFAULT_PREFIX)
     parser.add_argument("--profile", default=None, help="AWS CLI profile for the upload")
@@ -97,7 +123,9 @@ def main() -> int:
         raw = json.load(fh)
 
     try:
-        result = transform(raw, name, sides, args.description)
+        result = transform(
+            raw, name, sides, args.description, args.title, args.title_zh, args.exchange
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -106,10 +134,12 @@ def main() -> int:
     key = f"{args.prefix}{name}.json"
     target = f"s3://{args.bucket}/{key}"
 
-    print(f"strategy_name = {result['strategy_name']}")
-    print(f"strategies    = {json.dumps(result['strategies'])}")
-    print(f"description   = {result.get('description', '—')}")
-    print(f"target        = {target}")
+    meta = result["pbtb"]
+    print(f"id          = {meta['name']}")
+    print(f"title       = {meta['title']}  /  {meta['title_zh']}")
+    print(f"strategies  = {json.dumps(meta['strategies'], ensure_ascii=False)}")
+    print(f"description = {meta.get('description') or '—'}")
+    print(f"target      = {target}")
 
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
