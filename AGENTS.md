@@ -18,6 +18,7 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 | DynamoDB / S3 schema | [docs/data-model.md](docs/data-model.md) |
 | Building, testing, running locally, configuration | [docs/development.md](docs/development.md) |
 | Code style, comments, git/branch/commit rules | [docs/conventions.md](docs/conventions.md) |
+| Where a fact belongs: AGENTS.md vs docs vs skill vs hook | [docs/conventions.md#knowledge-placement](docs/conventions.md#knowledge-placement) |
 | MCP tool surface (what it exposes and what it deliberately does not) | [docs/mcp.md](docs/mcp.md) |
 | Web console REST API (`/api/v1`; what it exposes and what it never returns) | [docs/web-api.md](docs/web-api.md) |
 | WorkOS / AuthKit configuration (apps, scopes, audience, CORS, Google) and its gotchas | [docs/workos.md](docs/workos.md) |
@@ -57,4 +58,3 @@ These are irreversible or trading-impacting; they are inline here on purpose, no
 - Operational questions (what is deployed, is a bot healthy, why did X fail) go through `scripts/ops/pbtb_ops.py` (`deploy-audit`, `bot-status --memory`, `telebot-logs`, `lambda-logs`, `codebuild-log`, `smoke-lambda`) so answers are reproducible.
 - Branch `<type>/<kebab-summary>`; commit `<type>: <summary>` (lowercase imperative, ≤72 chars). Types: feat/fix/refactor/test/chore/docs. Details in [docs/conventions.md](docs/conventions.md).
 - Keep changes minimal and targeted; ask before long or destructive commands; update or add tests when behavior changes.
-- Do not commit secrets or `.env` files; do not introduce hardcoded credentials.

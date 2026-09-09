@@ -44,7 +44,10 @@ client rather than starting at the server.
    arrived. **Never infer polling from `409 TerminatedByOtherGetUpdates`** — a
    host-side `getUpdates` against a provably healthy bot produced zero conflicts
    in three tries, so its absence proves nothing, and its presence is often your
-   own probe's doing.
+   own probe's doing. `getUpdates?offset=-1` is not a read: it acknowledges
+   and drops every update queued before it; to peek without consuming, omit
+   the offset (`limit=3&timeout=0`). `getWebhookInfo.pending_update_count`
+   stays 0 for a long-polling bot and says nothing about who is consuming.
 3. **Did an update reach a handler?** `docker logs telebot` — application logs
    are NOT in journald, and `pbtb_ops.py telebot-logs` reads only journald, so
    it will look convincingly empty. Every received update is one INFO line from

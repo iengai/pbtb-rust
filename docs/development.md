@@ -55,6 +55,8 @@ docker exec -it app-node bash
 
 The container bind-mounts the folder it was opened on (`${localWorkspaceFolder}` → `/app`). A session started in a Git worktree under a different path is **not** what the container builds. Reopen the container on the worktree, or run the build against the worktree path explicitly.
 
+From Git Bash on the host, run commands in the container as `MSYS_NO_PATHCONV=1 docker exec app-node bash -lc 'cd /app && cargo build'`. `docker exec -w /app` fails with `Cwd must be an absolute path` because MSYS rewrites the path.
+
 ## Without the Dev Container (optional)
 
 The host needs the native toolchain — `aws-lc-sys` requires NASM/cmake, often missing on Windows. The Dev Container is recommended for this reason.
@@ -101,8 +103,17 @@ Run `cargo fmt && cargo clippy` before committing.
 
 ## Testing
 
-- Repository read/write integration tests use the `testcontainers` crate to spin up `amazon/dynamodb-local` programmatically — no manually managed container needed. They **skip gracefully** when Docker is unavailable: the test prints a skip message and returns successfully, so `cargo test` stays green without Docker.
+- Repository integration tests (`tests/botrepository_test.rs` and the `tests/common` harness) need a real DynamoDB. The fixture in `tests/common/dynamo.rs` takes `APP__DYNAMODB__ENDPOINT_URL` (the compose service inside the Dev Container) and otherwise starts one `amazon/dynamodb-local` per test binary via `testcontainers`. With neither available the suite self-skips and reports a pass locally; on CI a skip panics. Two consequences: a green `cargo test` without a DynamoDB proves nothing about a `condition_expression` / CAS change (the in-memory mocks never validate expression rules, and one such bug shipped as a silent no-op), and the testcontainers branch is exercised only by CI, so a change to `tests/common/` needs the CI run even when the local gate is green.
 - Use-case unit tests use in-memory mock repositories, so they run anywhere with no external services.
+
+### End-to-end harness (`tests/common`)
+
+A test feeds a synthetic Telegram update to the real router (`router::schema` / `router::deps_map`, the tree `run` builds), through the real use cases, into a real DynamoDB. Only the edges are fake: the object store, ECS (recording), and the Bot API (wiremock behind `Bot::set_api_url`). `Harness::mcp_tools()` exposes the MCP surface over the same repositories. Rules the harness taught:
+
+- Build an `Update` with `serde_json::from_str`, never `from_value`: teloxide's visitor borrows keys, and an owned `Value` silently yields `UpdateKind::Error` with no sender and no chat, which matches no handler and fails no assertion.
+- wiremock paths carry the payload *type* name (`SendMessage`), not the Bot API method (`sendMessage`).
+- Assert replies through `wire()`; button content is not in `text`.
+- Reuse the fixture; do not start a second testcontainers instance.
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 ---
 name: pbtb-deploy
-description: How to roll anything out in this trading system — telebot, the restart lambda, the collector lambda, passivbot task definitions / engine lines, passivbot images, the return-curve site — and in which order. Use it whenever the user says 部署 / 上线 / deploy / roll out / apply / "把这个改动推上去", when a merged change touches terraform, a workflow, an env variable, or a Dockerfile, when adding a new passivbot engine line, and when a change forces the NAT/egress host to be rebuilt. Rolling these in the wrong order has taken the auto-restart lambda offline before; this skill encodes the order and the checks.
+description: Roll a change out in the right order: telebot, the restart or collector lambda, passivbot task definitions / engine lines, passivbot images, the site. Use on deploy / apply / rollout, when a merged change touches terraform, a workflow, an env variable or a Dockerfile, or adds an engine line.
 ---
 
 # pbtb deploy
@@ -14,10 +14,10 @@ definition of "in sync".
 
 | Component | Mechanism | Account / tool |
 |---|---|---|
-| telebot binary | `gh workflow run telebot-deploy.yml --ref main -f tag=latest -f passivbot_revisions=latest` (image built automatically by `telebot-build` on push to main) | `gh auth switch --user iengai` (only that account has `workflow` scope); switch back after |
+| telebot binary | `gh workflow run telebot-deploy.yml --ref main -f tag=latest -f passivbot_revisions=latest` (image built automatically by `telebot-build` on push to main) | `iengai` (the default gh account; the only one with `workflow` scope) |
 | restart lambda code | `gh workflow run lambda-deploy.yml --ref main` | iengai |
 | collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | iengai |
-| lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply bundles the latest-AMI bump and recycles the single ECS host, killing live bots | `AWS_PROFILE=dev` |
+| lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | `AWS_PROFILE=dev` |
 | passivbot image | `python scripts/build_passivbot_image.py --tag vX.Y.Z-arm64 --no-wait`, then `pbtb_ops.py codebuild-log <build-id>` | dev profile; source at `E:/projects/passivbot` checked out at that tag |
 | return-curve site | `gh workflow run pages-publish.yml --ref main` (also daily) | iengai |
 
@@ -53,6 +53,12 @@ to remove the key again. Verify after each step with `smoke-lambda task-state`.
    must include the whole module.
 3. An env map shown as `(known after apply)` is the ARN of a resource being
    created in the same apply, not a dropped key — but confirm the keys after.
+4. `-target=aws_ssm_parameter.telebot_base_env` never travels alone:
+   `local.passivbot_families` references `module.passivbot_task`, so the
+   passivbot task definitions ride along with base-env. Their presence in the
+   plan is expected; what each is changing *to* is not — a stale image tag in
+   `terraform.tfvars` once turned this plan into a rollback of the rs line to a
+   build six hours older. Read every passivbot line before typing yes.
 
 ## After you apply / deploy
 
