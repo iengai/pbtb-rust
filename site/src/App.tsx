@@ -1,6 +1,7 @@
 import { Link, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthProvider";
 import { Layout } from "./components/Layout";
+import { useT } from "./i18n/locale";
 import { Account } from "./pages/Account";
 import { AddBot } from "./pages/AddBot";
 import { BotDetail } from "./pages/BotDetail";
@@ -17,9 +18,10 @@ function RequireAuth() {
 }
 
 function NotFound() {
+  const t = useT();
   return (
     <div className="msg">
-      Nothing here. <Link to="/bots">Back to bots</Link>
+      {t.common.notFound} <Link to="/bots">{t.common.backToBots}</Link>
     </div>
   );
 }

@@ -3,12 +3,19 @@ import { Link as RouterLink } from "react-router-dom";
 import { ApiError, AuthRefused, errorText } from "../api/client";
 import type { Phase } from "../api/types";
 import { sparklinePoints } from "../chart/returnCurve";
+import { type Lang, useT } from "../i18n/locale";
+import type { Messages } from "../i18n/messages";
 import { Alert, Chevron } from "./icons";
 
 export function PhasePill({ phase, enabled }: { phase: Phase | null; enabled?: boolean }) {
+  const t = useT();
   const tone =
     phase === "running" ? "ok" : phase === "starting" || phase === "stopping" ? "warn" : "bad";
-  const label = phase ? phase[0]!.toUpperCase() + phase.slice(1) : enabled ? "Unknown" : "Stopped";
+  const label = phase
+    ? t.common.phase[phase]
+    : enabled
+      ? t.common.phase.unknown
+      : t.common.phase.stopped;
   return (
     <span className={`pill ${phase ? tone : "bad"}`}>
       <i />
@@ -94,7 +101,19 @@ export function Sparkline({
   );
 }
 
-// The API's `{error}` text verbatim. A retryable fault (503) offers a retry.
+// The API's `{error}` text verbatim, except for the fetch failure the client
+// makes itself (status 0) and a 409 naming the bot's current phase, both ours
+// to translate. A retryable fault (503) offers a retry.
+export function errorMessage(error: unknown, t: Messages): string {
+  if (error instanceof ApiError && error.status === 0) return t.common.networkError;
+  if (error instanceof ApiError && error.status === 409 && typeof error.body.status === "string") {
+    const status = error.body.status;
+    const phase = (t.common.phase as Record<string, string>)[status] ?? status.replace(/_/g, " ");
+    return t.common.busyConflict(phase);
+  }
+  return errorText(error);
+}
+
 export function ErrorBanner({
   error,
   onRetry,
@@ -104,6 +123,7 @@ export function ErrorBanner({
   onRetry?: () => void;
   onDismiss?: () => void;
 }) {
+  const t = useT();
   if (!error) return null;
   // Refusals route to the login page; a banner would flash beneath it.
   if (error instanceof AuthRefused) return null;
@@ -113,15 +133,15 @@ export function ErrorBanner({
       <div className="ico">
         <Alert />
       </div>
-      <div className="body">{errorText(error)}</div>
+      <div className="body">{errorMessage(error, t)}</div>
       {retryable && onRetry && (
         <button type="button" className="btn act" onClick={onRetry} style={{ height: 30 }}>
-          Retry
+          {t.common.retry}
         </button>
       )}
       {!retryable && onDismiss && (
         <button type="button" className="btn ghost act" onClick={onDismiss} style={{ height: 30 }}>
-          Dismiss
+          {t.common.dismiss}
         </button>
       )}
     </div>
@@ -137,8 +157,11 @@ export function Notice({ icon, children, tone }: { icon?: ReactNode; children: R
   );
 }
 
+// `what` is already in the reader's language: the caller takes it from its own
+// area of the catalog.
 export function Loading({ what }: { what?: string }) {
-  return <div className="msg">Loading{what ? ` ${what}` : ""}…</div>;
+  const t = useT();
+  return <div className="msg">{what ? t.common.loadingWhat(what) : t.common.loading}</div>;
 }
 
 export function Modal({
@@ -165,14 +188,14 @@ export function Modal({
   );
 }
 
-export function relativeTime(sec: number | null | undefined): string {
+export function relativeTime(sec: number | null | undefined, lang: Lang): string {
   if (!sec) return "—";
   const d = Math.max(0, Math.floor(Date.now() / 1000) - sec);
-  if (d < 60) return "just now";
-  if (d < 3600) return `${Math.floor(d / 60)} min ago`;
-  if (d < 86400) return `${Math.floor(d / 3600)} h ago`;
-  const days = Math.floor(d / 86400);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  const rtf = new Intl.RelativeTimeFormat(lang === "zh" ? "zh-CN" : "en", { numeric: "auto" });
+  if (d < 60) return rtf.format(-d, "second");
+  if (d < 3600) return rtf.format(-Math.floor(d / 60), "minute");
+  if (d < 86400) return rtf.format(-Math.floor(d / 3600), "hour");
+  return rtf.format(-Math.floor(d / 86400), "day");
 }
 
 export function runtimeLabel(rt: string): string {

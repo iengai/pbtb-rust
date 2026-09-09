@@ -1,8 +1,10 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { LangSwitch, useT } from "../i18n/locale";
 
 export function Layout() {
   const { session } = useAuth();
+  const t = useT();
   const who = session?.claims.email ?? session?.claims.sub ?? null;
   return (
     <>
@@ -13,18 +15,25 @@ export function Layout() {
         </NavLink>
         <nav className="nav-links">
           <NavLink to="/bots" className={({ isActive }) => (isActive ? "on" : "")}>
-            Bots
+            {t.common.nav.bots}
           </NavLink>
           <NavLink to="/configs" className={({ isActive }) => (isActive ? "on" : "")}>
-            Configs
+            {t.common.nav.configs}
           </NavLink>
           <NavLink to="/account" className={({ isActive }) => (isActive ? "on" : "")}>
-            Account
+            {t.common.nav.account}
           </NavLink>
         </nav>
         <div className="nav-user">
+          <LangSwitch />
           <div className="avatar" />
-          {who ? <span className="ellipsis" style={{ maxWidth: 260 }}>{who}</span> : <NavLink to="/">Sign in</NavLink>}
+          {who ? (
+            <span className="ellipsis" style={{ maxWidth: 260 }}>
+              {who}
+            </span>
+          ) : (
+            <NavLink to="/">{t.common.nav.signIn}</NavLink>
+          )}
         </div>
       </header>
       <main className="page">

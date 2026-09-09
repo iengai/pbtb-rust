@@ -1,20 +1,21 @@
 // Backtest metrics as passivbot's analysis.json reports them: `gain` is the
 // final/starting balance ratio, `adg*` and `drawdown_worst` are fractions, the
-// ratios are raw. Labels and formats for the ones the pages show, in display
-// order; anything else in the file is shown raw after them.
+// ratios are raw. Formats for the ones the pages show, in display order;
+// anything else in the file is shown raw after them. The labels live in the
+// catalog under `t.configs.metric`, keyed by the same metric key.
 
-export const METRICS: { key: string; label: string; fmt: (v: number) => string }[] = [
-  { key: "gain", label: "Gain", fmt: (v) => fmtGain(v, 0) },
-  { key: "adg", label: "ADG", fmt: (v) => `${(v * 100).toFixed(2)}%` },
-  { key: "adg_w", label: "ADG (weighted)", fmt: (v) => `${(v * 100).toFixed(2)}%` },
-  { key: "drawdown_worst", label: "Max drawdown", fmt: (v) => `${(v * 100).toFixed(1)}%` },
-  { key: "sharpe_ratio", label: "Sharpe", fmt: (v) => v.toFixed(3) },
-  { key: "sortino_ratio", label: "Sortino", fmt: (v) => v.toFixed(3) },
-  { key: "calmar_ratio", label: "Calmar", fmt: (v) => v.toFixed(3) },
-  { key: "positions_held_per_day", label: "Positions / day", fmt: (v) => v.toFixed(1) },
-  { key: "position_held_hours_mean", label: "Position held (h, mean)", fmt: (v) => v.toFixed(1) },
-  { key: "loss_profit_ratio", label: "Loss / profit", fmt: (v) => v.toFixed(2) },
-  { key: "backtest_completion_ratio", label: "Window completed", fmt: (v) => `${(v * 100).toFixed(1)}%` },
+export const METRICS: { key: string; fmt: (v: number) => string }[] = [
+  { key: "gain", fmt: (v) => fmtGain(v, 0) },
+  { key: "adg", fmt: (v) => `${(v * 100).toFixed(2)}%` },
+  { key: "adg_w", fmt: (v) => `${(v * 100).toFixed(2)}%` },
+  { key: "drawdown_worst", fmt: (v) => `${(v * 100).toFixed(1)}%` },
+  { key: "sharpe_ratio", fmt: (v) => v.toFixed(3) },
+  { key: "sortino_ratio", fmt: (v) => v.toFixed(3) },
+  { key: "calmar_ratio", fmt: (v) => v.toFixed(3) },
+  { key: "positions_held_per_day", fmt: (v) => v.toFixed(1) },
+  { key: "position_held_hours_mean", fmt: (v) => v.toFixed(1) },
+  { key: "loss_profit_ratio", fmt: (v) => v.toFixed(2) },
+  { key: "backtest_completion_ratio", fmt: (v) => `${(v * 100).toFixed(1)}%` },
 ];
 
 // The engine stops a backtest when the account is liquidated, so a window that
@@ -37,13 +38,13 @@ export function fmtMetric(key: string, v: number | undefined): string {
   return m ? m.fmt(v) : String(v);
 }
 
-export function metricRows(metrics: Record<string, number>): { label: string; value: string }[] {
+export function metricRows(metrics: Record<string, number>): { key: string; value: string }[] {
   const rows = METRICS.filter((m) => m.key in metrics).map((m) => ({
-    label: m.label,
+    key: m.key,
     value: m.fmt(metrics[m.key]!),
   }));
   for (const [k, v] of Object.entries(metrics)) {
-    if (!METRICS.some((m) => m.key === k)) rows.push({ label: k, value: String(v) });
+    if (!METRICS.some((m) => m.key === k)) rows.push({ key: k, value: String(v) });
   }
   return rows;
 }

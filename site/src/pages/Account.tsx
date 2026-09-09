@@ -4,6 +4,7 @@ import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import { Google } from "../components/icons";
 import { ErrorBanner, Loading, Modal, Pill } from "../components/ui";
+import { useT } from "../i18n/locale";
 
 function maskUserId(id: string): string {
   if (id.length <= 5) return id;
@@ -11,6 +12,7 @@ function maskUserId(id: string): string {
 }
 
 export function Account() {
+  const t = useT();
   const { session, signOut } = useAuth();
   const me = useLoad(() => api.me(), "me");
   const bots = useLoad(() => api.listBots(), "bots");
@@ -22,19 +24,18 @@ export function Account() {
 
   return (
     <>
-      <h1 style={{ marginBottom: 18 }}>Account</h1>
+      <h1 style={{ marginBottom: 18 }}>{t.account.title}</h1>
       <ErrorBanner error={me.error} onRetry={me.reload} />
-      {me.loading && !me.data && <Loading what="account" />}
+      {me.loading && !me.data && <Loading what={t.account.loading} />}
       {me.data && (
         <div className="two-col">
           <div className="stack">
             <div className="card">
-              <div className="card-title xs">Linked identities</div>
+              <div className="card-title xs">{t.account.identities.title}</div>
               <div className="sub" style={{ marginBottom: 8 }}>
-                Sign-ins that map to this Telegram account. Unlinking one signs it out everywhere. To link
-                another sign-in, press <b>Link account</b> in the Telegram bot; there is no link flow here.
+                {t.account.identities.lead()}
               </div>
-              {me.data.identities.length === 0 && <div className="muted">No linked identities.</div>}
+              {me.data.identities.length === 0 && <div className="muted">{t.account.identities.none}</div>}
               {me.data.identities.map((it) => {
                 const mine = it.subject === mySub;
                 return (
@@ -45,68 +46,59 @@ export function Account() {
                         <div className="ellipsis" style={{ fontSize: 14, fontWeight: 550 }}>
                           {mine && session?.claims.email ? session.claims.email : it.subject}
                         </div>
-                        <div className="hint">
-                          Google via {it.provider}
-                          {mine ? " · this session" : ""}
-                        </div>
+                        <div className="hint">{t.account.identities.via(it.provider, mine)}</div>
                       </div>
                     </div>
                     <button type="button" className="btn danger" onClick={() => setUnlinking(true)}>
-                      Unlink
+                      {t.account.identities.unlink}
                     </button>
                   </div>
                 );
               })}
             </div>
             <div className="card">
-              <div className="card-title sm">Telegram account</div>
+              <div className="card-title sm">{t.account.telegram.title}</div>
               <div className="kv wide">
-                <div className="k">User id</div>
+                <div className="k">{t.account.telegram.userId}</div>
                 <div className="tnum">{maskUserId(me.data.user_id)}</div>
-                <div className="k">Allowlist</div>
+                <div className="k">{t.account.telegram.allowlist}</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <Pill tone="ok">Allowed</Pill>
+                  <Pill tone="ok">{t.account.telegram.allowed}</Pill>
                 </div>
-                <div className="k">Bots</div>
+                <div className="k">{t.account.telegram.bots}</div>
                 <div>{bots.data ? bots.data.bots.length : "…"}</div>
               </div>
             </div>
           </div>
           <div className="stack">
             <div className="card">
-              <div className="card-title sm">Exchange egress address</div>
+              <div className="card-title sm">{t.account.egress.title}</div>
               <div className="tnum mono" style={{ fontSize: 14 }}>
-                {egress || "Not published"}
+                {egress || t.account.egress.unpublished}
               </div>
               <div className="hint" style={{ marginTop: 6 }}>
-                {egress
-                  ? "Whitelist this IP on every Bybit API key you add."
-                  : "Ask the operator for the NAT egress IP and whitelist it on every Bybit API key you add."}
+                {egress ? t.account.egress.hint : t.account.egress.askOperator}
               </div>
             </div>
             <div className="card">
-              <div className="card-title sm">Session</div>
+              <div className="card-title sm">{t.account.session.title}</div>
               <div className="sub" style={{ marginBottom: 10 }}>
-                Scopes: {me.data.scopes.join(", ") || "none"} · renewed in the background until you sign
-                out
+                {t.account.session.scopes(me.data.scopes.join(", ") || t.account.session.noScopes)}
               </div>
               <button type="button" className="btn" onClick={signOut}>
-                Sign out
+                {t.account.session.signOut}
               </button>
             </div>
           </div>
         </div>
       )}
       {unlinking && (
-        <Modal title="Unlink all identities?" onClose={() => setUnlinking(false)}>
-          <div style={{ fontSize: 14 }}>
-            Every sign-in linked to this Telegram account is released, including the one you are using now.
-            You are signed out here, and can link again from the Telegram bot.
-          </div>
+        <Modal title={t.account.unlinkAll.title} onClose={() => setUnlinking(false)}>
+          <div style={{ fontSize: 14 }}>{t.account.unlinkAll.body}</div>
           <ErrorBanner error={action.error} onDismiss={action.clear} />
           <div className="actions">
             <button type="button" className="btn ghost" onClick={() => setUnlinking(false)}>
-              Cancel
+              {t.common.cancel}
             </button>
             <button
               type="button"
@@ -119,7 +111,7 @@ export function Account() {
                 })
               }
             >
-              Unlink
+              {t.account.identities.unlink}
             </button>
           </div>
         </Modal>
