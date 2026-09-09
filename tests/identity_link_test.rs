@@ -13,7 +13,9 @@ use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::identity::{
     IdentityRepository, LinkOutcome, LinkTicket, LinkTicketRepository, LinkedIdentity,
+    PROVIDER_TELEGRAM,
 };
+use pbtb_rust::domain::user::{User, UserRepository, UserStatus};
 use pbtb_rust::infra::botrepository::DynamoBotRepository;
 
 const NOW: i64 = 1_700_000_000;
@@ -360,4 +362,183 @@ async fn releasing_leaves_nothing_in_the_tenants_own_listing() {
         .expect("unlink");
 
     assert!(repo.links_of("u-clean").await.expect("list").is_empty());
+}
+
+// ---------------------------------------------------------------- accounts
+
+#[tokio::test]
+async fn an_account_is_created_once_and_read_back_whole() {
+    let repo = repo!();
+
+    let user = User::new(
+        "acct-1".to_string(),
+        Some("one@example.com".to_string()),
+        NOW,
+    );
+    assert!(repo.create_user(&user).await.expect("create"));
+
+    let found = repo
+        .find_user("acct-1")
+        .await
+        .expect("find")
+        .expect("the account just created");
+    assert_eq!(found, user);
+    assert_eq!(found.vip_level, 0, "a fresh account starts at level 0");
+    assert!(found.is_active());
+
+    // An id is minted once. A second create with the same id is a bug
+    // somewhere upstream; it must not silently reset the level or the status.
+    repo.set_vip_level("acct-1", 3, NOW + 1)
+        .await
+        .expect("set level");
+    assert!(
+        !repo.create_user(&user).await.expect("create again"),
+        "a second create must be refused, not applied"
+    );
+    assert_eq!(
+        repo.find_user("acct-1")
+            .await
+            .expect("find")
+            .unwrap()
+            .vip_level,
+        3,
+        "the refused create must leave the row untouched"
+    );
+}
+
+#[tokio::test]
+async fn a_missing_account_is_none_and_cannot_be_updated_into_existence() {
+    let repo = repo!();
+
+    assert!(repo.find_user("acct-nobody").await.expect("find").is_none());
+    assert!(
+        !repo
+            .set_vip_level("acct-nobody", 5, NOW)
+            .await
+            .expect("set level"),
+        "an update must not conjure a half-formed account"
+    );
+    assert!(
+        !repo
+            .set_status("acct-nobody", UserStatus::Suspended, NOW)
+            .await
+            .expect("set status")
+    );
+    assert!(
+        repo.find_user("acct-nobody").await.expect("find").is_none(),
+        "and nothing was written"
+    );
+}
+
+#[tokio::test]
+async fn level_and_status_changes_stamp_updated_at() {
+    let repo = repo!();
+
+    let user = User::new("acct-2".to_string(), None, NOW);
+    repo.create_user(&user).await.expect("create");
+
+    assert!(
+        repo.set_vip_level("acct-2", 9, NOW + 10)
+            .await
+            .expect("set")
+    );
+    assert!(
+        repo.set_status("acct-2", UserStatus::Suspended, NOW + 20)
+            .await
+            .expect("set")
+    );
+
+    let found = repo.find_user("acct-2").await.expect("find").unwrap();
+    assert_eq!(found.vip_level, 9);
+    assert_eq!(found.status, UserStatus::Suspended);
+    assert!(!found.is_active());
+    assert_eq!(found.created_at, NOW);
+    assert_eq!(found.updated_at, NOW + 20);
+}
+
+/// The account row lives under its own partition prefix, but it shares the
+/// table with the bots and with the two readers that walk it without a
+/// sort-key condition. Its id is also the tenant's, so the two prefixes must not
+/// collide on the same string.
+#[tokio::test]
+async fn account_rows_do_not_break_the_bot_readers() {
+    let repo = repo!();
+
+    let bot = Bot::new(
+        "gamma".to_string(),
+        "acct-list".to_string(),
+        Exchange::Bybit,
+        "gamma".to_string(),
+        "ak".to_string(),
+        "sk".to_string(),
+        false,
+        Runtime::Py,
+        NOW,
+        NOW,
+    );
+    repo.save(&bot).await.expect("save");
+    repo.create_user(&User::new("acct-list".to_string(), None, NOW))
+        .await
+        .expect("create");
+    repo.link(PROVIDER_TELEGRAM, "5351347639", &an_identity("acct-list"))
+        .await
+        .expect("link");
+
+    let bots = repo
+        .find_by_user_id("acct-list")
+        .await
+        .expect("an account row must not corrupt the tenant's bot list");
+    assert_eq!(bots.len(), 1);
+    assert_eq!(bots[0].id, "gamma");
+
+    let all = repo
+        .find_all()
+        .await
+        .expect("an account row must not break the table-wide scan");
+    assert!(all.iter().any(|b| b.id == "gamma"));
+}
+
+/// A Telegram id is an identity like any other: it names exactly one account,
+/// and the account can release it to bind another.
+#[tokio::test]
+async fn a_telegram_id_names_one_account_and_can_be_rebound() {
+    let repo = repo!();
+
+    assert_eq!(
+        repo.link(PROVIDER_TELEGRAM, "tg-1", &an_identity("acct-a"))
+            .await
+            .expect("link"),
+        LinkOutcome::Linked
+    );
+    assert_eq!(
+        repo.link(PROVIDER_TELEGRAM, "tg-1", &an_identity("acct-b"))
+            .await
+            .expect("link"),
+        LinkOutcome::ClaimedByAnother,
+        "a Telegram account cannot be attached to a second tenant"
+    );
+
+    // The bot resolves the sender through this lookup, so the Telegram id and
+    // the WorkOS subject are separate namespaces even when they collide as
+    // strings.
+    assert!(
+        repo.find_link(PROVIDER, "tg-1")
+            .await
+            .expect("find")
+            .is_none(),
+        "a subject is only unique within its provider"
+    );
+
+    assert!(
+        repo.unlink(PROVIDER_TELEGRAM, "tg-1", "acct-a")
+            .await
+            .expect("unlink")
+    );
+    assert_eq!(
+        repo.link(PROVIDER_TELEGRAM, "tg-1", &an_identity("acct-b"))
+            .await
+            .expect("link"),
+        LinkOutcome::Linked,
+        "released, the Telegram account can be bound elsewhere"
+    );
 }

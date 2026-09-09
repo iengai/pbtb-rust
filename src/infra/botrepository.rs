@@ -9,6 +9,7 @@ use crate::domain::identity::{
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
+use crate::domain::user::{User, UserRepository, UserStatus};
 use crate::infra::aws_error::sdk_err;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
@@ -1243,6 +1244,168 @@ impl IdentityRepository for DynamoBotRepository {
             .map_err(|e| sdk_err("DynamoDB delete_item failed", e))?;
 
         Ok(true)
+    }
+}
+
+/// Item shape: pk = user#<user_id>, sk = profile.
+///
+/// Its own partition prefix, distinct from the tenant's `user_id#` partition,
+/// so neither `find_by_user_id` nor the table-wide scan ever meets it: the row
+/// is not a bot and must not be parsed as one.
+const USER_PK_PREFIX: &str = "user#";
+const USER_SK: &str = "profile";
+
+fn user_pk(user_id: &str) -> String {
+    format!("{USER_PK_PREFIX}{user_id}")
+}
+
+fn parse_user_row(
+    item: &HashMap<String, AttributeValue>,
+    user_id: &str,
+) -> Result<User, DomainError> {
+    let number = |key: &str| -> Option<i64> {
+        item.get(key)
+            .and_then(|v| v.as_n().ok())
+            .and_then(|n| n.parse().ok())
+    };
+    let vip_level = number("vip_level")
+        .and_then(|n| u8::try_from(n).ok())
+        .ok_or_else(|| {
+            DomainError::CorruptRecord(format!("user row for {user_id} has no vip_level"))
+        })?;
+    let status = item
+        .get("status")
+        .and_then(|v| v.as_s().ok())
+        .and_then(|s| UserStatus::parse(s))
+        .ok_or_else(|| {
+            DomainError::CorruptRecord(format!("user row for {user_id} has an unknown status"))
+        })?;
+    Ok(User {
+        id: user_id.to_string(),
+        vip_level,
+        status,
+        email: item
+            .get("email")
+            .and_then(|v| v.as_s().ok())
+            .map(String::from),
+        created_at: number("created_at").unwrap_or_default(),
+        updated_at: number("updated_at").unwrap_or_default(),
+    })
+}
+
+#[async_trait]
+impl UserRepository for DynamoBotRepository {
+    async fn find_user(&self, user_id: &str) -> Result<Option<User>, DomainError> {
+        let result = self
+            .client
+            .get_item()
+            .table_name(&self.table_name)
+            // Strongly consistent for the same reason an identity lookup is: a
+            // suspension has to hold on the next request, not once a replica
+            // catches up.
+            .consistent_read(true)
+            .key("pk", AttributeValue::S(user_pk(user_id)))
+            .key("sk", AttributeValue::S(USER_SK.to_string()))
+            .send()
+            .await
+            .map_err(|e| sdk_err("DynamoDB get_item failed", e))?;
+
+        match result.item() {
+            Some(item) => parse_user_row(item, user_id).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    async fn create_user(&self, user: &User) -> Result<bool, DomainError> {
+        let mut request = self
+            .client
+            .put_item()
+            .table_name(&self.table_name)
+            .item("pk", AttributeValue::S(user_pk(&user.id)))
+            .item("sk", AttributeValue::S(USER_SK.to_string()))
+            .item("vip_level", AttributeValue::N(user.vip_level.to_string()))
+            .item(
+                "status",
+                AttributeValue::S(user.status.as_str().to_string()),
+            )
+            .item("created_at", AttributeValue::N(user.created_at.to_string()))
+            .item("updated_at", AttributeValue::N(user.updated_at.to_string()))
+            .condition_expression("attribute_not_exists(pk)");
+        if let Some(email) = &user.email {
+            request = request.item("email", AttributeValue::S(email.clone()));
+        }
+
+        match request.send().await {
+            Ok(_) => Ok(true),
+            Err(SdkError::ServiceError(err))
+                if err.err().is_conditional_check_failed_exception() =>
+            {
+                Ok(false)
+            }
+            Err(e) => Err(sdk_err("DynamoDB put_item failed", e)),
+        }
+    }
+
+    async fn set_vip_level(&self, user_id: &str, level: u8, now: i64) -> Result<bool, DomainError> {
+        self.update_user_field(
+            user_id,
+            "vip_level",
+            AttributeValue::N(level.to_string()),
+            now,
+        )
+        .await
+    }
+
+    async fn set_status(
+        &self,
+        user_id: &str,
+        status: UserStatus,
+        now: i64,
+    ) -> Result<bool, DomainError> {
+        self.update_user_field(
+            user_id,
+            "status",
+            AttributeValue::S(status.as_str().to_string()),
+            now,
+        )
+        .await
+    }
+}
+
+impl DynamoBotRepository {
+    /// One attribute of the user row, refusing to conjure the row: an update
+    /// on a missing account would otherwise create a half-formed one that the
+    /// next read reports as corrupt.
+    async fn update_user_field(
+        &self,
+        user_id: &str,
+        field: &str,
+        value: AttributeValue,
+        now: i64,
+    ) -> Result<bool, DomainError> {
+        let result = self
+            .client
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(user_pk(user_id)))
+            .key("sk", AttributeValue::S(USER_SK.to_string()))
+            .update_expression("SET #f = :v, updated_at = :now")
+            .condition_expression("attribute_exists(pk)")
+            .expression_attribute_names("#f", field)
+            .expression_attribute_values(":v", value)
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .send()
+            .await;
+
+        match result {
+            Ok(_) => Ok(true),
+            Err(SdkError::ServiceError(err))
+                if err.err().is_conditional_check_failed_exception() =>
+            {
+                Ok(false)
+            }
+            Err(e) => Err(sdk_err("DynamoDB update_item failed", e)),
+        }
     }
 }
 
