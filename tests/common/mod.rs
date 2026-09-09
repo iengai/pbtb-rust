@@ -21,8 +21,8 @@ use std::sync::Arc;
 
 use pbtb_rust::domain;
 use pbtb_rust::infra::DynamoBotRepository;
-use pbtb_rust::interface::mcp;
 use pbtb_rust::interface::telegram::{Deps, router};
+use pbtb_rust::interface::{api, mcp};
 use pbtb_rust::usecase::*;
 use serde_json::Value;
 use teloxide::prelude::*;
@@ -174,6 +174,40 @@ impl Harness {
         metadata: mcp::http::Metadata,
     ) -> mcp::HttpMcp {
         mcp::HttpMcp::new(self.mcp_deps(), tokens, metadata)
+    }
+
+    /// The REST surface behind the same edge, reached only with `token`.
+    pub fn http_api(&self, token: &str) -> api::WebApi {
+        self.http_api_with(Arc::new(mcp::StaticToken::new(
+            token,
+            telegram::USER_ID.to_string(),
+        )))
+    }
+
+    /// The REST surface with a caller-supplied verifier, for scope and tenant
+    /// cases.
+    pub fn http_api_with(&self, tokens: Arc<dyn mcp::TokenVerifier>) -> api::WebApi {
+        api::WebApi::new(
+            self.api_deps(),
+            tokens,
+            mcp::http::Metadata::unissued(RESOURCE),
+        )
+    }
+
+    fn api_deps(&self) -> api::Deps {
+        let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
+        let identities: Arc<dyn domain::IdentityRepository> = self.bots.clone();
+        api::Deps {
+            mcp: self.mcp_deps(),
+            add_bot_usecase: Arc::new(AddBotUseCase::new(
+                bots_dyn,
+                self.api_keys.clone(),
+                Arc::new(FixedClock(NOW)),
+            )),
+            get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
+            list_identities_usecase: Arc::new(ListIdentitiesUseCase::new(identities.clone())),
+            unlink_identities_usecase: Arc::new(UnlinkIdentitiesUseCase::new(identities)),
+        }
     }
 
     /// The account-linking flow over the same repositories, pointed at a

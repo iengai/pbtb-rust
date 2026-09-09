@@ -14,13 +14,25 @@ use pbtb_rust::infra::client::{
 use pbtb_rust::infra::{
     DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3TemplateRepository,
 };
-use pbtb_rust::interface::mcp;
+use pbtb_rust::interface::{api, mcp};
 use pbtb_rust::usecase::*;
 use std::sync::Arc;
 
 /// Wire the use cases the tools drive. A strictly smaller set than telebot's:
 /// no add-bot dialogue, no whole-config write.
+#[allow(dead_code)]
 pub async fn mcp_deps(configs: &Configs) -> anyhow::Result<mcp::Deps> {
+    Ok(wire(configs).await?.mcp)
+}
+
+/// Wire the REST surface: the tool set plus the three use cases the web needs
+/// — key entry, template description, and the identity list.
+#[allow(dead_code)]
+pub async fn api_deps(configs: &Configs) -> anyhow::Result<api::Deps> {
+    wire(configs).await
+}
+
+async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     let (dynamodb_client, table_name) = setup_dynamodb_with_configs(configs).await;
     let (s3_client, bucket_name) = setup_s3_with_configs(configs).await;
     let (ecs_client, cluster_arn, td_by_engine) = setup_ecs_with_configs(configs).await;
@@ -51,7 +63,17 @@ pub async fn mcp_deps(configs: &Configs) -> anyhow::Result<mcp::Deps> {
     let task_runner: Arc<dyn TaskRunner> = Arc::new(RunTaskUseCase::new(ecs_client.clone()));
     let task_controller: Arc<dyn TaskController> = Arc::new(EcsTaskController::new(ecs_client));
 
-    Ok(mcp::Deps {
+    let identities: Arc<dyn domain::IdentityRepository> = bot_repository.clone();
+    let add_bot_usecase = Arc::new(AddBotUseCase::new(
+        bots.clone(),
+        api_keys.clone(),
+        clock.clone(),
+    ));
+    let get_template_usecase = Arc::new(GetTemplateUseCase::new(templates.clone()));
+    let list_identities_usecase = Arc::new(ListIdentitiesUseCase::new(identities.clone()));
+    let unlink_identities_usecase = Arc::new(UnlinkIdentitiesUseCase::new(identities));
+
+    let mcp = mcp::Deps {
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots.clone())),
         delete_bot_usecase: Arc::new(DeleteBotUseCase::new(bots.clone(), api_keys)),
         list_templates_usecase: Arc::new(ListTemplatesUseCase::new(templates.clone())),
@@ -97,5 +119,13 @@ pub async fn mcp_deps(configs: &Configs) -> anyhow::Result<mcp::Deps> {
             clock,
             cluster_arn,
         )),
+    };
+
+    Ok(api::Deps {
+        mcp,
+        add_bot_usecase,
+        get_template_usecase,
+        list_identities_usecase,
+        unlink_identities_usecase,
     })
 }
