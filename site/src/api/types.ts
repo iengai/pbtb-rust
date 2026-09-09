@@ -45,10 +45,14 @@ export type Me = {
   identities: { provider: string; subject: string }[];
 };
 
+/** A template as the chooser lists it: `min_vip_level` is the lowest level that may apply it. */
+export type TemplateListing = { name: string; min_vip_level: number };
+
 export type TemplateDescription = {
   name: string;
   version: string | null;
   description: string | null;
+  min_vip_level: number;
 } & Partial<Omit<ConfigDescription, "risk" | "leverage" | "updated_at">>;
 
 export type StartStatus = "started" | "already_running" | "already_starting";

@@ -106,6 +106,11 @@ export function Sparkline({
 // to translate. A retryable fault (503) offers a retry.
 export function errorMessage(error: unknown, t: Messages): string {
   if (error instanceof ApiError && error.status === 0) return t.common.networkError;
+  if (error instanceof ApiError && error.status === 403) {
+    const b = error.body;
+    if (b.error === "insufficient_level") return t.common.insufficientLevel(Number(b.required), Number(b.current));
+    if (b.error === "quota_exceeded") return t.common.quotaExceeded(Number(b.limit));
+  }
   if (error instanceof ApiError && error.status === 409 && typeof error.body.status === "string") {
     const status = error.body.status;
     const phase = (t.common.phase as Record<string, string>)[status] ?? status.replace(/_/g, " ");

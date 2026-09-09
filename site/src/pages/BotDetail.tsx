@@ -391,9 +391,10 @@ function TemplateDialog({
         <select className="select" value={name} onChange={(e) => setName(e.target.value)} disabled={!list.data}>
           <option value="">{list.data ? t.bots.templateModal.choose : t.common.loading}</option>
           {list.data?.templates.map((tpl) => (
-            <option key={tpl} value={tpl}>
-              {tpl}
-              {tpl === current ? t.bots.templateModal.currentSuffix : ""}
+            <option key={tpl.name} value={tpl.name}>
+              {tpl.name}
+              {tpl.name === current ? t.bots.templateModal.currentSuffix : ""}
+              {tpl.min_vip_level > 0 ? t.bots.templateModal.levelSuffix(tpl.min_vip_level) : ""}
             </option>
           ))}
         </select>

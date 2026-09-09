@@ -104,6 +104,7 @@ export const bots: typeof en = {
   templateModal: {
     choose: "选择一个模板…",
     currentSuffix: "（当前）",
+    levelSuffix: (level) => ` · VIP ${level}+`,
     warning: (name) => (
       <>
         切换到 <span className="mono">{name}</span>{" "}

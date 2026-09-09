@@ -111,6 +111,7 @@ export const bots = {
   templateModal: {
     choose: "Choose a template…",
     currentSuffix: " (current)",
+    levelSuffix: (level: number) => ` · VIP ${level}+`,
     warning: (name: ReactNode) => (
       <>
         Switching to <span className="mono">{name}</span> replaces the bot's strategy, sides, coins and risk

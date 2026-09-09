@@ -207,11 +207,11 @@ export function installMock(): void {
     listTemplates: () =>
       delay({
         templates: [
-          "bybit-cap1000-iter7-winner-v810",
-          "bybit-cap300-iter1-winner-v712",
-          "bybit-cap100-iter1-winner-v810",
+          { name: "bybit-cap1000-iter7-winner-v810", min_vip_level: 0 },
+          { name: "bybit-cap300-iter1-winner-v712", min_vip_level: 0 },
+          { name: "bybit-cap100-iter1-winner-v810", min_vip_level: 3 },
         ],
       }),
-    getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null }),
+    getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null, min_vip_level: 0 }),
   });
 }

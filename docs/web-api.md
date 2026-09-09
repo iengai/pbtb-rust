@@ -30,8 +30,9 @@ risk level, leverage, engine line — and the `bot` section stays on the server.
 `tests/web_api.rs` asserts on the responses rather than trusting review.
 
 Note that the MCP tool `get_bot_config` does return the stored config. That
-surface serves one operator (`APP__MCP__USER_ID`, on the allowlist), not the
-public. Keep it that way; do not add a config route here.
+surface serves the operator's own principal (stdio, or the shared bearer
+`APP__MCP__USER_ID`), not the public. Keep it that way; do not add a config
+route here.
 
 **Exchange keys**, as everywhere: `api_key` / `secret_key` are never part of a
 response.
@@ -81,16 +82,16 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `POST /bots` | write | Add bot | `{name, api_key, secret_key, overwrite?}` → 201 `added`; 409 `already_exists` unless `overwrite: true` (then 200 `overwritten`: keys rotated, id and desired state kept) |
 | `GET /bots/{id}` | read | State | bot + observed runtime + `config` described (or `null`) |
 | `DELETE /bots/{id}` | write | Delete API key | body `{confirm: "<id>"}`; drops the row, the config and the keys |
-| `POST /bots/{id}/start` | write | Run bot | claims the start lock; `started` / `already_running` / `already_starting`; 409 `stopping` (retry) |
+| `POST /bots/{id}/start` | write | Run bot | claims the start lock; `started` / `already_running` / `already_starting`; 409 `stopping` (retry); 403 `quota_exceeded` past the level's ceiling |
 | `POST /bots/{id}/stop` | write | Stop bot | `stopped` / `not_running` / `already_stopping`; 409 `start_in_progress` (retry) |
 | `PUT /bots/{id}/risk` | write | Risk level | `{long, short}` wallet exposure limits; out-of-range → 400 |
 | `PUT /bots/{id}/sides` | write | Sides | `{side: "long"\|"short", enabled}` |
 | `PUT /bots/{id}/runtime` | write | Runtime | `{runtime: "py"\|"rs"}` |
-| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start |
+| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start; 403 `insufficient_level` for a template above the caller's level |
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
-| `GET /templates` | read | Choose config | `{templates:[names]}` |
-| `GET /templates/{name}` | read | — | the template described, never its parameters |
+| `GET /templates` | read | Choose config | `{templates:[{name, min_vip_level}]}`; nothing is hidden by level |
+| `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
 
 Config changes take effect on a bot's next start. A running task keeps the
 config and the binary it started with.
@@ -103,10 +104,26 @@ so it cannot reach the exchange at all. Doing it means moving the function into
 the VPC behind the NAT, which is its own piece of work.
 
 Errors: `400 {error}` for the caller's own input (including the validation
-errors a use case raises, verbatim), `404 {error:"not found"}`, `409 {status,…}`
-for a write the bot's state does not admit right now, and `500`/`503
-{error, retryable}` for a use-case fault — redacted the way a chat reply is, to a
-category and a correlation id, with the cause logged under that id.
+errors a use case raises, verbatim), `403 {error, message, …}` for what the
+account's level does not allow (`quota_exceeded {limit}`,
+`insufficient_level {required, current}` — `error` is a code, `message` the
+same in words; the site keeps the session on these, unlike the token refusals
+above), `404 {error:"not found"}`, `409 {status,…}` for a write the bot's state
+does not admit right now, and `500`/`503 {error, retryable}` for a use-case
+fault — redacted the way a chat reply is, to a category and a correlation id,
+with the cause logged under that id.
+
+## Levels
+
+An account's `vip_level` (0–9, `GET /me`) sets what it may do; the table is
+`src/domain/entitlement.rs`. Level 0 runs one bot at a time, each level adds
+one, level 9 is unlimited; the count is over bots switched on (desired state),
+so a bot that is on but between tasks holds its slot, and starting a bot that
+is already on never trips it. A template may ask for a level
+(`pbtb.min_vip_level` in its JSON, absent = 0): applying one above the caller's
+is refused, listing and describing are not. Levels are changed with
+`python scripts/ops/pbtb_ops.py set-vip`; lowering one stops nothing, it
+only refuses the next start past the new ceiling.
 
 Every write is logged with principal, route, bot id and outcome.
 
