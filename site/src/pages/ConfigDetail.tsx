@@ -4,14 +4,15 @@ import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import { EquityChart } from "../chart/EquityChart";
-import { Badge, Chips, Crumbs, ErrorBanner, Loading, Modal, engineLabel } from "../components/ui";
+import { Badge, Chips, Crumbs, ErrorBanner, Loading, Modal, engineLabel, templateTitle } from "../components/ui";
 import { staticData, type TemplateBacktest } from "../data/static";
-import { useT } from "../i18n/locale";
+import { useLang, useT } from "../i18n/locale";
 import { metricRows, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
   const { name = "" } = useParams();
   const t = useT();
+  const { lang } = useLang();
   const { session } = useAuth();
   const navigate = useNavigate();
   const { data, error, loading, reload } = useLoad(() => staticData.template(name), `template:${name}`);
@@ -43,7 +44,7 @@ export function ConfigDetail() {
           <div className="page-head top">
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <h1 className="mono">{data.name}</h1>
+                <h1>{templateTitle(data, lang)}</h1>
                 <Badge>{engineLabel(data.engine)}</Badge>
                 {sides.map((s) => (
                   <Badge key={s}>{s}</Badge>
@@ -51,6 +52,7 @@ export function ConfigDetail() {
                 {wipedOut(data.metrics) && <Badge>{t.configs.liquidatedBadge}</Badge>}
               </div>
               <div className="sub" style={{ marginTop: 4 }}>
+                <span className="mono">{data.name}</span> ·{" "}
                 {t.configs.detail.lead(data.exchange, data.start, data.end, data.coins.length)}
                 {wipedOut(data.metrics) && ` · ${t.configs.detail.liquidatedNote}`}
               </div>

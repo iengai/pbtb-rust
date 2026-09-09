@@ -9,6 +9,8 @@ const BASE = import.meta.env.BASE_URL;
 
 export type TemplateSummary = {
   name: string;
+  title?: string;
+  title_zh?: string;
   engine: string;
   exchange: string;
   coins: string[];

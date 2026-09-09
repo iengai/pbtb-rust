@@ -207,6 +207,18 @@ export function runtimeLabel(rt: string): string {
   return rt === "rs" ? "rs · pb-runner" : "py · passivbot";
 }
 
+// What to call a template on screen. A template is addressed by its id — the
+// S3 key, in the URL, fixed for its life — and read by its title, which is
+// per-language data on the template itself. One published before titles has
+// only its id to go by.
+export function templateTitle(
+  tpl: { name?: string; title?: string | null; title_zh?: string | null },
+  lang: Lang,
+): string {
+  const localized = lang === "zh" ? tpl.title_zh : tpl.title;
+  return localized || tpl.title || tpl.name || "—";
+}
+
 // A template's engine line, from the version the API/backtest reports.
 export function engineLabel(version: string | null | undefined): string {
   if (!version) return "—";

@@ -35,6 +35,15 @@ pub fn runtime_phase_glyph(phase: Option<&RuntimePhase>) -> &'static str {
     }
 }
 
+/// Name a template for a reader: its title with the id that addresses it, or
+/// the bare id when the template carries no title.
+pub fn format_template_label(id: &str, title: Option<&str>) -> String {
+    match title {
+        Some(title) => format!("{title} ({id})"),
+        None => id.to_owned(),
+    }
+}
+
 /// Render the strategies involved in a config for display. Groups sides by
 /// strategy name (preserving first-seen order), so a strategy active on both
 /// sides shows once as `name (long+short)`. Returns `—` when there are none.
@@ -81,6 +90,7 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
 /// notes, the wallet-exposure (`total_wallet_exposure_limit`) per side — the
 /// number that actually governs leverage — and the preset coins per side.
 pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> String {
+    let template = format_template_label(template_name, preview.title());
     let strategies = format_strategies(&preview.strategies());
     let description = preview.description().unwrap_or("—");
     // Exchange whose data the strategy was tuned on (pbtb.exchange) — may
@@ -120,7 +130,7 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
 
     format!(
         "📄 Apply this config?\n\n\
-        • Template: {template_name}\n\
+        • Template: {template}\n\
         {data_source}{engine}🤖 Strategy: {strategies}\n\
         📝 Description: {description}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
@@ -143,6 +153,22 @@ mod tests {
                 side: (*side).to_string(),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_template_label_carries_the_title_and_the_id() {
+        assert_eq!(
+            format_template_label(
+                "bybit-mix10-1000u-balanced-v8",
+                Some("10-coin basket · Balanced · $1k")
+            ),
+            "10-coin basket · Balanced · $1k (bybit-mix10-1000u-balanced-v8)"
+        );
+    }
+
+    #[test]
+    fn a_template_without_a_title_is_named_by_its_id_alone() {
+        assert_eq!(format_template_label("xrp-cus", None), "xrp-cus");
     }
 
     #[test]

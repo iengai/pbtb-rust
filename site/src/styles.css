@@ -236,8 +236,8 @@ h1.lg { font-size: 22px; }
 .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .tcard { display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; color: var(--text); }
 .tcard:hover { border-color: var(--accent); color: var(--text); }
-.tcard .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tcard .name { font-family: var(--mono); font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcard .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tcard .name { font-size: 14px; font-weight: 640; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tcard .mid { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
 .tcard .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; flex: 1; }
 .tcard .stats .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

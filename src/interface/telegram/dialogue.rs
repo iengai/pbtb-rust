@@ -104,9 +104,10 @@ async fn handle_start_state(
                 match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
                     Ok(config) => {
                         // 1. Get template name from config_data
-                        let template_name = config
-                            .strategy_name()
-                            .unwrap_or(&config.template_name);
+                        let template_name = super::views::format_template_label(
+                            config.strategy_name().unwrap_or(&config.template_name),
+                            config.title(),
+                        );
 
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
