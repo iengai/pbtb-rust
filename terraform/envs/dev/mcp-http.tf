@@ -128,6 +128,21 @@ resource "aws_lambda_function_url" "mcp_http" {
 
   function_name      = module.lambda_mcp_http[0].function_name
   authorization_type = "NONE"
+
+  # The web console is a page on another origin, so its browser sends a
+  # preflight before every call and drops the answer unless the origin is
+  # allowed here. AWS answers the preflight at the edge; the function never
+  # sees an OPTIONS request. No credentials flag: the token travels in the
+  # Authorization header, never in a cookie.
+  dynamic "cors" {
+    for_each = length(var.web_origins) > 0 ? [1] : []
+    content {
+      allow_origins = var.web_origins
+      allow_methods = ["GET", "POST", "PUT", "DELETE"]
+      allow_headers = ["authorization", "content-type"]
+      max_age       = 3600
+    }
+  }
 }
 
 # Since October 2025 a function URL needs `lambda:InvokeFunction` as well as

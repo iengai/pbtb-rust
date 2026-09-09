@@ -16,7 +16,7 @@
 #[path = "../shared/mcp_deps.rs"]
 mod composition;
 
-use composition::mcp_deps;
+use composition::api_deps;
 
 use anyhow::{Context, bail};
 use lambda_http::{Body, Error, Request, Response, http, run, service_fn};
@@ -25,6 +25,7 @@ use pbtb_rust::domain::identity::LinkTicketRepository;
 use pbtb_rust::domain::{IdentityRepository, SystemClock};
 use pbtb_rust::infra::DynamoBotRepository;
 use pbtb_rust::infra::client::setup_dynamodb_with_configs;
+use pbtb_rust::interface::api::WebApi;
 use pbtb_rust::interface::link::{LinkFlow, OAuthClient, PATH_CALLBACK};
 use pbtb_rust::interface::mcp::http::Metadata;
 use pbtb_rust::interface::mcp::{HttpMcp, OAuthTokens, StaticToken, TokenVerifier};
@@ -50,12 +51,13 @@ async fn main() -> Result<(), Error> {
     .await
 }
 
-/// The two surfaces this function serves. They share a host so that the resource
-/// a token is minted for and the redirect that mints the link are the same
-/// origin, which is one fewer thing to register and one fewer thing to get
-/// wrong.
+/// The surfaces this function serves. They share a host so that the resource a
+/// token is minted for, the redirect that mints the link, and the API the web
+/// console calls are the same origin, which is one fewer thing to register and
+/// one fewer thing to get wrong.
 struct Server {
     mcp: HttpMcp,
+    api: WebApi,
     link: Option<LinkFlow>,
 }
 
@@ -112,8 +114,10 @@ async fn build() -> anyhow::Result<Server> {
 
     let link = build_link(&configs, &ssm, &issuer, &resource).await?;
 
+    let deps = api_deps(&configs).await?;
     Ok(Server {
-        mcp: HttpMcp::new(mcp_deps(&configs).await?, tokens, metadata),
+        mcp: HttpMcp::new(deps.mcp.clone(), tokens.clone(), metadata.clone()),
+        api: WebApi::new(deps, tokens, metadata),
         link,
     })
 }
@@ -196,9 +200,21 @@ async fn serve(server: &Server, request: Request) -> Result<Response<Body>, Erro
     let response = match &server.link {
         Some(link) => match link.handle(&request).await {
             Some(response) => response,
-            None => server.mcp.handle(request).await,
+            None => serve_authenticated(server, request).await,
         },
-        None => server.mcp.handle(request).await,
+        None => serve_authenticated(server, request).await,
     };
     Ok(response.map(|bytes| Body::from(bytes.to_vec())))
+}
+
+/// The two bearer-protected surfaces, told apart by path prefix.
+async fn serve_authenticated(
+    server: &Server,
+    request: http::Request<bytes::Bytes>,
+) -> http::Response<bytes::Bytes> {
+    if WebApi::owns(&request) {
+        server.api.handle(request).await
+    } else {
+        server.mcp.handle(request).await
+    }
 }

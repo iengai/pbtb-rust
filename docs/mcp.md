@@ -27,6 +27,10 @@ their absence against the tool registry rather than trusting review:
 
 Every write is logged with principal, tool, bot id and outcome.
 
+The browser console's REST surface (`/api/v1`, [web-api.md](web-api.md)) shares
+this function, this bearer check and these use cases; it is where key entry
+lives, and it never returns a config.
+
 ## Tools
 
 | Tool | Scope | Notes |

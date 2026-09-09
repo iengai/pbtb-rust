@@ -117,3 +117,7 @@ mcp_issuer       = "https://growing-starlight-99-staging.authkit.app"
 # The OAuth *client* half, used only by the account-linking flow. The secret is
 # not here: Terraform holds the SSM parameter, never its value.
 link_client_id = "client_01M221M345JQQ6ASA7X68S5ZT4"
+
+# The web console's origin. Only pages served from here may call /api/v1 from a
+# browser; the bearer check is what guards the data.
+web_origins = ["https://iengai.github.io"]

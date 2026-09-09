@@ -134,42 +134,60 @@ impl HttpMcp {
         response
     }
 
-    /// A refusal that points at the metadata document, per RFC 9728 §5.1, so a
-    /// client can discover where to authenticate from the failure itself.
-    ///
-    /// The status carries the whole distinction: 401 says get a better token,
-    /// 403 says the token is fine and the answer is still no. A client that
-    /// cannot tell them apart refreshes forever against a decision no token
-    /// changes.
     fn refuse(&self, refusal: &AuthError) -> Response<Bytes> {
-        // No `error=` on the 403. RFC 6750 defines the codes for token problems,
-        // and this token has none — the identity behind it simply has no account
-        // here. Borrowing `insufficient_scope` would send the client off to ask
-        // for scopes that would change nothing.
-        let (status, error) = match refusal {
-            AuthError::Unauthenticated(_) => {
-                (StatusCode::UNAUTHORIZED, "error=\"invalid_token\", ")
-            }
-            AuthError::Forbidden(_) => (StatusCode::FORBIDDEN, ""),
-        };
-
-        let mut response = Response::new(Bytes::from_static(b"{}"));
-        *response.status_mut() = status;
-        response.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        );
-        let challenge = format!(
-            "Bearer {error}resource_metadata=\"{}{METADATA_PATH}\"",
-            self.metadata.resource.trim_end_matches('/')
-        );
-        if let Ok(value) = HeaderValue::from_str(&challenge) {
-            response
-                .headers_mut()
-                .insert(header::WWW_AUTHENTICATE, value);
-        }
-        response
+        refuse(&self.metadata, refusal)
     }
+}
+
+/// A refusal that points at the metadata document, per RFC 9728 §5.1, so a
+/// client can discover where to authenticate from the failure itself.
+///
+/// The status carries the whole distinction: 401 says get a better token, 403
+/// says the token is fine and the answer is still no. A client that cannot tell
+/// them apart refreshes forever against a decision no token changes.
+///
+/// Shared with the REST surface on the same host: one token, one way of being
+/// turned away.
+pub fn refuse(metadata: &Metadata, refusal: &AuthError) -> Response<Bytes> {
+    // No `error=` on the 403. RFC 6750 defines the codes for token problems,
+    // and this token has none — the identity behind it simply has no account
+    // here. Borrowing `insufficient_scope` would send the client off to ask
+    // for scopes that would change nothing.
+    let (status, error) = match refusal {
+        AuthError::Unauthenticated(_) => (StatusCode::UNAUTHORIZED, "error=\"invalid_token\", "),
+        AuthError::Forbidden(_) => (StatusCode::FORBIDDEN, ""),
+    };
+    challenge_response(metadata, status, error)
+}
+
+/// A verified token that lacks the scope a call needs. RFC 6750's
+/// `insufficient_scope` is exactly this case, and naming the scope tells the
+/// client what to ask for next time.
+pub fn insufficient_scope(metadata: &Metadata, scope: &str) -> Response<Bytes> {
+    challenge_response(
+        metadata,
+        StatusCode::FORBIDDEN,
+        &format!("error=\"insufficient_scope\", scope=\"{scope}\", "),
+    )
+}
+
+fn challenge_response(metadata: &Metadata, status: StatusCode, error: &str) -> Response<Bytes> {
+    let mut response = Response::new(Bytes::from_static(b"{}"));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    let challenge = format!(
+        "Bearer {error}resource_metadata=\"{}{METADATA_PATH}\"",
+        metadata.resource.trim_end_matches('/')
+    );
+    if let Ok(value) = HeaderValue::from_str(&challenge) {
+        response
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, value);
+    }
+    response
 }
 
 /// Whether this is a client asking where to authenticate. Unauthenticated by
@@ -181,7 +199,7 @@ fn is_metadata_probe<T>(request: &Request<T>) -> bool {
 }
 
 /// The bearer token presented, if the header is well formed.
-fn bearer<T>(request: &Request<T>) -> Option<&str> {
+pub fn bearer<T>(request: &Request<T>) -> Option<&str> {
     let value = request
         .headers()
         .get(header::AUTHORIZATION)?

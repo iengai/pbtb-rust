@@ -225,3 +225,15 @@ variable "link_client_id" {
     and the subject it records is the subject a token later presents.
   EOT
 }
+
+variable "web_origins" {
+  type        = list(string)
+  default     = []
+  description = <<-EOT
+    Browser origins allowed to call the MCP function's REST surface (/api/v1),
+    e.g. ["https://iengai.github.io"]. Empty leaves the Function URL without a
+    CORS policy, so no browser page can call it at all; MCP clients and curl are
+    unaffected either way. The bearer check inside the function is what
+    protects the data; CORS only decides which pages a browser lets ask.
+  EOT
+}
