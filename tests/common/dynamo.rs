@@ -10,9 +10,11 @@
 //! result. Elsewhere (CI, a host shell) there is a Docker daemon and no
 //! endpoint, so `testcontainers` supplies one.
 //!
-//! Each fixture creates its own uniquely named table, because the compose
-//! service is long-lived and shared: a fixed name would leak rows between test
-//! runs and between tests within a run.
+//! Each fixture creates its own uniquely named table, because the server is
+//! long-lived and shared: a fixed name would leak rows between test runs and
+//! between tests within a run. That is what lets one server serve a whole test
+//! binary — a container per fixture asks a CI runner for one JVM per test, and
+//! they start, then drop connections mid-request once enough of them are up.
 
 use aws_sdk_dynamodb::Client;
 use aws_sdk_dynamodb::config::{BehaviorVersion, Credentials, Region};
@@ -24,6 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage};
+use tokio::sync::OnceCell;
 
 /// The endpoint the Dev Container publishes for its compose DynamoDB Local.
 const ENDPOINT_ENV: &str = "APP__DYNAMODB__ENDPOINT_URL";
@@ -31,11 +34,19 @@ const ENDPOINT_ENV: &str = "APP__DYNAMODB__ENDPOINT_URL";
 static TABLE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub struct Dynamo {
-    /// Held so a started container outlives the test. `None` when an existing
-    /// endpoint was used instead.
-    _container: Option<ContainerAsync<GenericImage>>,
     pub client: Client,
     pub table: String,
+}
+
+/// The container this binary's fixtures share, started once on first use.
+///
+/// Held in a `static` so it outlives every test; nothing drops it, and the
+/// testcontainers reaper removes it when the process exits.
+static SERVER: OnceCell<Result<Server, String>> = OnceCell::const_new();
+
+struct Server {
+    _container: ContainerAsync<GenericImage>,
+    endpoint: String,
 }
 
 /// A DynamoDB client with static dummy credentials, so no credential provider
@@ -148,36 +159,18 @@ pub async fn start() -> Option<Dynamo> {
     {
         let client = client_for(&endpoint);
         match create_table(&client, &table).await {
-            Ok(()) => {
-                return Some(Dynamo {
-                    _container: None,
-                    client,
-                    table,
-                });
-            }
+            Ok(()) => return Some(Dynamo { client, table }),
             Err(e) => {
                 println!("{ENDPOINT_ENV}={endpoint} is set but unusable ({e}); trying Docker.")
             }
         }
     }
 
-    let image = GenericImage::new("amazon/dynamodb-local", "latest")
-        .with_exposed_port(8000.tcp())
-        .with_wait_for(WaitFor::message_on_stdout(
-            "Initializing DynamoDB Local with the following configuration",
-        ));
-
-    let container = match image.start().await {
-        Ok(c) => c,
-        Err(e) => return skip(format!("no endpoint and no container ({e})")),
+    let endpoint = match server().await {
+        Ok(server) => server.endpoint.clone(),
+        Err(e) => return skip(e.clone()),
     };
-
-    let port = match container.get_host_port_ipv4(8000.tcp()).await {
-        Ok(p) => p,
-        Err(e) => return skip(format!("failed to map the container port ({e})")),
-    };
-
-    let client = client_for(&format!("http://127.0.0.1:{port}"));
+    let client = client_for(&endpoint);
 
     // DynamoDB Local prints its startup banner (the wait-for message) before its
     // TCP listener is actually accepting connections, so the first request can
@@ -185,13 +178,7 @@ pub async fn start() -> Option<Dynamo> {
     let mut last_err = String::new();
     for _ in 0..30 {
         match create_table(&client, &table).await {
-            Ok(()) => {
-                return Some(Dynamo {
-                    _container: Some(container),
-                    client,
-                    table,
-                });
-            }
+            Ok(()) => return Some(Dynamo { client, table }),
             Err(e) => {
                 last_err = e;
                 tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -199,4 +186,31 @@ pub async fn start() -> Option<Dynamo> {
         }
     }
     skip(format!("table setup failed ({last_err})"))
+}
+
+/// Start this binary's container, or hand back the one already running.
+async fn server() -> &'static Result<Server, String> {
+    SERVER
+        .get_or_init(|| async {
+            let image = GenericImage::new("amazon/dynamodb-local", "latest")
+                .with_exposed_port(8000.tcp())
+                .with_wait_for(WaitFor::message_on_stdout(
+                    "Initializing DynamoDB Local with the following configuration",
+                ));
+
+            let container = image
+                .start()
+                .await
+                .map_err(|e| format!("no endpoint and no container ({e})"))?;
+            let port = container
+                .get_host_port_ipv4(8000.tcp())
+                .await
+                .map_err(|e| format!("failed to map the container port ({e})"))?;
+
+            Ok(Server {
+                _container: container,
+                endpoint: format!("http://127.0.0.1:{port}"),
+            })
+        })
+        .await
 }

@@ -169,27 +169,64 @@ forwards every request and the bearer check inside the function is the only thin
 between a stranger and a live trading account, so creating it is a deliberate
 act, not something an unrelated apply carries along.
 
+Set `mcp_issuer` in the same step rather than standing the shared bearer up
+first. The bearer parameter is created holding `REPLACE_ME`, and `StaticToken`
+refuses only the *empty* token — so between that apply and the `put-parameter`
+below, the door is open to anyone who has read this repository. With an issuer
+the parameter is never created and the endpoint comes up admitting nobody.
+
 ```bash
 # 1. terraform.tfvars
 #      mcp_http_enabled = true
+#      mcp_issuer       = "https://<project>.authkit.app"
+#    the gitignored allowlist tfvars
 #      mcp_user_id      = "<the telegram user id>"
-# 2. build the bootstrap the first apply uploads
-cargo build --release --bin mcp_http
-install -D target/release/mcp_http target/lambda/mcp_http/bootstrap
+# 2. build the bootstrap the first apply uploads — the same lambda-export stage
+#    CI uses, because the function runs on AL2023 and the host does not
+docker build --target lambda-export --platform linux/amd64 \
+  --build-arg BIN_NAME=mcp_http -o type=local,dest=artifact -f .devcontainer/Dockerfile .
+install -D artifact/bootstrap target/lambda/mcp_http/bootstrap
 # 3. scoped apply — never a blanket one
 terraform -chdir=terraform/envs/dev apply \
-  -target=aws_ssm_parameter.mcp_bearer_token \
   -target=module.lambda_mcp_http \
   -target=aws_lambda_function_url.mcp_http \
+  -target=aws_lambda_permission.mcp_http_invoke \
+  -target=aws_ssm_parameter.mcp_resource_url \
   -target=aws_iam_role_policy.mcp_http_app
-# 4. set the real token (the placeholder admits nobody)
-aws ssm put-parameter --overwrite --type SecureString \
-  --name /scalable-cluster/dev/mcp/bearer-token --value "$(openssl rand -base64 32)"
+```
+
+Add `-target=aws_ssm_parameter.mcp_bearer_token` and the `put-parameter` above
+only for a deployment that really wants one shared token instead of an issuer.
+
+The apply also enables the bots table's TTL, which the link tickets need. It is
+in-place and it sweeps anything whose `expires_at` has passed, so check that no
+existing row carries that attribute before the first one:
+
+```bash
+aws dynamodb scan --table-name scalable-cluster-dev-bots \
+  --filter-expression "attribute_exists(expires_at)" --select COUNT
 ```
 
 Then `terraform output mcp_http_url`. Code updates after that go through
 `gh workflow run lambda-deploy.yml --ref main -f target=mcp-http`, not Terraform:
 the function ignores `source_code_hash` drift.
+
+Verify it with the two requests that need no credentials — the metadata document
+answers, and a tool call is refused:
+
+```bash
+curl "$URL/.well-known/oauth-protected-resource"     # 200 + the RFC 9728 document
+curl -i -X POST "$URL/" -H 'content-type: application/json' -H 'Mcp-Method: tools/list' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{}}}'   # 401
+```
+
+A 403 from AWS on *both*, with `x-amzn-ErrorType: AccessDeniedException` and no
+log group on the function, is the edge refusing before the function runs — the
+resource policy, not the code. Since October 2025 a function URL needs
+`lambda:InvokeFunction` as well as `lambda:InvokeFunctionUrl`, and creating the
+URL grants only the latter; `aws_lambda_permission.mcp_http_invoke` is the other
+half. Note also that AWS renames the challenge header to
+`x-amzn-Remapped-www-authenticate` on the way out.
 
 To take it down, set `mcp_http_enabled = false` and apply the same targets.
 
