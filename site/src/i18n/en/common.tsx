@@ -4,6 +4,7 @@ export const common = {
   nav: {
     bots: "Bots",
     configs: "Configs",
+    returns: "Returns",
     account: "Account",
     signIn: "Sign in",
   },

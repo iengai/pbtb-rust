@@ -4,11 +4,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
-// The chart data (`data/`, synced from S3 by pages-publish, gitignored) and the
-// template backtests (`templates/`, committed) live at the project root rather
-// than under `public/`, because the workflow's sync path is `site/data/` and
-// must stay so. This plugin makes both directories behave like `public/`:
-// served verbatim in dev and preview, copied verbatim into `dist/` at build.
+// The template backtests (`templates/`, committed) live at the project root
+// rather than under `public/`, beside the script that generates them. This
+// plugin makes the directory behave like `public/`: served verbatim in dev and
+// preview, copied verbatim into `dist/` at build.
 function staticDirs(dirs: string[]): Plugin {
   const root = resolve(__dirname);
   const types: Record<string, string> = {
@@ -60,7 +59,7 @@ export default defineConfig(({ command, isPreview }) => {
   process.env.VITE_BASE_PATH = base;
   return {
     base,
-    plugins: [react(), staticDirs(["data", "templates"])],
+    plugins: [react(), staticDirs(["templates"])],
     build: { outDir: "dist", emptyOutDir: true },
     server: { port: 5173, strictPort: true },
     preview: { port: 4173, strictPort: true },

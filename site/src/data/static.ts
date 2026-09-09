@@ -1,8 +1,8 @@
-// The static JSON published beside the app: `data/` (per-bot return series,
-// synced from S3 by pages-publish) and `templates/` (backtests of the strategy
-// templates). Neither needs a token.
+// The static JSON published beside the app: `templates/`, the backtests of the
+// strategy templates. Public by design — a backtest is not tenant data — and
+// needs no token. Return curves are not here: they are one account's own and
+// come through the API.
 
-import { type BotReturnSeries, type IndexEntry, normalizeIndex } from "../chart/returnCurve";
 import type { EquityPoint } from "../chart/equitySvg";
 
 const BASE = import.meta.env.BASE_URL;
@@ -30,14 +30,6 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export const staticData = {
-  chartIndex: async (): Promise<IndexEntry[]> => normalizeIndex(await getJSON<unknown>("data/index.json")),
-  chart: (id: string) => getJSON<BotReturnSeries>(`data/${encodeURIComponent(id)}.json`),
   templates: () => getJSON<TemplateSummary[]>("templates/index.json"),
   template: (name: string) => getJSON<TemplateBacktest>(`templates/${encodeURIComponent(name)}.json`),
 };
-
-// The return chart is keyed by an opaque id; the API knows the bot by name.
-// The published index carries both, so a bot finds its chart through its name.
-export function chartIdFor(index: IndexEntry[], botName: string): string | null {
-  return index.find((e) => e.name === botName)?.id ?? null;
-}

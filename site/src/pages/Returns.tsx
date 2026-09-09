@@ -1,21 +1,23 @@
 import { useState } from "react";
+import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { ChartCaption, RangeSelector, ReturnChart, useRangeLabel } from "../chart/ReturnChart";
 import { DEFAULT_RANGE, fmtPct, selectWindow } from "../chart/returnCurve";
 import { ErrorBanner, Loading } from "../components/ui";
-import { staticData } from "../data/static";
 import { useT } from "../i18n/locale";
+import { loadReturns } from "./returnsApi";
 
-// The public return-curve page: a bot selector over the published series, no
-// token needed — the data is normalized and shows no account size.
+// The return-curve page: a selector over the signed-in account's own bots. The
+// series is normalized — an index and a return percentage, no account size —
+// and it is the owner's alone; the API reads it under their tenant.
 export function Returns() {
   const t = useT();
   const rangeLabel = useRangeLabel();
-  const index = useLoad(() => staticData.chartIndex(), "chart-index");
+  const bots = useLoad(() => api.listBots(), "bots");
   const [chosen, setChosen] = useState<string | null>(null);
   const [range, setRange] = useState(DEFAULT_RANGE);
-  const id = chosen ?? index.data?.[0]?.id ?? "";
-  const series = useLoad(() => (id ? staticData.chart(id) : Promise.resolve(null)), `chart:${id}`);
+  const id = chosen ?? bots.data?.bots[0]?.bot_id ?? "";
+  const series = useLoad(() => (id ? loadReturns(id) : Promise.resolve(null)), `returns:${id}`);
   const win = series.data ? selectWindow(series.data, range) : null;
   const ok = win?.kind === "ok" ? win : null;
 
@@ -27,17 +29,18 @@ export function Returns() {
           <div className="sub">{t.returns.lead}</div>
         </div>
       </div>
-      <ErrorBanner error={index.error} onRetry={index.reload} />
-      {index.data && index.data.length === 0 && <div className="msg">{t.returns.noBots}</div>}
-      {index.data && index.data.length > 0 && (
+      <ErrorBanner error={bots.error} onRetry={bots.reload} />
+      {bots.loading && !bots.data && <Loading what={t.returns.loadingBots} />}
+      {bots.data && bots.data.bots.length === 0 && <div className="msg">{t.returns.noBots}</div>}
+      {bots.data && bots.data.bots.length > 0 && (
         <>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "0 0 16px" }}>
             <label htmlFor="bot" className="sub">
               {t.returns.botLabel}
             </label>
             <select id="bot" className="select" style={{ width: "auto", minWidth: 200 }} value={id} onChange={(e) => setChosen(e.target.value)}>
-              {index.data.map((b) => (
-                <option key={b.id} value={b.id}>
+              {bots.data.bots.map((b) => (
+                <option key={b.bot_id} value={b.bot_id}>
                   {b.name}
                 </option>
               ))}
@@ -65,6 +68,7 @@ export function Returns() {
           <div className="card tight">
             <ErrorBanner error={series.error} onRetry={series.reload} />
             {series.loading && !series.data && <Loading what={t.returns.loadingCurve} />}
+            {series.data === null && !series.loading && <div className="msg">{t.returns.noData}</div>}
             {win && <ReturnChart window={win} />}
             <div className="legend">
               <span>

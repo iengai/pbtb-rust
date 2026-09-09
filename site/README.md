@@ -2,8 +2,8 @@
 
 The browser console for the bot manager: a Vite + React + TypeScript single-page
 app served from GitHub Pages at `https://iengai.github.io/pbtb-rust/`. It drives
-the REST surface in [`docs/web-api.md`](../docs/web-api.md) and embeds the
-per-bot return curves the daily collector publishes.
+the REST surface in [`docs/web-api.md`](../docs/web-api.md), which is also where
+the per-bot return curves come from: each account sees its own.
 
 No UI kit and no chart library: the charts are the dependency-free SVG code of
 the original return-curve page, moved into `src/chart/`.
@@ -20,11 +20,10 @@ site/
     api/                /api/v1 client, response types, load/action hooks, dev mock
     chart/              return curve (windowing, re-basing, SVG) + backtest equity chart
     components/         nav, pills/badges/tiles, banners, modal, icons
-    data/               static JSON access (data/, templates/)
+    data/               static JSON access (templates/)
     i18n/               English + Simplified Chinese catalogs (see Languages below)
     pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail, Account, Returns
   templates/            strategy-template backtests (committed; see below)
-  data/                 per-bot return series (gitignored; CI syncs it from S3)
   dist/                 build output (gitignored)
 ```
 
@@ -122,21 +121,22 @@ script, and the three `innerHTML` sites are the charts, which interpolate
 numbers and `escapeXml` the one label that comes from data.
 
 `/configs` and `/configs/:name` render without a token (static data). Every
-other page requires one; `/bots/:id` polls the API every 15 s.
+other page requires one; `/bots/:id` polls the API every 15 s. Return curves
+(`/returns`, and the chart on `/bots/:id`) come from `GET
+/api/v1/bots/{id}/returns` — a `BotReturnSeries` (`points[{ts, index,
+return_pct}]`, `config_switches[{ts, template_name}]`, `capital_resets[ts]`)
+the daily collector writes under the owner's tenant, so an account only ever
+sees its own bots' curves. A 404 there means the collector has not written the
+bot yet.
 
-## Static data: `data/` and `templates/`
+## Static data: `templates/`
 
-Both directories sit at the project root, not under `public/`, because the
-pages workflow's S3 sync path is `site/data/` and must stay so. A small plugin
-in `vite.config.ts` makes them behave like `public/`: served verbatim by `vite
-dev` and `vite preview`, copied verbatim into `dist/` after `vite build`. The
-build also copies `index.html` to `dist/404.html` so GitHub Pages resolves deep
-links through the SPA router.
+The directory sits at the project root, not under `public/`, beside the script
+that generates it. A small plugin in `vite.config.ts` makes it behave like
+`public/`: served verbatim by `vite dev` and `vite preview`, copied verbatim
+into `dist/` after `vite build`. The build also copies `index.html` to
+`dist/404.html` so GitHub Pages resolves deep links through the SPA router.
 
-- `data/index.json` — `[{id, name}]`; `data/<id>.json` — a `BotReturnSeries`
-  (`points[{ts, index, return_pct}]`, `config_switches[{ts, template_name}]`,
-  `capital_resets[ts]`). The id is an opaque hash; the console finds a bot's
-  chart by matching the API's bot `name` against `index.json`.
 - `templates/index.json` — `[{name, engine, exchange, coins, start, end,
   metrics}]`; `templates/<name>.json` — the same plus `starting_balance`,
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
@@ -168,9 +168,10 @@ headline the pre-wipe gain.
 
 ## Deploy
 
-`.github/workflows/pages-publish.yml`: sync S3 → `site/data/`, `npm ci && npm
-run build` in `site/`, upload `site/dist`. Daily, or `gh workflow run
-pages-publish.yml --ref main`.
+`.github/workflows/pages-publish.yml`: `npm ci && npm run build` in `site/`,
+upload `site/dist`. On every push to `main` that touches `site/`, or `gh
+workflow run pages-publish.yml --ref main`. No cloud credentials: the page is
+code and the committed backtests, nothing per tenant.
 
 GitHub Pages is enough: the app is static, the OAuth redirect URI is just a
 path on the Pages origin, the API sits on the Lambda with CORS, and the only
