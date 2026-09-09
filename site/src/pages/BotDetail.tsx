@@ -27,7 +27,7 @@ import {
   relativeTime,
   runtimeLabel,
 } from "../components/ui";
-import { chartIdFor, staticData } from "../data/static";
+import { loadReturns } from "./returnsApi";
 import { useLang, useT } from "../i18n/locale";
 
 const POLL_MS = 15_000;
@@ -51,20 +51,16 @@ export function BotDetail() {
   const sideLabel = (side: string) =>
     side === "long" ? t.bots.long : side === "short" ? t.bots.short : side;
 
-  const name = bot.data?.name;
   useEffect(() => {
-    if (!name) return;
+    if (!id) return;
     let alive = true;
-    (async () => {
-      const index = await staticData.chartIndex().catch(() => []);
-      const cid = chartIdFor(index, name);
-      const s = cid ? await staticData.chart(cid).catch(() => null) : null;
-      if (alive) setSeries(s);
-    })();
+    loadReturns(id)
+      .catch(() => null)
+      .then((s) => alive && setSeries(s));
     return () => {
       alive = false;
     };
-  }, [name]);
+  }, [id]);
 
   const close = useCallback(() => setDialog(null), []);
   const done = useCallback(

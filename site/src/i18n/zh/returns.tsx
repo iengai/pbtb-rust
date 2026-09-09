@@ -1,10 +1,12 @@
 import { returns as en } from "../en/returns";
 
 export const returns: typeof en = {
-  title: "机器人收益曲线",
-  lead: "时间加权收益率，每日从 Bybit 采集。已归一化，不展示账户规模。",
-  noBots: "还没有机器人有数据。",
+  title: "收益曲线",
+  lead: "你的机器人的时间加权收益率，每日从 Bybit 采集。已归一化，不展示账户规模。",
+  noBots: "你还没有机器人。",
+  noData: "这个机器人还没有收益数据——它有交易后，每日采集器会生成曲线。",
   botLabel: "机器人",
+  loadingBots: "机器人",
   loadingCurve: "收益曲线",
   tile: {
     return: (range) => `收益率 · ${range}`,

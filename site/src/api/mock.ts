@@ -5,6 +5,7 @@
 import { saveSession } from "../auth/oauth";
 import { api, ApiError } from "./client";
 import type { BotDetail, BotSummary, ConfigDescription, Me, Phase } from "./types";
+import type { BotReturnSeries } from "../chart/returnCurve";
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -21,6 +22,31 @@ const config = (name: string, version: string, coins: string[], short = false): 
   coins: { long: coins, short: short ? coins.slice(0, 2) : [] },
   updated_at: now() - 86400 * 3,
 });
+
+// A deterministic random walk per bot, so the charts have something to draw
+// and the same bot draws the same curve on every reload.
+function fakeSeries(b: BotDetail): BotReturnSeries {
+  let seed = [...b.bot_id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32) * 2 - 1;
+  const days = 120;
+  const start = now() - 86400 * days;
+  const points: BotReturnSeries["points"] = [];
+  let index = 100;
+  for (let i = 0; i <= days; i++) {
+    index *= 1 + rand() * 0.02 + 0.0015;
+    points.push({ ts: start + 86400 * i, index, return_pct: (index / 100 - 1) * 100 });
+  }
+  return {
+    id: b.bot_id,
+    name: b.name,
+    exchange: b.exchange,
+    generated_at: now(),
+    current_return_pct: points[points.length - 1]!.return_pct,
+    points,
+    config_switches: b.config ? [{ ts: b.config.updated_at, template_name: b.config.template_name }] : [],
+    capital_resets: [],
+  };
+}
 
 let bots: BotDetail[] = [
   {
@@ -204,6 +230,11 @@ export function installMock(): void {
     },
     unstuck: () =>
       Promise.reject(new ApiError(501, { error: "not available yet" }, "not available yet")),
+    botReturns: (id: string) => {
+      const b = find(id);
+      if (b.phase === null) return Promise.reject(new ApiError(404, { error: "not found" }, "not found"));
+      return delay(fakeSeries(b));
+    },
     listTemplates: () =>
       delay({
         templates: [

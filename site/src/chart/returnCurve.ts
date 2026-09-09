@@ -1,8 +1,9 @@
 // The per-bot return series written by the daily_pnl_snapshot Lambda, and the
 // windowing, re-basing and SVG drawing that turn it into the return chart.
-// Data lives under ./data/: index.json (list of bots) + <bot_id>.json (a
-// BotReturnSeries). The series is normalized — a time-weighted return index and
-// cumulative return %, no absolute balances. No chart library.
+// A series (a BotReturnSeries) reaches the page through `GET
+// /api/v1/bots/{id}/returns`, for the bot's owner. It is normalized — a
+// time-weighted return index and cumulative return %, no absolute balances.
+// No chart library.
 
 export type DailyPoint = { ts: number; index: number; return_pct?: number };
 export type SwitchMarker = { ts: number; template_name: string };
@@ -16,7 +17,6 @@ export type BotReturnSeries = {
   config_switches?: SwitchMarker[];
   capital_resets?: number[];
 };
-export type IndexEntry = { id: string; name: string };
 export type ViewPoint = { ts: number; return_pct: number };
 
 export const fmtPct = (v: number): string => (Number.isFinite(v) ? `${v.toFixed(2)}%` : "—");
@@ -37,17 +37,6 @@ export const RANGES: { k: string; days: number | null }[] = [
   { k: "180D", days: 180 },
 ];
 export const DEFAULT_RANGE = 1; // 90D
-
-// index.json is a list of { id, name }. Tolerate a legacy bare-string array (id
-// used as its own name) so an old published index still renders.
-export function normalizeIndex(idx: unknown): IndexEntry[] {
-  const arr: unknown[] = Array.isArray(idx)
-    ? idx
-    : ((idx as { bots?: unknown[] } | null)?.bots ?? []);
-  return arr
-    .map((e) => (typeof e === "string" ? { id: e, name: e } : (e as IndexEntry)))
-    .filter((e) => e && e.id);
-}
 
 // What the window is measuring: the era since the account was re-funded, all
 // history, or one of the presets (named by its key, "90D"). The words belong to

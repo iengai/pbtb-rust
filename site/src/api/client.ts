@@ -12,6 +12,7 @@ import type {
   TemplateDescription,
   TemplateListing,
 } from "./types";
+import type { BotReturnSeries } from "../chart/returnCurve";
 
 export class ApiError extends Error {
   status: number;
@@ -136,6 +137,8 @@ export const api = {
   applyTemplate: (id: string, name: string) =>
     request<{ status: "applied" }>("POST", `/bots/${encodeURIComponent(id)}/template`, { name }),
   unstuck: (id: string) => request<never>("POST", `/bots/${encodeURIComponent(id)}/unstuck`),
+  /** The bot's return series; 404 until the daily collector has written one. */
+  botReturns: (id: string) => request<BotReturnSeries>("GET", `/bots/${encodeURIComponent(id)}/returns`),
 
   listTemplates: () => request<{ templates: TemplateListing[] }>("GET", "/templates"),
   getTemplate: (name: string) =>

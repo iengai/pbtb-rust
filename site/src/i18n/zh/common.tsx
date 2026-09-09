@@ -4,6 +4,7 @@ export const common: typeof en = {
   nav: {
     bots: "机器人",
     configs: "配置",
+    returns: "收益",
     account: "账户",
     signIn: "登录",
   },

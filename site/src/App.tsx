@@ -40,9 +40,9 @@ export function App() {
       <Route element={<Layout />}>
         <Route path="/configs" element={<Configs />} />
         <Route path="/configs/:name" element={<ConfigDetail />} />
-        <Route path="/returns" element={<Returns />} />
         <Route element={<RequireAuth />}>
           <Route path="/bots" element={<Bots />} />
+          <Route path="/returns" element={<Returns />} />
           <Route path="/bots/new" element={<AddBot />} />
           <Route path="/bots/:id" element={<BotDetail />} />
           <Route path="/account" element={<Account />} />

@@ -1,10 +1,12 @@
-// The public return-curve page, plus every word the two SVG charts show:
-// captions, empty states, tooltip rows and axis ticks.
+// The return-curve page, plus every word the two SVG charts show: captions,
+// empty states, tooltip rows and axis ticks.
 export const returns = {
-  title: "Bot Return Curves",
-  lead: "Time-weighted return, collected daily from Bybit. Normalized — no account size shown.",
-  noBots: "No bots have data yet.",
+  title: "Return Curves",
+  lead: "Time-weighted return of your bots, collected daily from Bybit. Normalized — no account size shown.",
+  noBots: "You have no bots yet.",
+  noData: "No return data for this bot yet — the daily collector publishes a series once it has traded.",
   botLabel: "Bot",
+  loadingBots: "bots",
   loadingCurve: "return curve",
   tile: {
     return: (range: string) => `${range} return`,
