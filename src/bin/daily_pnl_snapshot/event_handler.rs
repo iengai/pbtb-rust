@@ -106,7 +106,7 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
     // Resume from stored state: on a routine run re-fetch only from the last
     // stored day (re-doing that day catches late settlements, then extends);
     // on a bot's first run fetch the initial backfill window.
-    let mut bot_state = s3_writer::read_state(&state.s3, chart_cfg, &bot.id)
+    let mut bot_state = s3_writer::read_state(&state.s3, chart_cfg, &bot.user_id, &bot.id)
         .await
         .context("read state")?
         .unwrap_or_default();
@@ -133,12 +133,10 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         .await
         .context("read config switches")?;
 
-    // Public artifact is keyed by a STABLE opaque id derived from the bot's
-    // immutable id, so a rename never orphans the file; the readable name rides
-    // inside as mutable data. The raw id stays in the private state object only.
-    let key = model::key_for(&bot.id);
+    // The artifact is keyed by the bot's immutable id, so a rename never
+    // orphans the file; the readable name rides inside as mutable data.
     let series = model::BotReturnSeries::new(
-        &key,
+        &bot.id,
         &bot.name,
         bot.exchange.as_str(),
         returns,
@@ -146,10 +144,10 @@ async fn process_bot(state: &AppState, bot: &Bot, now_ms: i64) -> anyhow::Result
         now_ms / 1000,
     );
 
-    s3_writer::write_state(&state.s3, chart_cfg, &bot.id, &bot_state)
+    s3_writer::write_state(&state.s3, chart_cfg, &bot.user_id, &bot.id, &bot_state)
         .await
         .context("write state")?;
-    s3_writer::put_series(&state.s3, chart_cfg, &key, &series)
+    s3_writer::put_series(&state.s3, chart_cfg, &bot.user_id, &bot.id, &series)
         .await
         .context("write series")?;
 

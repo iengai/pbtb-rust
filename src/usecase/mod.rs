@@ -4,6 +4,7 @@ mod bind_telegram;
 mod delete_bot;
 mod engine_routing;
 mod get_bot_config;
+mod get_bot_returns;
 mod get_bot_runtime;
 mod get_template;
 mod issue_link_ticket;
@@ -34,6 +35,7 @@ pub use engine_routing::{
     EngineRoutedResolver, EngineTaskDefinitions, LaunchTarget, LaunchTargetResolver,
 };
 pub use get_bot_config::GetBotConfigUseCase;
+pub use get_bot_returns::GetBotReturnsUseCase;
 pub use get_bot_runtime::GetBotRuntimeUseCase;
 pub use get_template::{GetTemplateUseCase, TemplatePreview};
 pub use issue_link_ticket::{IssueLinkTicketUseCase, PURPOSE_START};

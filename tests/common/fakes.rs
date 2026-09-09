@@ -1,5 +1,6 @@
 //! In-memory stand-ins for the ports the end-to-end harness does not run for
-//! real: object storage (templates, bot configs, API keys) and ECS.
+//! real: object storage (templates, bot configs, API keys, return series) and
+//! ECS.
 //!
 //! DynamoDB is deliberately NOT faked — the start lock's conditional writes are
 //! the one thing a mock cannot validate, so the harness runs them against
@@ -14,6 +15,7 @@ use pbtb_rust::domain::botconfig::{BotConfig, BotConfigRepository};
 use pbtb_rust::domain::clock::Clock;
 use pbtb_rust::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
 use pbtb_rust::domain::error::DomainError;
+use pbtb_rust::domain::returncurve::ReturnCurveRepository;
 use pbtb_rust::usecase::{TaskController, TaskLiveness, TaskRunner};
 
 /// A clock frozen at a known instant, so timestamps in assertions are exact
@@ -95,6 +97,37 @@ impl ConfigTemplateRepository for InMemoryTemplates {
 
     async fn exists(&self, template_name: &str) -> Result<bool, DomainError> {
         Ok(self.templates.lock().unwrap().contains_key(template_name))
+    }
+}
+
+/// The collector's per-bot series, keyed by tenant and bot as the bucket is.
+#[derive(Default)]
+pub struct InMemoryReturnCurves {
+    series: Mutex<HashMap<(String, String), serde_json::Value>>,
+}
+
+impl InMemoryReturnCurves {
+    pub fn put(&self, user_id: &str, bot_id: &str, series: serde_json::Value) {
+        self.series
+            .lock()
+            .unwrap()
+            .insert((user_id.to_string(), bot_id.to_string()), series);
+    }
+}
+
+#[async_trait]
+impl ReturnCurveRepository for InMemoryReturnCurves {
+    async fn get(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+    ) -> Result<Option<serde_json::Value>, DomainError> {
+        Ok(self
+            .series
+            .lock()
+            .unwrap()
+            .get(&(user_id.to_string(), bot_id.to_string()))
+            .cloned())
     }
 }
 

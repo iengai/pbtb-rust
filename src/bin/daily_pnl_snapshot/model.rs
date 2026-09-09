@@ -2,16 +2,14 @@
 //! split so the return index can be recomputed incrementally from accumulated
 //! state without re-fetching history.
 //!
-//! The published artifact carries only NORMALIZED performance (a time-weighted
-//! return index and cumulative return %), keyed by a STABLE opaque id derived
-//! from the bot's IMMUTABLE id so a rename never orphans it — never an absolute
-//! balance/equity, never the raw id. The readable name rides inside as mutable
-//! data. Nothing here is Bybit-specific.
+//! The output carries only NORMALIZED performance (a time-weighted return
+//! index and cumulative return %) — never an absolute balance/equity. It is
+//! keyed by the bot's immutable id, so a rename never orphans it; the readable
+//! name rides inside as mutable data. Nothing here is Bybit-specific.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
 
@@ -25,15 +23,6 @@ const DAY_MS: i64 = 86_400_000;
 /// the live accounts — the largest genuine top-up is ~14x the balance it joins,
 /// the smallest post-wipeout re-funding ~42x.
 const REVIVE_RATIO: f64 = 20.0;
-
-/// A stable, opaque public key for a bot, derived from its IMMUTABLE id — never
-/// the display name (that changes) and never the raw id (it stays private in the
-/// state object). The artifact is keyed by this, so a rename never orphans a
-/// file; the readable name rides along inside the JSON as mutable data.
-pub fn key_for(bot_id: &str) -> String {
-    let digest = Sha256::digest(bot_id.as_bytes());
-    hex::encode(&digest[..6])
-}
 
 /// One day's realized aggregate — the minimal state to (re)compute the return
 /// index. Persisted privately so each run fetches only new data.
@@ -100,9 +89,10 @@ pub struct SwitchMarker {
     pub template_name: String,
 }
 
-/// The per-bot artifact the static site fetches and draws. `id` is the stable
-/// opaque key (also the S3 filename stem); `name` is the current readable
-/// display name — mutable, refreshed every run, never used as a key.
+/// The per-bot artifact the console draws, served to the bot's owner by the
+/// API. `id` is the bot's immutable id (also the S3 filename stem); `name` is
+/// the current readable display name — mutable, refreshed every run, never
+/// used as a key.
 #[derive(Debug, Clone, Serialize)]
 pub struct BotReturnSeries {
     pub id: String,
@@ -367,15 +357,6 @@ mod tests {
         let s = compute_points(&days, 100.0);
         assert_eq!(s.points[1].index, 0.0);
         assert_eq!(s.points[2].index, 0.0);
-    }
-
-    #[test]
-    fn key_for_is_stable_and_name_independent() {
-        // Deterministic in the immutable id, so a display-name change never moves
-        // the file; distinct ids never collide at this length.
-        assert_eq!(key_for("516889601"), key_for("516889601"));
-        assert_ne!(key_for("516889601"), key_for("436713564"));
-        assert_eq!(key_for("516889601").len(), 12);
     }
 
     #[test]

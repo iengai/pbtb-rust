@@ -473,6 +473,23 @@ impl Handlers<'_> {
         Self::ok(json!({ "status": "applied", "template_name": body.name }))
     }
 
+    /// The bot's return series as the daily collector wrote it: a normalized
+    /// index and cumulative return, no balances. Read under the caller's own
+    /// tenant, so it is theirs or it is not found.
+    pub async fn bot_returns(&self, bot_id: &str) -> ApiResult {
+        require(self.principal, READ)?;
+        self.find_bot(bot_id).await?;
+        let Some(returns) = &self.deps.get_bot_returns_usecase else {
+            return Err(ApiError::NotAvailable);
+        };
+        let series = returns
+            .execute(self.user_id(), bot_id)
+            .await
+            .map_err(|e| ApiError::from_domain("reading the return curve", e))?
+            .ok_or(ApiError::NotFound)?;
+        Self::ok(series)
+    }
+
     // ---------------------------------------------------------------- templates
 
     /// Every template with the level it asks for. Nothing is hidden by level:
