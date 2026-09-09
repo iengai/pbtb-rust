@@ -10,9 +10,17 @@ same answers with one command instead of re-deriving where things live:
   lambda-logs NAME [--since 30m] [--pattern X]
   codebuild-log BUILD_ID [--tail N]    tolerant of the corrupt JSON CloudWatch emits
   smoke-lambda NAME                    invoke with an event the handler ignores
+  user-show USER_ID                    the account row and the identities it holds
+  user-create USER_ID [--vip N] [--email E] [--telegram TG_ID]
+                                       create an account row (and bind a Telegram id)
+  set-vip USER_ID LEVEL                change an existing account's level
+  user-status USER_ID active|suspended
 
 Everything here is read-only except `smoke-lambda`, which invokes a function
-with an event its guard clause discards before any side effect.
+with an event its guard clause discards before any side effect, and the
+`user-*` / `set-vip` commands, which write account rows to the bots table
+(each is a conditional write: create refuses an existing account, the
+updates refuse a missing one).
 
 Design notes (the reasons this is Python and not bash):
   - Windows Git Bash mangles `/aws/...` paths and collapses backslashes in
@@ -581,6 +589,123 @@ def cmd_smoke_lambda(a):
 # ---------------------------------------------------------------- main
 
 
+# ---------------------------------------------------------------- accounts
+#
+# Row shapes mirror src/infra/botrepository.rs: the account row is
+# pk=user#<id>/sk=profile, a Telegram identity is pk=identity#telegram#<tg>/
+# sk=profile plus the tenant's own listing pk=user_id#<id>/sk=identity#telegram#<tg>.
+
+MAX_VIP_LEVEL = 9
+
+
+def dyn_put(c: dict, item: dict, condition: str, a, values: dict | None = None) -> bool:
+    """put-item with a condition; False when the condition refused it."""
+    env = dict(os.environ, AWS_PROFILE=a.profile, AWS_DEFAULT_REGION=a.region, AWS_PAGER="",
+               MSYS_NO_PATHCONV="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    cmd = [AWS, "dynamodb", "put-item", "--table-name", c["table"],
+           "--item", json.dumps(item), "--condition-expression", condition]
+    if values:
+        cmd += ["--expression-attribute-values", json.dumps(values)]
+    r = subprocess.run(cmd, capture_output=True, env=env)
+    if r.returncode == 0:
+        return True
+    err = r.stderr.decode("utf-8", "replace")
+    if "ConditionalCheckFailedException" in err:
+        return False
+    raise RuntimeError(f"aws dynamodb put-item failed: {err.strip().splitlines()[-1]}")
+
+
+def dyn_update_user(c: dict, user_id: str, field: str, value: dict, a) -> bool:
+    env = dict(os.environ, AWS_PROFILE=a.profile, AWS_DEFAULT_REGION=a.region, AWS_PAGER="",
+               MSYS_NO_PATHCONV="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    now = str(int(time.time()))
+    r = subprocess.run([AWS, "dynamodb", "update-item", "--table-name", c["table"],
+                        "--key", json.dumps({"pk": {"S": f"user#{user_id}"}, "sk": {"S": "profile"}}),
+                        "--update-expression", "SET #f = :v, updated_at = :now",
+                        "--condition-expression", "attribute_exists(pk)",
+                        "--expression-attribute-names", json.dumps({"#f": field}),
+                        "--expression-attribute-values", json.dumps({":v": value, ":now": {"N": now}})],
+                       capture_output=True, env=env)
+    if r.returncode == 0:
+        return True
+    err = r.stderr.decode("utf-8", "replace")
+    if "ConditionalCheckFailedException" in err:
+        return False
+    raise RuntimeError(f"aws dynamodb update-item failed: {err.strip().splitlines()[-1]}")
+
+
+def cmd_user_show(a):
+    c = cfg(a.env)
+    got = aws(["dynamodb", "get-item", "--table-name", c["table"], "--consistent-read",
+               "--key", json.dumps({"pk": {"S": f"user#{a.user_id}"}, "sk": {"S": "profile"}})],
+              a.profile, a.region)
+    item = (got or {}).get("Item")
+    if not item:
+        print(f"no account row for {a.user_id}")
+    else:
+        print(f"user_id    {a.user_id}")
+        for k in ("vip_level", "status", "email", "created_at", "updated_at"):
+            v = dyn_val(item, k)
+            if v is not None:
+                if k.endswith("_at"):
+                    v = f"{v} ({ts(int(v))})"
+                print(f"{k:<10} {v}")
+    q = aws(["dynamodb", "query", "--table-name", c["table"],
+             "--key-condition-expression", "pk = :pk AND begins_with(sk, :p)",
+             "--expression-attribute-values",
+             json.dumps({":pk": {"S": f"user_id#{a.user_id}"}, ":p": {"S": "identity#"}})],
+            a.profile, a.region)
+    ids = [dyn_val(i, "sk")[len("identity#"):] for i in (q or {}).get("Items", [])]
+    print("identities " + (", ".join(ids) if ids else "(none)"))
+
+
+def cmd_user_create(a):
+    c = cfg(a.env)
+    if not 0 <= a.vip <= MAX_VIP_LEVEL:
+        raise RuntimeError(f"--vip must be within 0..{MAX_VIP_LEVEL}")
+    now = str(int(time.time()))
+    item = {"pk": {"S": f"user#{a.user_id}"}, "sk": {"S": "profile"},
+            "vip_level": {"N": str(a.vip)}, "status": {"S": "active"},
+            "created_at": {"N": now}, "updated_at": {"N": now}}
+    if a.email:
+        item["email"] = {"S": a.email}
+    if dyn_put(c, item, "attribute_not_exists(pk)", a):
+        print(f"created account {a.user_id} vip={a.vip}")
+    else:
+        print(f"account {a.user_id} already exists; left untouched")
+    if a.telegram:
+        forward = {"pk": {"S": f"identity#telegram#{a.telegram}"}, "sk": {"S": "profile"},
+                   "user_id": {"S": a.user_id}, "linked_at": {"N": now}}
+        # The same condition the bot uses: an identity names one tenant, and
+        # re-binding to the same one is not a failure.
+        if not dyn_put(c, forward, "attribute_not_exists(pk) OR user_id = :u", a,
+                       values={":u": {"S": a.user_id}}):
+            raise RuntimeError(f"telegram id {a.telegram} is already bound to another account")
+        listing = {"pk": {"S": f"user_id#{a.user_id}"}, "sk": {"S": f"identity#telegram#{a.telegram}"},
+                   "linked_at": {"N": now}}
+        aws(["dynamodb", "put-item", "--table-name", c["table"], "--item", json.dumps(listing)],
+            a.profile, a.region)
+        print(f"bound telegram {a.telegram} -> {a.user_id}")
+
+
+def cmd_set_vip(a):
+    c = cfg(a.env)
+    if not 0 <= a.level <= MAX_VIP_LEVEL:
+        raise RuntimeError(f"level must be within 0..{MAX_VIP_LEVEL}")
+    if dyn_update_user(c, a.user_id, "vip_level", {"N": str(a.level)}, a):
+        print(f"{a.user_id} vip_level={a.level}")
+    else:
+        raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
+
+
+def cmd_user_status(a):
+    c = cfg(a.env)
+    if dyn_update_user(c, a.user_id, "status", {"S": a.status}, a):
+        print(f"{a.user_id} status={a.status}")
+    else:
+        raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--profile", default=DEFAULT_PROFILE)
@@ -621,6 +746,27 @@ def main(argv=None):
     s = sub.add_parser("smoke-lambda", help="invoke with an ignored event; expect 200 and no FunctionError")
     s.add_argument("name")
     s.set_defaults(fn=cmd_smoke_lambda)
+
+    s = sub.add_parser("user-show", help="the account row and the identities it holds")
+    s.add_argument("user_id")
+    s.set_defaults(fn=cmd_user_show)
+
+    s = sub.add_parser("user-create", help="create an account row; optionally bind a Telegram id to it")
+    s.add_argument("user_id")
+    s.add_argument("--vip", type=int, default=0)
+    s.add_argument("--email")
+    s.add_argument("--telegram", help="Telegram user id to bind (refused if bound elsewhere)")
+    s.set_defaults(fn=cmd_user_create)
+
+    s = sub.add_parser("set-vip", help="change an existing account's level (0..9)")
+    s.add_argument("user_id")
+    s.add_argument("level", type=int)
+    s.set_defaults(fn=cmd_set_vip)
+
+    s = sub.add_parser("user-status", help="activate or suspend an account")
+    s.add_argument("user_id")
+    s.add_argument("status", choices=["active", "suspended"])
+    s.set_defaults(fn=cmd_user_status)
 
     a = p.parse_args(argv)
     try:
