@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
+import { LocaleProvider } from "./i18n/locale";
 import "./styles.css";
 
 // `/pbtb-rust/` on GitHub Pages, `/` in dev; the router wants it without the
@@ -19,11 +20,13 @@ async function boot() {
   }
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <AuthProvider>
-        <BrowserRouter basename={basename}>
-          <App />
-        </BrowserRouter>
-      </AuthProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <BrowserRouter basename={basename}>
+            <App />
+          </BrowserRouter>
+        </AuthProvider>
+      </LocaleProvider>
     </StrictMode>,
   );
 }

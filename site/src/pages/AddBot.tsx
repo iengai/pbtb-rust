@@ -4,12 +4,12 @@ import { api, ApiError } from "../api/client";
 import { useAction } from "../api/hooks";
 import { Key } from "../components/icons";
 import { Crumbs, ErrorBanner } from "../components/ui";
-
-const STEPS = ["Name", "API key", "Secret"];
+import { useT } from "../i18n/locale";
 
 // The three-step add flow: name, key, secret. A 409 for an existing name is
 // shown as an overwrite confirmation and retried with `overwrite: true`.
 export function AddBot() {
+  const t = useT();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
@@ -19,6 +19,7 @@ export function AddBot() {
   const action = useAction();
 
   const egress = import.meta.env.VITE_EGRESS_IP as string | undefined;
+  const steps = [t.bots.add.steps.name, t.bots.add.steps.apiKey, t.bots.add.steps.secret];
 
   const submit = (overwrite: boolean) =>
     action.run(async () => {
@@ -53,14 +54,14 @@ export function AddBot() {
 
   return (
     <>
-      <Crumbs items={[{ to: "/bots", label: "Bots" }, { label: "Add bot" }]} />
+      <Crumbs items={[{ to: "/bots", label: t.common.nav.bots }, { label: t.bots.add.title }]} />
       <div style={{ maxWidth: 560 }}>
-        <h1 style={{ marginBottom: 4 }}>Add bot</h1>
+        <h1 style={{ marginBottom: 4 }}>{t.bots.add.title}</h1>
         <div className="sub" style={{ fontSize: 13.5, marginBottom: 22 }}>
-          One bot per exchange sub-account. The key is stored encrypted and never shown again.
+          {t.bots.add.lead}
         </div>
         <div className="stepper">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <span key={s} style={{ display: "contents" }}>
               {i > 0 && <div className="line" />}
               <div className="step">
@@ -73,7 +74,7 @@ export function AddBot() {
         <form className="card" style={{ padding: 20 }} onSubmit={onSubmit}>
           <div className="form">
             <div className="field">
-              <label htmlFor="bot-name">Bot name</label>
+              <label htmlFor="bot-name">{t.bots.add.nameLabel}</label>
               {step === 0 ? (
                 <input
                   id="bot-name"
@@ -94,14 +95,14 @@ export function AddBot() {
             </div>
             {step >= 1 && (
               <div className="field">
-                <label htmlFor="bot-key">Bybit API key</label>
+                <label htmlFor="bot-key">{t.bots.add.keyLabel}</label>
                 {step === 1 ? (
                   <input
                     id="bot-key"
                     className="input mono"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Paste the API key"
+                    placeholder={t.bots.add.keyPlaceholder}
                     autoFocus
                     autoComplete="off"
                     spellCheck={false}
@@ -112,25 +113,27 @@ export function AddBot() {
                   </div>
                 )}
                 <div className="hint" style={{ marginTop: 6 }}>
-                  Read + trade permissions. IP whitelist: {egress ? <span className="mono">{egress}</span> : "the egress address shown on the Account page"}.
+                  {t.bots.add.keyHint(
+                    egress ? <span className="mono">{egress}</span> : t.bots.add.egressFallback,
+                  )}
                 </div>
               </div>
             )}
             {step >= 2 && (
               <div className="field">
-                <label htmlFor="bot-secret">API secret</label>
+                <label htmlFor="bot-secret">{t.bots.add.secretLabel}</label>
                 <input
                   id="bot-secret"
                   className="input mono"
                   type="password"
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
-                  placeholder="Paste the API secret"
+                  placeholder={t.bots.add.secretPlaceholder}
                   autoFocus
                   autoComplete="off"
                 />
                 <div className="hint" style={{ marginTop: 6 }}>
-                  Sent once over TLS to the API, stored encrypted, never echoed back.
+                  {t.bots.add.secretHint}
                 </div>
               </div>
             )}
@@ -141,15 +144,15 @@ export function AddBot() {
                 onClick={() => (step === 0 ? navigate("/bots") : setStep(step - 1))}
                 disabled={action.busy}
               >
-                Back
+                {t.common.back}
               </button>
               {conflict ? (
                 <button type="button" className="btn primary" disabled={action.busy} onClick={() => void submit(true)}>
-                  Replace the stored key
+                  {t.bots.add.replaceKey}
                 </button>
               ) : (
                 <button type="submit" className="btn primary" disabled={!canContinue || action.busy}>
-                  {step < 2 ? "Continue" : "Add bot"}
+                  {step < 2 ? t.bots.continueLabel : t.bots.add.title}
                 </button>
               )}
             </div>
@@ -160,10 +163,7 @@ export function AddBot() {
             <div className="ico">
               <Key />
             </div>
-            <div className="body">
-              <b>A bot named “{conflict}” already exists.</b> Continuing will replace its stored API key. Its
-              config and history stay.
-            </div>
+            <div className="body">{t.bots.add.conflict(conflict)}</div>
           </div>
         )}
         <div style={{ marginTop: 16 }}>

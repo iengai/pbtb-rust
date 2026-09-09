@@ -21,11 +21,43 @@ site/
     chart/              return curve (windowing, re-basing, SVG) + backtest equity chart
     components/         nav, pills/badges/tiles, banners, modal, icons
     data/               static JSON access (data/, templates/)
+    i18n/               English + Simplified Chinese catalogs (see Languages below)
     pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail, Account, Returns
   templates/            strategy-template backtests (committed; see below)
   data/                 per-bot return series (gitignored; CI syncs it from S3)
   dist/                 build output (gitignored)
 ```
+
+## Languages
+
+English and Simplified Chinese, hand-rolled (no i18n library), in `src/i18n/`:
+
+```
+i18n/
+  locale.tsx      Lang = "en" | "zh"; detectLang/loadLang/saveLang; LocaleProvider (context
+                  {lang, setLang, t}); useT() -> Messages; useLang() -> {lang, setLang}; LangSwitch
+  messages.ts     Messages = typeof en; messages: Record<Lang, Messages>
+  en/index.ts     en = { common, auth, bots, configs, account, returns }
+  en/<area>.tsx   one file per page area, plain object literal
+  zh/index.ts     zh: Messages = { common, auth, bots, configs, account, returns }
+  zh/<area>.tsx   import { <area> as en } from "../en/<area>"; export const <area>: typeof en = {...}
+```
+
+Each `zh/<area>.tsx` is typed `typeof en`, so a key the zh side is missing or invents is a `tsc`
+error (`npm run lint` runs `tsc --noEmit`) — parity between the two catalogs is enforced by the
+compiler, not by convention. A catalog leaf is a `string`, or a typed function of its interpolated
+values returning a `string` or `ReactNode` (never build a message by concatenating leaves — Chinese
+word order differs from English); rich text with inline markup (`<b>`, `<span>`) is a function
+returning `ReactNode`, which is why catalog files are `.tsx`. Components read `t.<area>.<key>` via
+`useT()`.
+
+The pure modules — `chart/returnCurve.ts`, `chart/equitySvg.ts`, `pages/metrics.ts` — stay
+language-free: they return structured data (an enum-like reason, numbers, timestamps) rather than
+sentences, and the React side (`ReturnChart.tsx`, `EquityChart.tsx`, the pages) resolves it through
+`t`.
+
+The language is stored in `localStorage["pbtb.lang"]`; absent that, it defaults from
+`navigator.languages` (the first entry starting with `zh` picks `"zh"`, else `"en"`).
 
 ## Scripts
 

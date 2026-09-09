@@ -15,7 +15,7 @@ const PW = W - M.l - M.r,
 const pct = (v: number) => (v / 100 - 1) * 100;
 const fmtMonth = (sec: number) => new Date(sec * 1000).toISOString().slice(0, 7);
 
-export function equitySVG(points: EquityPoint[]): string {
+export function equitySVG(points: EquityPoint[], ariaLabel: string): string {
   const pts = points.slice().sort((a, b) => a.ts - b.ts);
   if (pts.length < 2) return "";
   const t0 = pts[0]!.ts,
@@ -66,5 +66,5 @@ export function equitySVG(points: EquityPoint[]): string {
   const equity = `<path d="${eq}" fill="none" stroke="var(--pnl)" stroke-width="2" stroke-linejoin="round"/>`;
   const balance = `<path d="${path("balance")}" fill="none" stroke="var(--balance)" stroke-width="2" stroke-linejoin="round"/>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="backtest equity">${grid}${baseline}${xlab}${area}${equity}${balance}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeXml(ariaLabel)}">${grid}${baseline}${xlab}${area}${equity}${balance}</svg>`;
 }

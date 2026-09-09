@@ -23,12 +23,6 @@ export const fmtPct = (v: number): string => (Number.isFinite(v) ? `${v.toFixed(
 export const fmtSignedPct = (v: number): string =>
   Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)}%` : "—";
 export const fmtDate = (sec: number): string => new Date(sec * 1000).toISOString().slice(0, 10);
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// Axis labels: "Jun 12" — the year is implied by the window.
-const fmtAxisDate = (sec: number): string => {
-  const d = new Date(sec * 1000);
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-};
 
 // An account can decay to an index of (effectively) zero — a real liquidation.
 // Re-basing a window onto such a start has no meaningful denominator: 0/0, or a
@@ -55,12 +49,30 @@ export function normalizeIndex(idx: unknown): IndexEntry[] {
     .filter((e) => e && e.id);
 }
 
+// What the window is measuring: the era since the account was re-funded, all
+// history, or one of the presets (named by its key, "90D"). The words belong to
+// the reader's language, so the module names the case and the UI says it.
+export type RangeLabel =
+  | { kind: "sinceRefunding" }
+  | { kind: "total" }
+  | { kind: "range"; k: string };
+
 export type WindowStats = {
-  label: string;
+  label: RangeLabel;
   ret: number;
   peak: number;
   maxDrawdown: number;
   days: number;
+};
+
+// The provenance line under the chart, as fields: which exchange, how many
+// daily points are drawn, the re-funding this era starts at (if any), and when
+// the collector last published — all timestamps in seconds.
+export type WindowCaption = {
+  exchange: string;
+  days: number;
+  resetAt: number | null;
+  updatedAt: number;
 };
 
 export type ChartWindow =
@@ -70,9 +82,11 @@ export type ChartWindow =
       switches: SwitchMarker[];
       reset: number | null;
       stats: WindowStats;
-      footer: string;
+      caption: WindowCaption | null;
     }
-  | { kind: "empty"; message: string; hint?: string };
+  | { kind: "empty"; reason: "noData" }
+  | { kind: "empty"; reason: "resetAfterWindow"; resetAt: number }
+  | { kind: "empty"; reason: "wipedOut"; label: RangeLabel };
 
 // The selected look-back window of a series, re-based to its first point (0%
 // at the window start), so every preset reads as "return over this period" —
@@ -81,7 +95,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
   const all = (s.points || []).slice().sort((a, b) => a.ts - b.ts);
 
   if (all.length < 2) {
-    return { kind: "empty", message: "Not enough data to plot yet." };
+    return { kind: "empty", reason: "noData" };
   }
 
   const range = RANGES[rangeI] ?? RANGES[DEFAULT_RANGE]!;
@@ -103,25 +117,22 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
   if (reset != null) win = win.filter((p) => p.ts >= reset);
 
   if (win.length < 2) {
-    return {
-      kind: "empty",
-      message: `The account was re-funded on ${fmtDate(reset!)} — not enough data since then to plot.`,
-      hint: "Everything before that date was earned on capital that no longer exists.",
-    };
+    return { kind: "empty", reason: "resetAfterWindow", resetAt: reset! };
   }
 
   // Re-base the cumulative index to the window start.
   const base = win[0]!.index;
-  const label = reset != null ? "Since re-funding" : range.days == null ? "Total" : range.k;
+  const label: RangeLabel =
+    reset != null
+      ? { kind: "sinceRefunding" }
+      : range.days == null
+        ? { kind: "total" }
+        : { kind: "range", k: range.k };
 
   // Nothing left to measure against: the account was already at zero when this
   // window opened. Any percentage here would be invented.
   if (!(base > DEAD_EPS)) {
-    return {
-      kind: "empty",
-      message: `Account was already at zero when this ${label} window opened — no return to compute.`,
-      hint: "The capital was lost earlier in this bot's history.",
-    };
+    return { kind: "empty", reason: "wipedOut", label };
   }
 
   const view: ViewPoint[] = win.map((p) => ({ ts: p.ts, return_pct: (p.index / base - 1) * 100 }));
@@ -138,13 +149,16 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     if (dd < maxDrawdown) maxDrawdown = dd;
   }
 
-  const era =
-    reset != null
-      ? ` · index restarted ${fmtDate(reset)}, when the wiped account was re-funded`
-      : "";
-  const footer = s.generated_at
-    ? `${s.exchange || "bybit"} · ${view.length} days shown · time-weighted, deposit-adjusted${era} · updated ${fmtDate(s.generated_at)} UTC`
-    : "";
+  // Without a collection timestamp there is nothing honest to say about how
+  // fresh the curve is, so the caption is left out entirely.
+  const caption: WindowCaption | null = s.generated_at
+    ? {
+        exchange: s.exchange || "bybit",
+        days: view.length,
+        resetAt: reset ?? null,
+        updatedAt: s.generated_at,
+      }
+    : null;
 
   const switches = (s.config_switches || []).filter(
     (c) => c.ts >= view[0]!.ts && c.ts <= last.ts,
@@ -156,7 +170,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     switches,
     reset: reset ?? null,
     stats: { label, ret: last.return_pct, peak, maxDrawdown, days: view.length },
-    footer,
+    caption,
   };
 }
 
@@ -221,7 +235,19 @@ function returnAt(ts: number, pts: ViewPoint[]): number {
   return pts[n - 1]!.return_pct;
 }
 
-export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[]): string {
+// Every word the drawing code puts in front of a reader arrives from outside,
+// already in the reader's language.
+export type ChartLabels = {
+  ariaLabel: string;
+  /** Row name for the hovered return value in the tooltip. */
+  returnRow: string;
+  /** Native `<title>` on a config-switch marker; the date is ISO. */
+  switchTitle: (template: string, date: string) => string;
+  /** One x-axis tick: the year is implied by the window, so day and month only. */
+  axisDate: (sec: number) => string;
+};
+
+export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[], labels: ChartLabels): string {
   const sc = scales(pts);
   const up = pts[pts.length - 1]!.return_pct >= 0;
 
@@ -244,7 +270,7 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[]): string {
   const COLS = 5;
   for (let i = 0; i <= COLS; i++) {
     const t = sc.t0 + ((sc.t1 - sc.t0) * i) / COLS;
-    xlab += `<text x="${sc.x(t).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === COLS ? "end" : "middle"}" fill="var(--muted)" font-size="11">${fmtAxisDate(t)}</text>`;
+    xlab += `<text x="${sc.x(t).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === COLS ? "end" : "middle"}" fill="var(--muted)" font-size="11">${escapeXml(labels.axisDate(t))}</text>`;
   }
 
   // Config-switch markers: a dot sitting ON the return curve at each switch,
@@ -254,7 +280,8 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[]): string {
     if (c.ts < sc.t0 || c.ts > sc.t1) continue;
     const x = sc.x(c.ts).toFixed(1);
     const y = sc.y(returnAt(c.ts, pts)).toFixed(1);
-    sw += `<circle cx="${x}" cy="${y}" r="5" fill="var(--switch)" stroke="var(--panel)" stroke-width="2"><title>→ ${escapeXml(c.template_name)} · ${fmtDate(c.ts)}</title></circle>`;
+    const title = escapeXml(labels.switchTitle(c.template_name, fmtDate(c.ts)));
+    sw += `<circle cx="${x}" cy="${y}" r="5" fill="var(--switch)" stroke="var(--panel)" stroke-width="2"><title>${title}</title></circle>`;
   }
 
   const color = up ? "var(--pnl)" : "var(--pnl-neg)";
@@ -263,7 +290,7 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[]): string {
   const area = `<path d="${path} L${sc.x(sc.t1).toFixed(1)} ${bottom} L${sc.x(sc.t0).toFixed(1)} ${bottom} Z" fill="${color}" opacity="0.08"/>`;
   const line = `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="return curve">
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeXml(labels.ariaLabel)}">
     ${grid}${baseline}${xlab}${area}${sw}${line}
     <line data-part="cursor" x1="0" y1="${M.t}" x2="0" y2="${M.t + PH}" stroke="var(--accent)" stroke-width="1" opacity="0"/>
     <circle data-part="dot" r="3.5" fill="${color}" opacity="0"/>
@@ -273,7 +300,12 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[]): string {
 
 // Hover: a cursor line + dot snapped to the nearest daily point, and a fixed
 // tooltip beside the pointer. Returns the teardown.
-export function wireHover(container: HTMLElement, tip: HTMLElement, pts: ViewPoint[]): () => void {
+export function wireHover(
+  container: HTMLElement,
+  tip: HTMLElement,
+  pts: ViewPoint[],
+  labels: ChartLabels,
+): () => void {
   const svg = container.querySelector("svg");
   const hit = container.querySelector<SVGElement>('[data-part="hit"]');
   const cursor = container.querySelector<SVGElement>('[data-part="cursor"]');
@@ -307,7 +339,7 @@ export function wireHover(container: HTMLElement, tip: HTMLElement, pts: ViewPoi
     show(true);
     tip.innerHTML =
       `<div class="d">${fmtDate(p.ts)}</div>` +
-      `<div class="row"><span>Return</span><b>${fmtPct(p.return_pct)}</b></div>`;
+      `<div class="row"><span>${escapeXml(labels.returnRow)}</span><b>${fmtPct(p.return_pct)}</b></div>`;
     tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 150) + "px";
     tip.style.top = e.clientY + 14 + "px";
   };

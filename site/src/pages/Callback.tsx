@@ -4,6 +4,7 @@ import { api, AuthRefused } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
 import { completeLogin } from "../auth/oauth";
 import { Notice } from "../components/ui";
+import { LangSwitch, useT } from "../i18n/locale";
 
 // The OAuth redirect target: trades the code for a token, then asks the API
 // who the token is before showing anything — a verified token nobody has
@@ -12,6 +13,7 @@ export function Callback() {
   const { search } = useLocation();
   const navigate = useNavigate();
   const { adopt, refuse } = useAuth();
+  const t = useT();
   const [error, setError] = useState<string | null>(null);
   const ran = useRef(false);
 
@@ -41,19 +43,20 @@ export function Callback() {
         <div className="brand">
           <div className="logo" />
           <div className="name">PBTB Console</div>
+          <LangSwitch />
         </div>
         {error ? (
           <>
             <Notice>
-              <div style={{ fontWeight: 600 }}>Sign-in did not complete.</div>
+              <div style={{ fontWeight: 600 }}>{t.auth.callbackFailed}</div>
               <div style={{ marginTop: 4 }}>{error}</div>
             </Notice>
             <Link to="/" className="btn">
-              Back to sign in
+              {t.auth.backToSignIn}
             </Link>
           </>
         ) : (
-          <div className="muted">Completing sign-in…</div>
+          <div className="muted">{t.auth.completing}</div>
         )}
       </div>
     </div>
