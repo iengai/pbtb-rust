@@ -37,22 +37,30 @@ use super::mcp::http::{Metadata, bearer, insufficient_scope, refuse};
 use super::redaction::redact;
 use crate::domain::error::{DomainError, Retryability};
 use crate::usecase::{
-    AddBotUseCase, GetTemplateUseCase, ListIdentitiesUseCase, UnlinkIdentitiesUseCase,
+    AddBotUseCase, GetTemplateUseCase, IssueTelegramBindTicketUseCase, ListIdentitiesUseCase,
+    SignupOutcome, SignupUseCase, UnbindTelegramUseCase,
 };
 
 /// Every route lives under this prefix, so the MCP protocol keeps `/` and the
 /// link flow keeps `/link` on the shared host.
 pub const PREFIX: &str = "/api/v1";
 
-/// The use cases the routes drive: everything the MCP tools have, plus the
-/// three the web needs that a tool must not offer or has no use for.
+/// The use cases the routes drive: everything the MCP tools have, plus what
+/// the web needs that a tool must not offer or has no use for — key entry,
+/// template description, and the account itself: signing up, and the Telegram
+/// id it speaks through.
 #[derive(Clone)]
 pub struct Deps {
     pub mcp: mcp::Deps,
     pub add_bot_usecase: Arc<AddBotUseCase>,
     pub get_template_usecase: Arc<GetTemplateUseCase>,
     pub list_identities_usecase: Arc<ListIdentitiesUseCase>,
-    pub unlink_identities_usecase: Arc<UnlinkIdentitiesUseCase>,
+    pub signup_usecase: Arc<SignupUseCase>,
+    pub issue_bind_ticket_usecase: Arc<IssueTelegramBindTicketUseCase>,
+    pub unbind_telegram_usecase: Arc<UnbindTelegramUseCase>,
+    /// The bot's `@username`, for the deep link a bind ticket is handed out
+    /// as. Empty hands out the token alone.
+    pub bot_username: String,
 }
 
 pub struct WebApi {
@@ -117,8 +125,14 @@ impl WebApi {
 
     /// Serve one request. Authentication comes first and unconditionally: no
     /// route on this surface answers an anonymous caller, so the principal is
-    /// resolved before the path is even looked at.
+    /// resolved before the path is even looked at. The one route that takes a
+    /// verified subject without an account is signup, which is what creates
+    /// the account a principal is resolved from.
     pub async fn handle(&self, request: Request<Bytes>) -> Response<Bytes> {
+        if request.method() == Method::POST && request.uri().path() == format!("{PREFIX}/signup") {
+            return self.signup(&request).await;
+        }
+
         let principal = match bearer(&request) {
             Some(token) => self.tokens.verify(token).await,
             None => Err(AuthError::Unauthenticated("no bearer presented".into())),
@@ -140,6 +154,46 @@ impl WebApi {
         }
     }
 
+    /// Create the account behind a verified subject, or find the one it has.
+    ///
+    /// Needs a bearer like every route, but only asks it who it is: the
+    /// subject is refused nowhere else until this has run. Explicit rather
+    /// than a side effect of the first request, so authenticating with the
+    /// provider is never by itself an account.
+    async fn signup(&self, request: &Request<Bytes>) -> Response<Bytes> {
+        let verified = match bearer(request) {
+            Some(token) => self.tokens.identify(token).await,
+            None => Err(AuthError::Unauthenticated("no bearer presented".into())),
+        };
+        let verified = match verified {
+            Ok(verified) => verified,
+            Err(refusal) => {
+                tracing::info!(%refusal, "refused a signup");
+                return refuse(&self.metadata, &refusal);
+            }
+        };
+
+        match self
+            .deps
+            .signup_usecase
+            .execute(&verified.subject, verified.email.as_deref())
+            .await
+        {
+            Ok(SignupOutcome::Created(user)) => {
+                tracing::info!(principal = %user.id, route = "signup", outcome = "created", "api write");
+                respond(
+                    StatusCode::CREATED,
+                    json!({ "status": "created", "user_id": user.id, "vip_level": user.vip_level }),
+                )
+            }
+            Ok(SignupOutcome::Existing(user)) => respond(
+                StatusCode::OK,
+                json!({ "status": "existing", "user_id": user.id, "vip_level": user.vip_level }),
+            ),
+            Err(e) => self.error_response(ApiError::from_domain("signing up", e)),
+        }
+    }
+
     async fn route(&self, principal: &Principal, request: &Request<Bytes>) -> ApiResult {
         let path = request.uri().path();
         let rest = path.strip_prefix(PREFIX).unwrap_or_default();
@@ -153,7 +207,8 @@ impl WebApi {
 
         match (method, segments.as_slice()) {
             (&Method::GET, ["me"]) => h.me().await,
-            (&Method::DELETE, ["me", "identities"]) => h.unlink_identities().await,
+            (&Method::POST, ["me", "telegram", "bind-ticket"]) => h.bind_ticket().await,
+            (&Method::DELETE, ["me", "telegram"]) => h.unbind_telegram().await,
 
             (&Method::GET, ["bots"]) => h.list_bots().await,
             (&Method::POST, ["bots"]) => h.add_bot(parse(body)?).await,

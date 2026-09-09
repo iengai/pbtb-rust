@@ -14,11 +14,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use common::{Harness, NOW, RESOURCE};
+use common::oauth::FakeIssuer;
+use common::telegram::STRANGER_ID;
+use common::{BOT_USERNAME, Harness, NOW, RESOURCE};
 use http::{Request, Response, StatusCode, header};
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
+use pbtb_rust::domain::identity::{IdentityRepository, PROVIDER_TELEGRAM};
 use pbtb_rust::interface::mcp::{AuthError, Principal, TokenVerifier};
+use pbtb_rust::usecase::{BindOutcome, BindTelegramUseCase};
 use serde_json::{Value, json};
 
 const TOKEN: &str = "a-shared-bearer";
@@ -89,6 +93,7 @@ fn read_only(user_id: &str) -> Arc<dyn TokenVerifier> {
     Arc::new(Fixed(Principal {
         user_id: user_id.to_string(),
         scopes: HashSet::from(["bots:read".to_string()]),
+        vip_level: 0,
     }))
 }
 
@@ -408,7 +413,7 @@ async fn a_template_is_described_never_dumped() {
 // ---------------------------------------------------------------- account
 
 #[tokio::test]
-async fn me_lists_the_links_and_unlinking_releases_them() {
+async fn me_describes_the_account_and_its_telegram_binding() {
     let h = harness!();
     h.given_link("workos", "user_01SUBJECT", USER).await;
     let api = h.http_api(TOKEN);
@@ -418,16 +423,178 @@ async fn me_lists_the_links_and_unlinking_releases_them() {
     let me = body(&me);
     assert_eq!(me["user_id"], json!(USER));
     assert_eq!(
-        me["identities"],
-        json!([{ "provider": "workos", "subject": "user_01SUBJECT" }])
+        me["telegram"],
+        json!(USER),
+        "the harness binds the operator's own id"
     );
+    assert!(me["vip_level"].is_number());
+    assert!(
+        me["identities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|it| it == &json!({ "provider": "workos", "subject": "user_01SUBJECT" }))
+    );
+}
 
+#[tokio::test]
+async fn a_bind_ticket_is_a_deep_link_the_bot_redeems_for_the_caller() {
+    let h = harness!();
+    let api = h.http_api(TOKEN);
+
+    // The operator already speaks through a Telegram id; release it first, as
+    // the account page does before offering a new bind.
     let released = api
-        .handle(request("DELETE", "/me/identities", Some(TOKEN), None))
+        .handle(request("DELETE", "/me/telegram", Some(TOKEN), None))
         .await;
     assert_eq!(released.status(), StatusCode::OK);
     assert_eq!(body(&released)["released"], json!(1));
-    assert_eq!(body(&api.handle(get("/me")).await)["identities"], json!([]));
+    assert_eq!(body(&api.handle(get("/me")).await)["telegram"], Value::Null);
+
+    let ticket = api
+        .handle(request(
+            "POST",
+            "/me/telegram/bind-ticket",
+            Some(TOKEN),
+            None,
+        ))
+        .await;
+    assert_eq!(ticket.status(), StatusCode::OK);
+    let ticket = body(&ticket);
+    let token = ticket["token"].as_str().expect("a token").to_string();
+    assert_eq!(token.len(), 64);
+    assert_eq!(
+        ticket["url"],
+        json!(format!("https://t.me/{BOT_USERNAME}?start={token}"))
+    );
+
+    // Whoever opens it in the bot is bound to the caller — the ticket named the
+    // account; nothing in the bot's message does.
+    let bind = BindTelegramUseCase::new(
+        h.bots.clone(),
+        h.bots.clone(),
+        Arc::new(common::fakes::FixedClock(NOW)),
+    );
+    assert_eq!(
+        bind.execute(&token, &STRANGER_ID.to_string())
+            .await
+            .expect("bind"),
+        BindOutcome::Bound {
+            user_id: USER.to_string()
+        }
+    );
+    let identities: &dyn IdentityRepository = h.bots.as_ref();
+    assert_eq!(
+        identities
+            .find_link(PROVIDER_TELEGRAM, &STRANGER_ID.to_string())
+            .await
+            .expect("find")
+            .expect("bound")
+            .user_id,
+        USER
+    );
+    assert_eq!(
+        body(&api.handle(get("/me")).await)["telegram"],
+        json!(STRANGER_ID.to_string())
+    );
+
+    // A read-only token can look at the account but not change what it speaks
+    // through.
+    let api = h.http_api_with(read_only(USER));
+    assert_eq!(
+        api.handle(request(
+            "POST",
+            "/me/telegram/bind-ticket",
+            Some(TOKEN),
+            None
+        ))
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn signup_creates_the_account_a_verified_subject_lacks_and_only_that() {
+    let h = harness!();
+    let issuer = FakeIssuer::start().await;
+    let api = h.http_api_with(h.oauth_verifier(&issuer.issuer()).await);
+
+    let mut claims = issuer.claims("user_01NEWCOMER", "bots:read bots:write", RESOURCE);
+    claims["email"] = json!("newcomer@example.com");
+    let token = issuer.token(claims);
+
+    // Before signing up, a verified subject is nobody here.
+    let refused = api
+        .handle(request("GET", "/bots", Some(&token), None))
+        .await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+
+    let created = api
+        .handle(request("POST", "/signup", Some(&token), None))
+        .await;
+    assert_eq!(
+        created.status(),
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(created.body())
+    );
+    let created = body(&created);
+    assert_eq!(created["status"], json!("created"));
+    assert_eq!(created["vip_level"], json!(0));
+    let user_id = created["user_id"].as_str().expect("an id").to_string();
+    assert_ne!(
+        user_id, "user_01NEWCOMER",
+        "the account id is not the subject"
+    );
+
+    // The same token now reaches an empty tenant of its own.
+    let bots = api
+        .handle(request("GET", "/bots", Some(&token), None))
+        .await;
+    assert_eq!(bots.status(), StatusCode::OK);
+    assert_eq!(body(&bots)["bots"], json!([]));
+    let me = body(&api.handle(request("GET", "/me", Some(&token), None)).await);
+    assert_eq!(me["user_id"], json!(user_id));
+    assert_eq!(me["telegram"], Value::Null);
+
+    // Signing up again is the same account, not a second one.
+    let again = api
+        .handle(request("POST", "/signup", Some(&token), None))
+        .await;
+    assert_eq!(again.status(), StatusCode::OK);
+    assert_eq!(body(&again)["status"], json!("existing"));
+    assert_eq!(body(&again)["user_id"], json!(user_id));
+
+    // Signup needs a verified token like everything else.
+    assert_eq!(
+        api.handle(request("POST", "/signup", None, None))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let stale =
+        issuer.token(issuer.claims("user_01OTHER", "bots:read", "https://elsewhere.example/"));
+    assert_eq!(
+        api.handle(request("POST", "/signup", Some(&stale), None))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn the_shared_bearer_cannot_sign_anyone_up() {
+    let h = harness!();
+    let api = h.http_api(TOKEN);
+    // A deployment-wide token names no subject; there is nobody to create an
+    // account for.
+    assert_eq!(
+        api.handle(request("POST", "/signup", Some(TOKEN), None))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
 }
 
 #[tokio::test]

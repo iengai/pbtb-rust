@@ -19,8 +19,9 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use super::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerifier};
+use super::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerifier, VerifiedSubject};
 use crate::domain::identity::{IdentityRepository, PROVIDER_WORKOS};
+use crate::domain::user::UserRepository;
 
 /// How long a fetched key set is trusted before an unknown `kid` is allowed to
 /// trigger another fetch. Without a floor, a stream of tokens carrying invented
@@ -37,6 +38,10 @@ struct Claims {
     /// any.
     #[serde(default)]
     scope: String,
+    /// Carried when the token asked for the `email` scope. Kept on the account
+    /// at signup for the operator to recognise it by; never a credential.
+    #[serde(default)]
+    email: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,7 +66,7 @@ pub struct OAuthTokens {
     http: reqwest::Client,
     keys: RwLock<Keys>,
     identities: Arc<dyn IdentityRepository>,
-    allowed_user_ids: HashSet<String>,
+    users: Arc<dyn UserRepository>,
 }
 
 impl OAuthTokens {
@@ -73,7 +78,7 @@ impl OAuthTokens {
         issuer: impl Into<String>,
         audience: impl Into<String>,
         identities: Arc<dyn IdentityRepository>,
-        allowed_user_ids: HashSet<String>,
+        users: Arc<dyn UserRepository>,
     ) -> anyhow::Result<Self> {
         let issuer = issuer.into();
         let http = reqwest::Client::builder()
@@ -121,7 +126,7 @@ impl OAuthTokens {
                 fetched_at: Instant::now(),
             }),
             identities,
-            allowed_user_ids,
+            users,
         })
     }
 
@@ -192,9 +197,11 @@ fn scopes_from(claim: &str) -> HashSet<String> {
         .collect()
 }
 
-#[async_trait]
-impl TokenVerifier for OAuthTokens {
-    async fn verify(&self, bearer: &str) -> Result<Principal, AuthError> {
+impl OAuthTokens {
+    /// The token's claims, once its signature, issuer, audience and expiry
+    /// have been checked. Everything about who the token is starts here; what
+    /// the subject is entitled to is decided by the caller.
+    async fn claims_of(&self, bearer: &str) -> Result<Claims, AuthError> {
         let header = decode_header(bearer)
             .map_err(|e| AuthError::Unauthenticated(format!("malformed token: {e}")))?;
         let kid = header
@@ -243,9 +250,16 @@ impl TokenVerifier for OAuthTokens {
         validation.validate_nbf = true;
         validation.leeway = LEEWAY;
 
-        let claims = decode::<Claims>(bearer, &key, &validation)
-            .map_err(|e| AuthError::Unauthenticated(format!("token rejected: {e}")))?
-            .claims;
+        decode::<Claims>(bearer, &key, &validation)
+            .map(|data| data.claims)
+            .map_err(|e| AuthError::Unauthenticated(format!("token rejected: {e}")))
+    }
+}
+
+#[async_trait]
+impl TokenVerifier for OAuthTokens {
+    async fn verify(&self, bearer: &str) -> Result<Principal, AuthError> {
+        let claims = self.claims_of(bearer).await?;
 
         let link = self
             .identities
@@ -254,19 +268,36 @@ impl TokenVerifier for OAuthTokens {
             .map_err(|e| AuthError::Forbidden(format!("identity lookup failed: {e}")))?
             .ok_or_else(|| {
                 // Authenticating with the provider is not an application for an
-                // account. An unlinked subject is refused, not provisioned.
+                // account. An unlinked subject is refused, not provisioned; the
+                // signup route is the one deliberate way to change that.
                 AuthError::Forbidden("this identity is not linked to any account".into())
             })?;
 
-        if !self.allowed_user_ids.contains(&link.user_id) {
-            return Err(AuthError::Forbidden(
-                "the linked account is not on the allowlist".into(),
-            ));
+        // The account row is what admits a linked subject: an identity pointing
+        // at no account is refused the same as no identity, and a suspended
+        // account is turned away here as it is at the bot.
+        let user = self
+            .users
+            .find_user(&link.user_id)
+            .await
+            .map_err(|e| AuthError::Forbidden(format!("account lookup failed: {e}")))?
+            .ok_or_else(|| AuthError::Forbidden("the linked account does not exist".into()))?;
+        if !user.is_active() {
+            return Err(AuthError::Forbidden("the account is suspended".into()));
         }
 
         Ok(Principal {
-            user_id: link.user_id,
+            user_id: user.id,
             scopes: scopes_from(&claims.scope),
+            vip_level: user.vip_level,
+        })
+    }
+
+    async fn identify(&self, bearer: &str) -> Result<VerifiedSubject, AuthError> {
+        let claims = self.claims_of(bearer).await?;
+        Ok(VerifiedSubject {
+            subject: claims.sub,
+            email: claims.email.filter(|e| !e.trim().is_empty()),
         })
     }
 }

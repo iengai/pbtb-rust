@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use subtle::ConstantTimeEq;
 
+use crate::domain::user::MAX_VIP_LEVEL;
+
 /// Who is calling, resolved from the transport's credentials before any tool
 /// runs.
 ///
@@ -14,18 +16,23 @@ use subtle::ConstantTimeEq;
 pub struct Principal {
     pub user_id: String,
     pub scopes: HashSet<String>,
+    /// The account's level, read with the account so every surface gates on
+    /// the same number without a second lookup.
+    pub vip_level: u8,
 }
 
 pub const SCOPE_READ: &str = "bots:read";
 pub const SCOPE_WRITE: &str = "bots:write";
 
 impl Principal {
-    /// A principal holding both scopes. The stdio transport's only caller is the
-    /// operator who started the process.
+    /// A principal holding both scopes and the top level. The stdio
+    /// transport's only caller is the operator who started the process, and the
+    /// shared bearer stands for the deployment's own account.
     pub fn full(user_id: impl Into<String>) -> Self {
         Self {
             user_id: user_id.into(),
             scopes: HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()]),
+            vip_level: MAX_VIP_LEVEL,
         }
     }
 
@@ -114,6 +121,24 @@ impl std::fmt::Display for AuthError {
 #[async_trait]
 pub trait TokenVerifier: Send + Sync {
     async fn verify(&self, bearer: &str) -> Result<Principal, AuthError>;
+
+    /// The subject a bearer verifies as, before any account lookup: what
+    /// signing up needs, since the account is what does not exist yet. A
+    /// transport whose credential names a deployment rather than a person has
+    /// no subject to offer.
+    async fn identify(&self, bearer: &str) -> Result<VerifiedSubject, AuthError> {
+        let _ = bearer;
+        Err(AuthError::Forbidden(
+            "this transport does not identify subjects".into(),
+        ))
+    }
+}
+
+/// A verified identity-provider subject, whether or not an account holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedSubject {
+    pub subject: String,
+    pub email: Option<String>,
 }
 
 /// One shared bearer token standing for one tenant.
@@ -172,6 +197,7 @@ mod tests {
         let p = Principal {
             user_id: "u".into(),
             scopes: HashSet::from([SCOPE_READ.to_string()]),
+            vip_level: 0,
         };
         assert!(p.has(SCOPE_READ));
         assert!(!p.has(SCOPE_WRITE));
