@@ -1,26 +1,32 @@
-// The account page: linked sign-ins, the Telegram account behind them, the
-// egress address to whitelist, and the current session.
+// The account page: the fixed Google sign-in, the Telegram account bound to
+// it, the level, the egress address to whitelist, and the current session.
 export const account = {
   title: "Account",
   loading: "account",
-  identities: {
-    title: "Linked identities",
-    lead: () => (
-      <>
-        Sign-ins that map to this Telegram account. Unlinking one signs it out everywhere. To link
-        another sign-in, press <b>Link account</b> in the Telegram bot; there is no link flow here.
-      </>
-    ),
-    none: "No linked identities.",
-    via: (provider: string, current: boolean) =>
-      `Google via ${provider}${current ? " · this session" : ""}`,
-    unlink: "Unlink",
+  signIn: {
+    title: "Sign-in",
+    lead: "The Google account this account was created with. It is the account's identity and cannot be changed or unlinked.",
+    via: "Google via WorkOS",
   },
   telegram: {
-    title: "Telegram account",
-    userId: "User id",
-    allowlist: "Allowlist",
-    allowed: "Allowed",
+    title: "Telegram",
+    lead: "The Telegram account that may drive your bots from the bot chat. One per account; unbind to bind another.",
+    bound: "Telegram user id · bound",
+    unbind: "Unbind",
+    none: "No Telegram account is bound.",
+    bind: "Bind a Telegram account",
+    ticketLead: (minutes: number) =>
+      `Open the link below from the Telegram account you want to bind. It works once and expires in ${minutes} minutes.`,
+    open: "Open in Telegram",
+    ifNotOpen: "If the link does not open, send the bot the /start command it carries.",
+    sendThis: "Send this to the bot in a private chat.",
+    done: "Done — check binding",
+  },
+  summary: {
+    title: "Account",
+    id: "Account id",
+    level: "Level",
+    vip: (level: number) => `VIP ${level}`,
     bots: "Bots",
   },
   egress: {
@@ -36,8 +42,8 @@ export const account = {
     noScopes: "none",
     signOut: "Sign out",
   },
-  unlinkAll: {
-    title: "Unlink all identities?",
-    body: "Every sign-in linked to this Telegram account is released, including the one you are using now. You are signed out here, and can link again from the Telegram bot.",
+  unbind: {
+    title: "Unbind Telegram?",
+    body: "The bound Telegram account stops being able to drive your bots. Your account, bots and this sign-in are untouched; you can bind another Telegram account afterwards.",
   },
 };

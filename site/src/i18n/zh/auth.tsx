@@ -3,12 +3,6 @@ import { auth as en } from "../en/auth";
 export const auth: typeof en = {
   signIn: "登录",
   lead: "在浏览器里管理你的 Passivbot 机器人。",
-  unlinkedTitle: "这个 Google 账户还没有绑定到机器人账户。",
-  unlinkedBody: () => (
-    <>
-      打开 Telegram 机器人，点击 <b>Link account</b>（绑定账户），用同一个 Google 账户登录，然后回到这里重新登录。
-    </>
-  ),
   expiredNotice: "会话已过期，请重新登录后继续。",
   scopeNotice: () => (
     <>
@@ -24,9 +18,24 @@ export const auth: typeof en = {
     </>
   ),
   continueWithGoogle: "使用 Google 登录",
-  invitationOnly:
-    "本控制台仅限受邀使用：你的 Google 账户需要先在 Telegram 机器人里完成绑定，这里不提供注册。",
+  newHere: "第一次来？用 Google 登录后，在下一页创建账户。Telegram 之后在账户页绑定。",
   callbackFailed: "登录未完成。",
   backToSignIn: "返回登录",
   completing: "正在完成登录…",
+  signup: {
+    title: "创建账户",
+    lead: (who) => (
+      <>
+        你当前以 <b>{who}</b> 登录，这个 Google 账户在这里还没有账户。
+      </>
+    ),
+    whatTitle: "你将获得",
+    whatBody:
+      "一个属于你自己的空间，初始为 0 级：用自己的交易所 API Key 添加机器人、选择配置，同一时间运行一个机器人。绑定 Telegram 是可选的，之后在账户页完成。",
+    create: "创建账户",
+    notYou: "不是你？",
+    signOut: "退出登录",
+    andSignIn: "然后换一个 Google 账户登录。",
+    thisAccount: "这个 Google 账户",
+  },
 };

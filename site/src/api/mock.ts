@@ -83,8 +83,13 @@ let bots: BotDetail[] = [
 
 const me: Me = {
   user_id: "5351234539",
+  vip_level: 9,
   scopes: ["bots:read", "bots:write"],
-  identities: [{ provider: "workos", subject: "user_01MOCKSUBJECT" }],
+  telegram: "5351234539",
+  identities: [
+    { provider: "workos", subject: "user_01MOCKSUBJECT" },
+    { provider: "telegram", subject: "5351234539" },
+  ],
 };
 
 const summary = (b: BotDetail): BotSummary => ({
@@ -119,7 +124,14 @@ export function installMock(): void {
 
   Object.assign(api, {
     me: () => delay(me),
-    unlinkIdentities: () => delay({ released: 1 }),
+    signup: () => delay({ status: "existing", user_id: me.user_id, vip_level: me.vip_level }),
+    bindTicket: () =>
+      delay({ token: "a".repeat(64), url: `https://t.me/pbtb_mock_bot?start=${"a".repeat(64)}`, expires_in: 600 }),
+    unbindTelegram: () => {
+      me.telegram = null;
+      me.identities = me.identities.filter((it) => it.provider !== "telegram");
+      return delay({ released: 1 });
+    },
     listBots: () => delay({ bots: bots.map(summary) }),
     getBot: (id: string) => delay({ ...find(id) }),
     addBot: (body: { name: string; overwrite?: boolean }) => {

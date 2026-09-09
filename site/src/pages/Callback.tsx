@@ -7,8 +7,8 @@ import { Notice } from "../components/ui";
 import { LangSwitch, useT } from "../i18n/locale";
 
 // The OAuth redirect target: trades the code for a token, then asks the API
-// who the token is before showing anything — a verified token nobody has
-// linked belongs on the login page, not on an empty bot list.
+// who the token is before showing anything — a verified token with no account
+// belongs on the signup page, not on an empty bot list.
 export function Callback() {
   const { search } = useLocation();
   const navigate = useNavigate();
@@ -29,7 +29,7 @@ export function Callback() {
       } catch (e) {
         if (e instanceof AuthRefused) {
           refuse(e.kind);
-          navigate("/", { replace: true });
+          navigate(e.kind === "unlinked" ? "/signup" : "/", { replace: true });
           return;
         }
         setError(e instanceof Error ? e.message : String(e));
