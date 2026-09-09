@@ -16,10 +16,10 @@ mod resolve_telegram_sender;
 mod run_task;
 mod set_bot_runtime;
 mod set_strategy_side;
+mod signup;
 mod start_bot;
 mod stop_bot;
 mod stop_task;
-mod unlink_identities;
 mod update_bot_config;
 mod update_risklevel;
 
@@ -46,9 +46,9 @@ pub use resolve_telegram_sender::{ResolveTelegramSenderUseCase, SenderResolution
 pub use run_task::{RunTaskUseCase, TaskRunner};
 pub use set_bot_runtime::{SetBotRuntimeUseCase, SetRuntimeOutcome};
 pub use set_strategy_side::SetStrategySideUseCase;
+pub use signup::{SignupOutcome, SignupUseCase};
 pub use start_bot::{StartBotUseCase, StartOutcome};
 pub use stop_bot::{StopBotUseCase, StopOutcome};
 pub use stop_task::{EcsTaskController, TaskController, TaskLiveness};
-pub use unlink_identities::UnlinkIdentitiesUseCase;
 pub use update_bot_config::UpdateBotConfigUseCase;
 pub use update_risklevel::UpdateRiskLevelUseCase;
