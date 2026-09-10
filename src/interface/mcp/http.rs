@@ -19,7 +19,7 @@ use rmcp::transport::streamable_http_server::session::never::NeverSessionManager
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use serde_json::json;
 
-use super::auth::{AuthError, SCOPE_READ, SCOPE_WRITE, TokenVerifier, Verified};
+use super::auth::{AuthError, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE, TokenVerifier, Verified};
 use super::{BotTools, Deps};
 
 /// RFC 9728 publishes protected-resource metadata at this path, and clients also
@@ -123,7 +123,7 @@ impl HttpMcp {
             "resource": self.metadata.resource,
             "authorization_servers": self.metadata.authorization_servers,
             "bearer_methods_supported": ["header"],
-            "scopes_supported": [SCOPE_READ, SCOPE_WRITE],
+            "scopes_supported": [SCOPE_READ, SCOPE_WRITE, SCOPE_CONFIG_READ],
         });
 
         let mut response = Response::new(Bytes::from(body.to_string()));

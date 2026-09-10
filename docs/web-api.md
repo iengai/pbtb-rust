@@ -29,10 +29,10 @@ config: templates and bots are *described* — name, description, sides, coins,
 risk level, leverage, engine line — and the `bot` section stays on the server.
 `tests/web_api.rs` asserts on the responses rather than trusting review.
 
-Note that the MCP tool `get_bot_config` does return the stored config. That
-surface serves the operator's own principal (stdio, or the shared bearer
-`APP__MCP__USER_ID`), not the public. Keep it that way; do not add a config
-route here.
+Note that the MCP tool `get_bot_config` does return the stored config. It is
+the one call on any surface that does, and it sits behind a scope of its own
+(`config:read`, [mcp.md](mcp.md)) that a signed-up user's token does not carry.
+Keep it that way; do not add a config route here.
 
 **Exchange keys**, as everywhere: `api_key` / `secret_key` are never part of a
 response.
@@ -58,8 +58,8 @@ shared-bearer transport names no subject and cannot sign anyone up (403).
 | a token whose subject has no account (sign up first), or a suspended one | 403 | `resource_metadata` only |
 | a good token without the scope a route needs | 403 | `error="insufficient_scope", scope="bots:write"` |
 
-Scopes are the two MCP defines: `bots:read` for every `GET`, `bots:write` for
-everything else.
+Scopes are two of the three MCP defines: `bots:read` for every `GET`,
+`bots:write` for everything else. No route here asks for `config:read`.
 
 The browser gets its token with the OAuth authorization-code flow + PKCE
 against the issuer, as a **public** client (no secret), with

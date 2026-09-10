@@ -26,8 +26,8 @@ use crate::usecase::*;
 use std::sync::Arc;
 
 pub use auth::{
-    AuthError, Authenticator, LocalOperator, Principal, SCOPE_READ, SCOPE_WRITE, StaticToken,
-    TokenVerifier,
+    AuthError, Authenticator, LocalOperator, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE,
+    StaticToken, TokenVerifier,
 };
 pub use http::HttpMcp;
 pub use oauth::OAuthTokens;
