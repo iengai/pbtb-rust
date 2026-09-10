@@ -26,8 +26,8 @@ pub async fn mcp_deps(configs: &Configs) -> anyhow::Result<mcp::Deps> {
     Ok(wire(configs).await?.mcp)
 }
 
-/// Wire the REST surface: the tool set plus what the web needs — key entry,
-/// template description, the identity list, signup and Telegram binding.
+/// Wire the REST surface: the tool set plus what only the web offers — key
+/// entry and signup.
 #[allow(dead_code)]
 pub async fn api_deps(configs: &Configs) -> anyhow::Result<api::Deps> {
     wire(configs).await
@@ -137,17 +137,17 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
             clock,
             cluster_arn,
         )),
+        get_template_usecase,
+        get_bot_returns_usecase,
+        list_identities_usecase,
+        issue_bind_ticket_usecase,
+        unbind_telegram_usecase,
+        bot_username,
     };
 
     Ok(api::Deps {
         mcp,
         add_bot_usecase,
-        get_template_usecase,
-        get_bot_returns_usecase,
-        list_identities_usecase,
         signup_usecase,
-        issue_bind_ticket_usecase,
-        unbind_telegram_usecase,
-        bot_username,
     })
 }

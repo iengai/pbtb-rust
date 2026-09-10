@@ -20,7 +20,7 @@ their absence against the tool registry rather than trusting review:
   a thing the surface cannot express, not a check that has to catch it.
 - **No tool takes exchange credentials.** A tool argument lands in the model's
   context and in the transcript. That is why there is no `add_bot`: adding a bot
-  means entering keys, which stays on the Telegram path.
+  means entering keys, which stays on the Telegram bot and the web console.
 - **No whole-config overwrite.** `update_bot_config` replaces a live bot's
   position parameters in one call. Only named, validated fields are exposed
   (`set_risk_level`, `set_strategy_side`, `apply_template`, `set_bot_runtime`).
@@ -28,17 +28,26 @@ their absence against the tool registry rather than trusting review:
 Every write is logged with principal, tool, bot id and outcome.
 
 The browser console's REST surface (`/api/v1`, [web-api.md](web-api.md)) shares
-this function, this bearer check and these use cases; it is where key entry
-lives, and it never returns a config.
+this function, this bearer check and these use cases, and the two cover the same
+ground: `describe_bot`, `describe_template`, `whoami`, `get_bot_returns` and the
+Telegram binding tools answer with the field names their routes do, from the
+same renderers (`src/interface/describe.rs`). What the web has and this does not
+is key entry and signup; what this has and the web does not is `get_bot_config`.
 
 ## Tools
 
 | Tool | Scope | Notes |
 | --- | --- | --- |
+| `whoami` | `bots:read` | the account the token resolved to: level, scopes, linked identities |
 | `list_bots` | `bots:read` | id, name, exchange, desired state, runtime, observed phase |
 | `get_bot_status` | `bots:read` | observed phase, task id, restart generation |
+| `describe_bot` | `bots:read` | one bot: desired and observed state, and its config *described* |
 | `get_bot_config` | `config:read` | the stored passivbot config, parameters included |
+| `get_bot_returns` | `bots:read` | the daily collector's return series; a tool error where no chart bucket is configured |
 | `list_templates` | `bots:read` | `{name, min_vip_level}` each; nothing is hidden by level |
+| `describe_template` | `bots:read` | one template described, never its parameters |
+| `issue_telegram_bind_ticket` | `bots:write` | a one-time link binding a Telegram account to the caller's own; only the account holder may open it |
+| `unbind_telegram` | `bots:write` | releases the caller's bound Telegram id |
 | `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent; refused past the level's running-bot ceiling |
 | `stop_bot` | `bots:write` | idempotent |
 | `apply_template` | `bots:write` | applies on the bot's next start; refused for a template above the caller's level |
@@ -283,10 +292,11 @@ on the next request, not eventually.
 
 Two providers map onto an account (`docs/data-model.md`): `workos`, the subject
 a token presents, written once at signup and never released; and `telegram`,
-the sender id the bot sees, bound from the web (`/start <token>` in the bot
-redeems a one-time ticket the console minted for the signed-in account) and
-released by `/unlink` in the bot or from the account page. One account holds at
-most one Telegram id, and a Telegram id names one account.
+the sender id the bot sees, bound by a one-time ticket minted for the signed-in
+account (from the console or `issue_telegram_bind_ticket`, redeemed once by
+`/start <token>` in the bot) and released by `/unlink` in the bot, from the
+account page, or by `unbind_telegram`. One account holds at most one Telegram
+id, and a Telegram id names one account.
 
 ### The bot-initiated link flow (retired)
 

@@ -11,15 +11,22 @@ turned away.
 
 ## Why it exists next to MCP
 
-Two things the web needs that the MCP surface must not, or need not, offer:
+Three things the web needs that the MCP surface must not, or need not, offer:
 
 - **Key entry.** Adding a bot means entering exchange keys. A tool argument lands
   in a model's context and a transcript, so `add_bot` is absent from MCP by
   design; a browser posting over TLS has no such audience. `POST /bots` is the
   one route on any surface that accepts a secret. The body is handed to the use
   case and nothing of it is logged or echoed.
+- **Signing up.** `POST /signup` creates the account a principal is resolved
+  from, so it is the one route that answers a subject with no account. A tool
+  cannot be reached before that account exists.
 - **JSON in, JSON out.** A tool result is text a model reads; a page wants
   status codes and structured bodies.
+
+Everything else has a tool beside it ([mcp.md](mcp.md)), rendered by the same
+functions (`src/interface/describe.rs`), so the two surfaces answer with one
+shape.
 
 ## What it never returns
 

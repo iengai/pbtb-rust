@@ -36,34 +36,19 @@ use super::mcp::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerif
 use super::mcp::http::{Metadata, bearer, insufficient_scope, refuse};
 use super::redaction::redact;
 use crate::domain::error::{DomainError, Retryability};
-use crate::usecase::{
-    AddBotUseCase, GetBotReturnsUseCase, GetTemplateUseCase, IssueTelegramBindTicketUseCase,
-    ListIdentitiesUseCase, SignupOutcome, SignupUseCase, UnbindTelegramUseCase,
-};
+use crate::usecase::{AddBotUseCase, SignupOutcome, SignupUseCase};
 
 /// Every route lives under this prefix, so the MCP protocol keeps `/` and the
 /// link flow keeps `/link` on the shared host.
 pub const PREFIX: &str = "/api/v1";
 
-/// The use cases the routes drive: everything the MCP tools have, plus what
-/// the web needs that a tool must not offer or has no use for — key entry,
-/// template description, a bot's return curve, and the account itself:
-/// signing up, and the Telegram id it speaks through.
+/// The use cases the routes drive: everything the MCP tools have, plus the two
+/// a tool must not offer — key entry, and creating the account itself.
 #[derive(Clone)]
 pub struct Deps {
     pub mcp: mcp::Deps,
     pub add_bot_usecase: Arc<AddBotUseCase>,
-    pub get_template_usecase: Arc<GetTemplateUseCase>,
-    /// `None` where no chart bucket is configured; the route then says so
-    /// rather than failing.
-    pub get_bot_returns_usecase: Option<Arc<GetBotReturnsUseCase>>,
-    pub list_identities_usecase: Arc<ListIdentitiesUseCase>,
     pub signup_usecase: Arc<SignupUseCase>,
-    pub issue_bind_ticket_usecase: Arc<IssueTelegramBindTicketUseCase>,
-    pub unbind_telegram_usecase: Arc<UnbindTelegramUseCase>,
-    /// The bot's `@username`, for the deep link a bind ticket is handed out
-    /// as. Empty hands out the token alone.
-    pub bot_username: String,
 }
 
 pub struct WebApi {

@@ -38,7 +38,8 @@ pub use server::BotTools;
 /// Deliberately its own bundle rather than `telegram::Deps`: the two adapters
 /// expose different surfaces (no add-bot dialogue here, no whole-config write),
 /// and sharing one struct would make every field either adapter adds a field the
-/// other silently gains.
+/// other silently gains. The REST surface embeds this one and adds only what a
+/// tool must not offer at all — key entry, and signing up.
 #[derive(Clone)]
 pub struct Deps {
     pub list_bots_usecase: Arc<ListBotsUseCase>,
@@ -52,4 +53,14 @@ pub struct Deps {
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
     pub start_bot_usecase: Arc<StartBotUseCase>,
     pub stop_bot_usecase: Arc<StopBotUseCase>,
+    pub get_template_usecase: Arc<GetTemplateUseCase>,
+    /// `None` where no chart bucket is configured; the surface then says so
+    /// rather than failing.
+    pub get_bot_returns_usecase: Option<Arc<GetBotReturnsUseCase>>,
+    pub list_identities_usecase: Arc<ListIdentitiesUseCase>,
+    pub issue_bind_ticket_usecase: Arc<IssueTelegramBindTicketUseCase>,
+    pub unbind_telegram_usecase: Arc<UnbindTelegramUseCase>,
+    /// The bot's `@username`, for the deep link a bind ticket is handed out
+    /// as. Empty hands out the token alone.
+    pub bot_username: String,
 }

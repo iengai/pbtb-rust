@@ -246,7 +246,6 @@ impl Harness {
         let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
         let identities: Arc<dyn domain::IdentityRepository> = self.bots.clone();
         let users: Arc<dyn domain::UserRepository> = self.bots.clone();
-        let tickets: Arc<dyn domain::LinkTicketRepository> = self.bots.clone();
         let clock = Arc::new(FixedClock(NOW));
         api::Deps {
             mcp: self.mcp_deps(),
@@ -255,15 +254,7 @@ impl Harness {
                 self.api_keys.clone(),
                 clock.clone(),
             )),
-            get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
-            get_bot_returns_usecase: Some(Arc::new(GetBotReturnsUseCase::new(self.curves.clone()))),
-            list_identities_usecase: Arc::new(ListIdentitiesUseCase::new(identities.clone())),
-            signup_usecase: Arc::new(SignupUseCase::new(identities.clone(), users, clock.clone())),
-            issue_bind_ticket_usecase: Arc::new(IssueTelegramBindTicketUseCase::new(
-                tickets, clock,
-            )),
-            unbind_telegram_usecase: Arc::new(UnbindTelegramUseCase::new(identities)),
-            bot_username: BOT_USERNAME.to_string(),
+            signup_usecase: Arc::new(SignupUseCase::new(identities, users, clock)),
         }
     }
 
@@ -333,6 +324,8 @@ impl Harness {
     fn mcp_deps(&self) -> mcp::Deps {
         let engines = engines();
         let bots_dyn: Arc<dyn domain::BotRepository> = self.bots.clone();
+        let identities: Arc<dyn domain::IdentityRepository> = self.bots.clone();
+        let tickets: Arc<dyn domain::LinkTicketRepository> = self.bots.clone();
         let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = self.bots.clone();
         let locks: Arc<dyn domain::StartLockRepository> = self.bots.clone();
         let switches: Arc<dyn domain::ConfigSwitchRepository> = self.bots.clone();
@@ -389,9 +382,18 @@ impl Harness {
                 bots_dyn,
                 runtimes_dyn,
                 self.ecs.clone(),
-                clock,
+                clock.clone(),
                 CLUSTER_ARN.to_string(),
             )),
+            get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
+            get_bot_returns_usecase: Some(Arc::new(GetBotReturnsUseCase::new(self.curves.clone()))),
+            list_identities_usecase: Arc::new(ListIdentitiesUseCase::new(identities.clone())),
+            issue_bind_ticket_usecase: Arc::new(IssueTelegramBindTicketUseCase::new(
+                tickets,
+                clock.clone(),
+            )),
+            unbind_telegram_usecase: Arc::new(UnbindTelegramUseCase::new(identities)),
+            bot_username: BOT_USERNAME.to_string(),
         }
     }
 }
