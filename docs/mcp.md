@@ -37,7 +37,7 @@ lives, and it never returns a config.
 | --- | --- | --- |
 | `list_bots` | `bots:read` | id, name, exchange, desired state, runtime, observed phase |
 | `get_bot_status` | `bots:read` | observed phase, task id, restart generation |
-| `get_bot_config` | `bots:read` | the stored passivbot config |
+| `get_bot_config` | `config:read` | the stored passivbot config, parameters included |
 | `list_templates` | `bots:read` | `{name, min_vip_level}` each; nothing is hidden by level |
 | `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent; refused past the level's running-bot ceiling |
 | `stop_bot` | `bots:write` | idempotent |
@@ -106,11 +106,19 @@ a symmetric algorithm is refused outright: a key set is public, so an `oct` entr
 would publish the very secret that signs tokens, and anyone who could read the
 document could mint one for any subject.
 
-Scopes come from the token's `scope` claim, and only the two this server defines
-survive it. A token that asked for nothing gets nothing and is refused by the
-first tool it reaches. A floor of read access would make the claim decorative:
-this surface lists every bot in the tenant and hands over its full trading
-config.
+Scopes come from the token's `scope` claim, and only the three this server
+defines survive it: `bots:read`, `bots:write`, and `config:read` for the one
+tool that hands over a full trading config. A token that asked for nothing gets
+nothing and is refused by the first tool it reaches. A floor of read access
+would make the claim decorative: this surface lists every bot in the tenant.
+
+A token may also carry a `permissions` claim. `scope` is what the client
+application was delegated; `permissions` is what the user's own role holds, and
+where the claim is present the effective scopes are the **intersection** — both
+have to allow a call. So an application registered for `config:read` reads no
+config for a user whose role does not hold it, and a user whose role does holds
+nothing through an application that never asked. An issuer that publishes no
+such claim leaves the token on its `scope` alone.
 
 A refusal distinguishes the two cases, because they mean different things to a
 client: **401** says get a better token, **403** says the token is fine and the
@@ -252,7 +260,7 @@ change:
 - The shared bearer parameter is **destroyed**. With an issuer there is no shared
   door, so it is not left standing unlocked.
 - The endpoint starts requiring a token audienced for `mcp_http_url`. Register
-  that URL as a resource with the authorization server, and register the two
+  that URL as a resource with the authorization server, and register the three
   scopes, or every token arrives read-only.
 - Nobody can reach it until their identity is linked. Signing up on the web
   (`POST /api/v1/signup`) is what writes that link and the account row. Both

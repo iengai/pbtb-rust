@@ -19,7 +19,10 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use super::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerifier, VerifiedSubject};
+use super::auth::{
+    AuthError, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE, TokenVerifier,
+    VerifiedSubject,
+};
 use crate::domain::identity::{IdentityRepository, PROVIDER_WORKOS};
 use crate::domain::user::UserRepository;
 
@@ -38,6 +41,11 @@ struct Claims {
     /// any.
     #[serde(default)]
     scope: String,
+    /// What the user's own role is entitled to, where the issuer publishes it.
+    /// Absent on an issuer that does not, which is why it is an `Option` and
+    /// not an empty list: no claim and an empty claim mean opposite things.
+    #[serde(default)]
+    permissions: Option<Vec<String>>,
     /// Carried when the token asked for the `email` scope. Kept on the account
     /// at signup for the operator to recognise it by; never a credential.
     #[serde(default)]
@@ -188,13 +196,22 @@ async fn fetch_keys(http: &reqwest::Client, jwks_uri: &str) -> anyhow::Result<Jw
 /// A token that asked for nothing gets nothing, and is refused by the first tool
 /// it reaches. Handing it a floor of read access would make the scope claim
 /// decorative: a token deliberately issued without `bots:read` would still list
-/// every bot in the tenant and read its full trading config.
-fn scopes_from(claim: &str) -> HashSet<String> {
-    claim
+/// every bot in the tenant.
+///
+/// `scope` and `permissions` answer different questions and both have to say
+/// yes: `scope` is what the client application was delegated, `permissions` is
+/// what the user's own role holds. An issuer that publishes no `permissions`
+/// claim leaves only the first question asked, so a token without one is read
+/// on its `scope` alone.
+fn scopes_from(claim: &str, permissions: Option<&[String]>) -> HashSet<String> {
+    let asked = claim
         .split_whitespace()
-        .filter(|s| *s == SCOPE_READ || *s == SCOPE_WRITE)
-        .map(str::to_owned)
-        .collect()
+        .filter(|s| [SCOPE_READ, SCOPE_WRITE, SCOPE_CONFIG_READ].contains(s))
+        .map(str::to_owned);
+    match permissions {
+        Some(held) => asked.filter(|s| held.iter().any(|h| h == s)).collect(),
+        None => asked.collect(),
+    }
 }
 
 impl OAuthTokens {
@@ -288,7 +305,7 @@ impl TokenVerifier for OAuthTokens {
 
         Ok(Principal {
             user_id: user.id,
-            scopes: scopes_from(&claims.scope),
+            scopes: scopes_from(&claims.scope, claims.permissions.as_deref()),
             vip_level: user.vip_level,
         })
     }
@@ -306,14 +323,22 @@ impl TokenVerifier for OAuthTokens {
 mod tests {
     use super::*;
 
+    fn held(permissions: &[&str]) -> Vec<String> {
+        permissions.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn a_token_gets_the_scopes_it_asked_for() {
         assert_eq!(
-            scopes_from("bots:read bots:write"),
-            HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()])
+            scopes_from("bots:read bots:write config:read", None),
+            HashSet::from([
+                SCOPE_READ.to_string(),
+                SCOPE_WRITE.to_string(),
+                SCOPE_CONFIG_READ.to_string()
+            ])
         );
         assert_eq!(
-            scopes_from("bots:read"),
+            scopes_from("bots:read", None),
             HashSet::from([SCOPE_READ.to_string()])
         );
     }
@@ -321,7 +346,7 @@ mod tests {
     #[test]
     fn scopes_this_server_does_not_define_are_dropped() {
         assert_eq!(
-            scopes_from("bots:write openid email"),
+            scopes_from("bots:write openid email", None),
             HashSet::from([SCOPE_WRITE.to_string()]),
             "an unknown scope must not widen what the token can do"
         );
@@ -329,10 +354,35 @@ mod tests {
 
     #[test]
     fn a_token_that_asked_for_nothing_gets_nothing() {
-        assert!(scopes_from("").is_empty());
+        assert!(scopes_from("", None).is_empty());
         assert!(
-            scopes_from("openid profile email").is_empty(),
+            scopes_from("openid profile email", None).is_empty(),
             "scopes for some other API are not a claim on this one"
+        );
+    }
+
+    #[test]
+    fn a_permissions_claim_narrows_the_scope_it_came_with() {
+        assert_eq!(
+            scopes_from(
+                "bots:read bots:write config:read",
+                Some(&held(&["bots:read", "bots:write"]))
+            ),
+            HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()]),
+            "a role without config:read must not read configs through an app that has it"
+        );
+        assert_eq!(
+            scopes_from("bots:read", Some(&held(&["bots:read", "bots:write"]))),
+            HashSet::from([SCOPE_READ.to_string()]),
+            "a permission the client never asked for is not granted either"
+        );
+    }
+
+    #[test]
+    fn an_empty_permissions_claim_grants_nothing() {
+        assert!(
+            scopes_from("bots:read bots:write", Some(&[])).is_empty(),
+            "a role that holds nothing is not the same as an issuer that says nothing"
         );
     }
 }

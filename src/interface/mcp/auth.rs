@@ -23,15 +23,23 @@ pub struct Principal {
 
 pub const SCOPE_READ: &str = "bots:read";
 pub const SCOPE_WRITE: &str = "bots:write";
+/// Reading a bot's stored passivbot config, which `bots:read` does not cover.
+/// The parameters are the strategy, and whoever can read them can run it
+/// anywhere — which is why no web route returns them at all.
+pub const SCOPE_CONFIG_READ: &str = "config:read";
 
 impl Principal {
-    /// A principal holding both scopes and the top level. The stdio
+    /// A principal holding every scope and the top level. The stdio
     /// transport's only caller is the operator who started the process, and the
     /// shared bearer stands for the deployment's own account.
     pub fn full(user_id: impl Into<String>) -> Self {
         Self {
             user_id: user_id.into(),
-            scopes: HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()]),
+            scopes: HashSet::from([
+                SCOPE_READ.to_string(),
+                SCOPE_WRITE.to_string(),
+                SCOPE_CONFIG_READ.to_string(),
+            ]),
             vip_level: MAX_VIP_LEVEL,
         }
     }
@@ -185,10 +193,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_full_principal_holds_both_scopes() {
+    fn a_full_principal_holds_every_scope() {
         let p = Principal::full("5351347639");
         assert!(p.has(SCOPE_READ));
         assert!(p.has(SCOPE_WRITE));
+        assert!(p.has(SCOPE_CONFIG_READ));
         assert_eq!(p.user_id, "5351347639");
     }
 

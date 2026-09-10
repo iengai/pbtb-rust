@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Deps;
-use super::auth::{Authenticator, Principal, SCOPE_READ, SCOPE_WRITE};
+use super::auth::{Authenticator, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE};
 use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
 use crate::interface::redaction::redact;
@@ -200,13 +200,14 @@ impl BotTools {
         }
     }
 
-    /// The bot's stored passivbot configuration.
+    /// The bot's stored passivbot configuration, parameters included. Needs
+    /// the `config:read` scope, which `bots:read` does not imply.
     #[tool(annotations(read_only_hint = true))]
     pub async fn get_bot_config(
         &self,
         Parameters(args): Parameters<BotRef>,
     ) -> Result<CallToolResult, McpError> {
-        let principal = self.principal(SCOPE_READ)?;
+        let principal = self.principal(SCOPE_CONFIG_READ)?;
         let config = self
             .deps
             .get_bot_config_usecase

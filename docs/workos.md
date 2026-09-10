@@ -35,11 +35,18 @@ build-time variables.
 | --- | --- | --- |
 | `bots:read` | `permission_01M221PCDBDFH9GCXK82TMX6KF` | list bots, read status and described config |
 | `bots:write` | `permission_01M221PK4BMQ38V0F3E320GFHZ` | start/stop, change config fields, add/delete, unlink |
+| `config:read` | `(create it: see checklist)` | read a bot's stored passivbot config, strategy parameters included |
+
+`config:read` belongs to the **MCP** application only. The web console never
+returns a config, so assigning it there would hand every browser sign-in the
+one thing that surface exists to withhold.
 
 A permission's **slug is the OAuth scope**. A Connect application may request
 exactly the permissions assigned to it (`setApplicationPermissions`); a token
-that asked for neither carries no scope and is refused by the first tool or
-route it reaches (no read floor, by design). No JWT template is involved.
+that asked for none of them carries no scope and is refused by the first tool
+or route it reaches (no read floor, by design). No JWT template is involved.
+Where a token also carries a `permissions` claim — what the user's role holds —
+our side takes the intersection with `scope` ([mcp.md](mcp.md)).
 
 ### Connect application `pbtb-rust MCP` — confidential
 
@@ -48,7 +55,7 @@ route it reaches (no read floor, by design). No JWT template is involved.
 | id / client id | `app_01M221M345XAZQ98764YFD3B65` / `client_01M221M345JQQ6ASA7X68S5ZT4` |
 | confidentiality | Confidential — one secret, hint `c5b35b79` |
 | redirect URIs | `https://wpgsvdyyl6rb4omtrgb7ox6weu0krirm.lambda-url.ap-northeast-1.on.aws/link/callback` (default), `http://localhost:8765/callback` (manual testing) |
-| permissions | `bots:read`, `bots:write` |
+| permissions | `bots:read`, `bots:write`; `config:read` once it is created |
 
 Used by the **link flow** (`src/interface/link/`) as an OAuth *client*, and by
 MCP clients (Claude Code, etc.) that need a client id. Our side:
@@ -198,15 +205,16 @@ permissions before they can be assigned.
 
 WorkOS side (dashboard or the MCP server):
 
-1. `createPermission` × 2: slugs `bots:read`, `bots:write`.
+1. `createPermission` × 3: slugs `bots:read`, `bots:write`, `config:read`.
 2. `setAuthkitOauthResources`: the Function URL **with** its trailing slash
    (`terraform output mcp_http_url`).
 3. `createApplication` `pbtb-rust MCP` (`type: OAuth`, Confidential);
-   `setApplicationPermissions` both; `setRedirectUris` (applicationId only)
-   with `terraform output link_redirect_uri`; create the secret in the
+   `setApplicationPermissions` all three; `setRedirectUris` (applicationId
+   only) with `terraform output link_redirect_uri`; create the secret in the
    dashboard.
 4. `createApplication` `pbtb-rust Web` (`type: OAuth`, **Public**);
-   `setApplicationPermissions` both; `setRedirectUris` with
+   `setApplicationPermissions` `bots:read` and `bots:write` only — never
+   `config:read`; `setRedirectUris` with
    `https://iengai.github.io/pbtb-rust/callback` and
    `http://localhost:5173/callback`.
 5. `updateCorsConfig`: `https://iengai.github.io`, `http://localhost:5173`.

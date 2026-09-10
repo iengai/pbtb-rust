@@ -18,7 +18,7 @@ use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::interface::mcp::{
-    Authenticator, BotTools, LocalOperator, Principal, SCOPE_READ, SCOPE_WRITE,
+    Authenticator, BotTools, LocalOperator, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE,
 };
 use rmcp::model::CallToolResult;
 use serde_json::{Value, json};
@@ -57,7 +57,13 @@ fn a_config(user_id: &str, bot_id: &str) -> BotConfig {
         bot_type: BotType::default(),
         template_name: "test".to_string(),
         template_version: None,
-        config_data: json!({ "config_version": "v7.12.0", "live": {} }),
+        // A `bot` section, so a walk of the read-only tools has real strategy
+        // parameters to leak if one of them dumps a config.
+        config_data: json!({
+            "config_version": "v7.12.0",
+            "live": {},
+            "bot": { "long": { "entry_grid_spacing_pct": 0.06 } },
+        }),
         created_at: NOW,
         updated_at: NOW,
     }
@@ -75,6 +81,20 @@ impl Authenticator for ReadOnly {
         Some(Principal {
             user_id: USER_ID.to_string(),
             scopes: HashSet::from([SCOPE_READ.to_string()]),
+            vip_level: 0,
+        })
+    }
+}
+
+/// A principal with both bot scopes and no `config:read`: what a signed-up
+/// user holds.
+struct BotsOnly;
+
+impl Authenticator for BotsOnly {
+    fn authenticate(&self) -> Option<Principal> {
+        Some(Principal {
+            user_id: USER_ID.to_string(),
+            scopes: HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()]),
             vip_level: 0,
         })
     }
@@ -238,6 +258,61 @@ async fn an_unknown_runtime_is_rejected_before_any_write() {
         .await
         .expect_err("only py and rs exist");
     assert!(err.message.contains("py"), "{}", err.message);
+}
+
+#[tokio::test]
+async fn reading_a_config_takes_more_than_bots_read() {
+    let h = harness!();
+    h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
+    h.configs.put(a_config(&USER_ID.to_string(), BOT_ID));
+
+    let err = h
+        .mcp_tools(Arc::new(BotsOnly))
+        .get_bot_config(params(json!({ "bot_id": BOT_ID })))
+        .await
+        .expect_err("the parameters are the strategy; bots:read does not buy them");
+    assert!(
+        err.message.contains(SCOPE_CONFIG_READ),
+        "the refusal should name the missing scope: {}",
+        err.message
+    );
+
+    let out = payload(
+        h.mcp_tools(operator())
+            .get_bot_config(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("a principal holding config:read reads the config"),
+    );
+    assert_eq!(out["bot_id"], BOT_ID);
+    assert!(
+        out["config"]["bot"]["long"]["entry_grid_spacing_pct"].is_number(),
+        "the whole config is what this tool is for: {out}"
+    );
+}
+
+#[tokio::test]
+async fn no_read_only_tool_hands_a_config_to_a_caller_without_config_read() {
+    let h = harness!();
+    h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
+    h.configs.put(a_config(&USER_ID.to_string(), BOT_ID));
+    let tools = h.mcp_tools(Arc::new(BotsOnly));
+
+    let answers = vec![
+        tools.list_bots().await.expect("list_bots"),
+        tools
+            .get_bot_status(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("get_bot_status"),
+        tools.list_templates().await.expect("list_templates"),
+    ];
+
+    for answer in answers {
+        let text = payload(answer).to_string();
+        assert!(
+            !text.contains("\"bot\"") && !text.contains("entry_grid_spacing"),
+            "a tool outside config:read leaked strategy parameters: {text}"
+        );
+    }
 }
 
 // --- The registry's own boundaries -----------------------------------------
