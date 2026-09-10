@@ -11,8 +11,11 @@ use serde_json::{Value, json};
 
 use super::Deps;
 use super::auth::{Authenticator, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE};
+use crate::domain::bot::Bot;
 use crate::domain::engine::Runtime;
 use crate::domain::error::DomainError;
+use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
+use crate::interface::describe;
 use crate::interface::redaction::redact;
 use crate::usecase::{DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
 use std::str::FromStr;
@@ -24,6 +27,13 @@ use std::str::FromStr;
 pub struct BotRef {
     /// The bot's id, as returned by `list_bots`.
     pub bot_id: String,
+}
+
+/// Identifies one configuration template.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TemplateRef {
+    /// A template name from `list_templates`.
+    pub template_name: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -72,8 +82,8 @@ pub struct DeleteArgs {
 const INSTRUCTIONS: &str = concat!(
     "Manage passivbot trading bots. Every tool acts on the authenticated caller's own ",
     "bots; there is no way to name another tenant. Exchange API keys are never accepted ",
-    "or returned here - add a bot and enter its keys through the Telegram bot. ",
-    "Config changes apply on a bot's next start.",
+    "or returned here - add a bot and enter its keys in the Telegram bot or the web ",
+    "console. Config changes apply on a bot's next start.",
 );
 
 #[derive(Clone)]
@@ -120,6 +130,19 @@ impl BotTools {
         Ok(CallToolResult::success(vec![ContentBlock::text(
             value.to_string(),
         )]))
+    }
+
+    /// The caller's bot by id. Looked up within the tenant, so a bot that
+    /// exists under another one answers exactly like a bot that does not exist.
+    async fn find_bot(&self, user_id: &str, bot_id: &str) -> Result<Bot, McpError> {
+        self.deps
+            .list_bots_usecase
+            .execute(user_id)
+            .await
+            .map_err(|e| failed("reading the bot", e))?
+            .into_iter()
+            .find(|b| b.id == bot_id)
+            .ok_or_else(|| McpError::resource_not_found(format!("no bot {bot_id:?}"), None))
     }
 }
 
@@ -171,6 +194,103 @@ impl BotTools {
             }));
         }
         Self::ok(json!({ "bots": out }))
+    }
+
+    /// Who this token is: the account it resolves to, the level and scopes it
+    /// carries, and the identities linked to it.
+    #[tool(annotations(read_only_hint = true))]
+    pub async fn whoami(&self) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_READ)?;
+        let identities = self
+            .deps
+            .list_identities_usecase
+            .execute(&principal.user_id)
+            .await
+            .map_err(|e| failed("listing linked identities", e))?;
+        let mut scopes: Vec<&String> = principal.scopes.iter().collect();
+        scopes.sort();
+        let telegram = identities
+            .iter()
+            .find(|(provider, _)| provider == PROVIDER_TELEGRAM)
+            .map(|(_, subject)| subject.clone());
+        Self::ok(json!({
+            "user_id": principal.user_id,
+            "vip_level": principal.vip_level,
+            "scopes": scopes,
+            "telegram": telegram,
+            "identities": identities
+                .into_iter()
+                .map(|(provider, subject)| json!({ "provider": provider, "subject": subject }))
+                .collect::<Vec<_>>(),
+        }))
+    }
+
+    /// One bot in full: identity, desired and observed state, and its config
+    /// described — sides, coins, risk, the strategy it runs. The parameters
+    /// themselves are `get_bot_config`'s, not this tool's.
+    #[tool(annotations(read_only_hint = true))]
+    pub async fn describe_bot(
+        &self,
+        Parameters(args): Parameters<BotRef>,
+    ) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_READ)?;
+        let bot = self.find_bot(&principal.user_id, &args.bot_id).await?;
+        let runtime = self
+            .deps
+            .get_bot_runtime_usecase
+            .execute(&principal.user_id, &args.bot_id)
+            .await
+            .map_err(|e| failed("reading the bot's status", e))?;
+
+        // A bot with no config yet is a normal state — the one the add flow
+        // leaves a bot in — so it renders as `null`, not as a fault.
+        let config = match self
+            .deps
+            .get_bot_config_usecase
+            .execute(&principal.user_id, &args.bot_id)
+            .await
+        {
+            Ok(config) => Some(describe::config(&config)),
+            Err(e) => {
+                tracing::info!(bot_id = %args.bot_id, error = %e, "no config to describe");
+                None
+            }
+        };
+
+        let mut body = describe::bot(&bot, runtime.as_ref().map(|r| r.phase.as_str().to_string()));
+        body["task_id"] = json!(runtime.as_ref().and_then(|r| r.task_id.clone()));
+        body["observed_at"] = json!(runtime.as_ref().map(|r| r.observed_at));
+        body["restarts"] = json!(runtime.as_ref().map(|r| r.version));
+        body["config"] = json!(config);
+        Self::ok(body)
+    }
+
+    /// The bot's return series as the daily collector wrote it: a normalized
+    /// index and cumulative return, no balances.
+    #[tool(annotations(read_only_hint = true))]
+    pub async fn get_bot_returns(
+        &self,
+        Parameters(args): Parameters<BotRef>,
+    ) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_READ)?;
+        self.find_bot(&principal.user_id, &args.bot_id).await?;
+        let Some(returns) = &self.deps.get_bot_returns_usecase else {
+            return Err(McpError::internal_error(
+                "this deployment collects no return series: it has no chart bucket configured",
+                None,
+            ));
+        };
+        let series = returns
+            .execute(&principal.user_id, &args.bot_id)
+            .await
+            .map_err(|e| failed("reading the return curve", e))?
+            .ok_or_else(|| {
+                McpError::resource_not_found(
+                    format!("no series has been collected for {:?} yet", args.bot_id),
+                    None,
+                )
+            })?;
+        Self::ok(series)
     }
 
     /// The observed runtime state of one bot: phase, task id and restart
@@ -241,6 +361,73 @@ impl BotTools {
             .map(|t| json!({ "name": t.name, "min_vip_level": t.min_vip_level }))
             .collect();
         Self::ok(json!({ "templates": templates }))
+    }
+
+    /// One template described — what it trades, which sides, the level it asks
+    /// for. Its parameters stay on the server.
+    #[tool(annotations(read_only_hint = true))]
+    pub async fn describe_template(
+        &self,
+        Parameters(args): Parameters<TemplateRef>,
+    ) -> Result<CallToolResult, McpError> {
+        self.principal(SCOPE_READ)?;
+        let preview = self
+            .deps
+            .get_template_usecase
+            .execute(&args.template_name)
+            .await
+            .map_err(|e| failed("reading the template", e))?
+            .ok_or_else(|| {
+                McpError::resource_not_found(format!("no template {:?}", args.template_name), None)
+            })?;
+        Self::ok(describe::template(&preview))
+    }
+
+    /// Mint a one-time link that binds a Telegram account to the caller's own
+    /// account.
+    ///
+    /// The URL is a credential for that account and is spent by whoever opens
+    /// it first: hand it to the account holder to open themselves, and to
+    /// nobody else.
+    #[tool]
+    pub async fn issue_telegram_bind_ticket(&self) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_WRITE)?;
+        let token = self
+            .deps
+            .issue_bind_ticket_usecase
+            .execute(&principal.user_id)
+            .await
+            .map_err(|e| {
+                Self::audit(&principal, "issue_telegram_bind_ticket", "-", "error");
+                failed("preparing the bind link", e)
+            })?;
+        Self::audit(&principal, "issue_telegram_bind_ticket", "-", "issued");
+        // Without the bot's username there is no deep link to build, so the
+        // bare `/start` payload is what the caller gets.
+        let username = self.deps.bot_username.trim().trim_start_matches('@');
+        let url = (!username.is_empty()).then(|| format!("https://t.me/{username}?start={token}"));
+        Self::ok(json!({
+            "token": token,
+            "url": url,
+            "expires_in": LINK_TICKET_TTL,
+        }))
+    }
+
+    /// Release the caller's Telegram id, so another can be bound.
+    #[tool(annotations(idempotent_hint = true))]
+    pub async fn unbind_telegram(&self) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_WRITE)?;
+        let released = self
+            .deps
+            .unbind_telegram_usecase
+            .execute(&principal.user_id)
+            .await
+            .map_err(|e| {
+                Self::audit(&principal, "unbind_telegram", "-", "error");
+                failed("unbinding telegram", e)
+            })?;
+        Self::audit(&principal, "unbind_telegram", "-", "released");
+        Self::ok(json!({ "released": released }))
     }
 
     /// Turn a bot on: record the intent and launch its task if none is running.

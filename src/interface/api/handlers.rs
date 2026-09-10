@@ -10,14 +10,11 @@ use serde_json::{Value, json};
 
 use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
-use crate::domain::botconfig::BotConfig;
 use crate::domain::engine::Runtime;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
+use crate::interface::describe;
 use crate::interface::mcp::auth::Principal;
-use crate::usecase::{
-    AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome, TemplateListing,
-    TemplatePreview,
-};
+use crate::usecase::{AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
 
 pub(super) struct Handlers<'a> {
     pub deps: &'a Deps,
@@ -98,6 +95,7 @@ impl Handlers<'_> {
         require(self.principal, READ)?;
         let identities = self
             .deps
+            .mcp
             .list_identities_usecase
             .execute(self.user_id())
             .await
@@ -127,6 +125,7 @@ impl Handlers<'_> {
         require(self.principal, WRITE)?;
         let token = self
             .deps
+            .mcp
             .issue_bind_ticket_usecase
             .execute(self.user_id())
             .await
@@ -135,7 +134,7 @@ impl Handlers<'_> {
                 ApiError::from_domain("preparing the bind link", e)
             })?;
         self.audit("bind_ticket", "-", "issued");
-        let username = self.deps.bot_username.trim().trim_start_matches('@');
+        let username = self.deps.mcp.bot_username.trim().trim_start_matches('@');
         let url = (!username.is_empty()).then(|| format!("https://t.me/{username}?start={token}"));
         Self::ok(json!({
             "token": token,
@@ -149,6 +148,7 @@ impl Handlers<'_> {
         require(self.principal, WRITE)?;
         let released = self
             .deps
+            .mcp
             .unbind_telegram_usecase
             .execute(self.user_id())
             .await
@@ -175,7 +175,7 @@ impl Handlers<'_> {
         let mut out = Vec::with_capacity(bots.len());
         for bot in bots {
             let phase = self.phase_of(&bot.id).await;
-            out.push(bot_summary(&bot, phase));
+            out.push(describe::bot(&bot, phase));
         }
         Self::ok(json!({ "bots": out }))
     }
@@ -202,14 +202,14 @@ impl Handlers<'_> {
             .execute(self.user_id(), bot_id)
             .await
         {
-            Ok(config) => Some(describe_config(&config)),
+            Ok(config) => Some(describe::config(&config)),
             Err(e) => {
                 tracing::info!(bot_id, error = %e, "no config for the bot detail view");
                 None
             }
         };
 
-        let mut body = bot_summary(&bot, runtime.as_ref().map(|r| r.phase.as_str().to_string()));
+        let mut body = describe::bot(&bot, runtime.as_ref().map(|r| r.phase.as_str().to_string()));
         body["task_id"] = json!(runtime.as_ref().and_then(|r| r.task_id.clone()));
         body["observed_at"] = json!(runtime.as_ref().map(|r| r.observed_at));
         body["restarts"] = json!(runtime.as_ref().map(|r| r.version));
@@ -242,7 +242,7 @@ impl Handlers<'_> {
                     ApiError::from_domain("saving the bot", e)
                 })?;
             self.audit("add_bot", &bot.id, "overwritten");
-            return Self::ok(json!({ "status": "overwritten", "bot": bot_summary(&bot, None) }));
+            return Self::ok(json!({ "status": "overwritten", "bot": describe::bot(&bot, None) }));
         }
 
         let outcome = self
@@ -259,14 +259,14 @@ impl Handlers<'_> {
                 self.audit("add_bot", &bot.id, "added");
                 Ok(respond(
                     StatusCode::CREATED,
-                    json!({ "status": "added", "bot": bot_summary(&bot, None) }),
+                    json!({ "status": "added", "bot": describe::bot(&bot, None) }),
                 ))
             }
             AddOutcome::AlreadyExists(existing) => {
                 self.audit("add_bot", &existing.id, "already_exists");
                 Err(ApiError::Conflict(json!({
                     "status": "already_exists",
-                    "bot": bot_summary(&existing, None),
+                    "bot": describe::bot(&existing, None),
                 })))
             }
         }
@@ -479,7 +479,7 @@ impl Handlers<'_> {
     pub async fn bot_returns(&self, bot_id: &str) -> ApiResult {
         require(self.principal, READ)?;
         self.find_bot(bot_id).await?;
-        let Some(returns) = &self.deps.get_bot_returns_usecase else {
+        let Some(returns) = &self.deps.mcp.get_bot_returns_usecase else {
             return Err(ApiError::NotAvailable);
         };
         let series = returns
@@ -503,7 +503,9 @@ impl Handlers<'_> {
             .execute()
             .await
             .map_err(|e| ApiError::from_domain("listing templates", e))?;
-        Self::ok(json!({ "templates": templates.iter().map(describe_listing).collect::<Vec<_>>() }))
+        Self::ok(
+            json!({ "templates": templates.iter().map(describe::listing).collect::<Vec<_>>() }),
+        )
     }
 
     /// A template described, never dumped: the parameters are what make the
@@ -513,12 +515,13 @@ impl Handlers<'_> {
         require(self.principal, READ)?;
         let preview = self
             .deps
+            .mcp
             .get_template_usecase
             .execute(name)
             .await
             .map_err(|e| ApiError::from_domain("reading the template", e))?
             .ok_or(ApiError::NotFound)?;
-        Self::ok(describe_template(&preview))
+        Self::ok(describe::template(&preview))
     }
 
     // ---------------------------------------------------------------- helpers
@@ -554,78 +557,4 @@ impl Handlers<'_> {
             }
         }
     }
-}
-
-/// A bot as every listing shows it. No `api_key` or `secret_key`: they are
-/// never part of a response.
-fn bot_summary(bot: &Bot, phase: Option<String>) -> Value {
-    json!({
-        "bot_id": bot.id,
-        "name": bot.name,
-        "exchange": bot.exchange.as_str(),
-        "enabled": bot.enabled,
-        "runtime": bot.runtime.as_str(),
-        "phase": phase,
-        "created_at": bot.created_at,
-        "updated_at": bot.updated_at,
-    })
-}
-
-/// The operational view of a bot's config — what telebot's State screen
-/// prints. Risk, leverage and coins are the fields the user set or can set;
-/// the strategy's own parameters are not among them.
-fn describe_config(config: &BotConfig) -> Value {
-    json!({
-        "template_name": config.strategy_name().unwrap_or(&config.template_name),
-        "title": config.title(),
-        "title_zh": config.title_zh(),
-        "template_version": config.template_version,
-        "description": config.description(),
-        "tuned_on": config.data_exchange(),
-        "config_version": config.config_data.get("config_version"),
-        "strategies": config
-            .strategies()
-            .iter()
-            .map(|s| json!({ "name": s.name, "side": s.side }))
-            .collect::<Vec<_>>(),
-        "sides": {
-            "long": config.side_enabled("long"),
-            "short": config.side_enabled("short"),
-        },
-        "risk": config
-            .risk_level()
-            .ok()
-            .map(|r| json!({ "long": r.long, "short": r.short })),
-        "leverage": config.leverage().ok().map(|l| l.long),
-        "coins": config
-            .coins()
-            .ok()
-            .map(|c| json!({ "long": c.long, "short": c.short })),
-        "updated_at": config.updated_at,
-    })
-}
-
-/// A template as the chooser lists it: its name and the level it asks for.
-fn describe_listing(listing: &TemplateListing) -> Value {
-    json!({ "name": listing.name, "min_vip_level": listing.min_vip_level })
-}
-
-/// A template described through the same accessors a bot's config is, since a
-/// template is a config before any bot has claimed it. Risk and leverage are
-/// left out: they are per-bot settings, not properties of the template.
-fn describe_template(preview: &TemplatePreview) -> Value {
-    let mut body = json!({
-        "name": preview.template.name,
-        "version": preview.template.version,
-        "description": preview.template.description,
-        "min_vip_level": preview.template.min_vip_level(),
-    });
-    if let Value::Object(fields) = describe_config(&preview.config) {
-        for (key, value) in fields {
-            if key != "updated_at" && key != "risk" && key != "leverage" {
-                body[key] = value;
-            }
-        }
-    }
-    body
 }

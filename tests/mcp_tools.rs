@@ -12,9 +12,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use common::telegram::USER_ID;
-use common::{Harness, NOW, TD_V7};
+use common::{BOT_USERNAME, Harness, NOW, TD_V7};
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::botconfig::{BotConfig, BotType};
+use pbtb_rust::domain::configtemplate::ConfigTemplate;
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::interface::mcp::{
@@ -66,6 +67,37 @@ fn a_config(user_id: &str, bot_id: &str) -> BotConfig {
         }),
         created_at: NOW,
         updated_at: NOW,
+    }
+}
+
+/// A v7-shaped template with one long coin and the grid parameters a real one
+/// carries, so a test can assert those never come back.
+fn a_template(name: &str) -> ConfigTemplate {
+    ConfigTemplate {
+        name: name.to_string(),
+        description: Some("a strategy".to_string()),
+        version: Some("1".to_string()),
+        config_data: json!({
+            "config_version": "v7.12.0",
+            "pbtb": {
+                "name": name,
+                "title": "10-coin basket",
+                "exchange": "bybit",
+                "description": "a strategy",
+                "strategies": [{ "name": name, "side": "long" }],
+            },
+            "live": {
+                "user": "",
+                "leverage": 3.0,
+                "approved_coins": { "long": ["XRP"], "short": [] },
+                "forced_mode_long": "",
+                "forced_mode_short": "graceful_stop",
+            },
+            "bot": {
+                "long": { "total_wallet_exposure_limit": 1.5, "entry_grid_spacing_pct": 0.06 },
+                "short": { "total_wallet_exposure_limit": 0.0, "entry_grid_spacing_pct": 0.06 },
+            },
+        }),
     }
 }
 
@@ -294,7 +326,21 @@ async fn reading_a_config_takes_more_than_bots_read() {
 async fn no_read_only_tool_hands_a_config_to_a_caller_without_config_read() {
     let h = harness!();
     h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
-    h.configs.put(a_config(&USER_ID.to_string(), BOT_ID));
+    h.templates.add(a_template("v7-template"));
+    h.configs.put(
+        BotConfig::from_template(
+            USER_ID.to_string(),
+            BOT_ID.to_string(),
+            &a_template("v7-template"),
+            NOW,
+        )
+        .expect("a config from the template"),
+    );
+    h.curves.put(
+        &USER_ID.to_string(),
+        BOT_ID,
+        json!({ "id": BOT_ID, "points": [{ "ts": 1, "index": 100.0 }] }),
+    );
     let tools = h.mcp_tools(Arc::new(BotsOnly));
 
     let answers = vec![
@@ -304,6 +350,19 @@ async fn no_read_only_tool_hands_a_config_to_a_caller_without_config_read() {
             .await
             .expect("get_bot_status"),
         tools.list_templates().await.expect("list_templates"),
+        tools.whoami().await.expect("whoami"),
+        tools
+            .describe_bot(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("describe_bot"),
+        tools
+            .describe_template(params(json!({ "template_name": "v7-template" })))
+            .await
+            .expect("describe_template"),
+        tools
+            .get_bot_returns(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("get_bot_returns"),
     ];
 
     for answer in answers {
@@ -313,6 +372,98 @@ async fn no_read_only_tool_hands_a_config_to_a_caller_without_config_read() {
             "a tool outside config:read leaked strategy parameters: {text}"
         );
     }
+}
+
+#[tokio::test]
+async fn whoami_reports_the_account_the_token_resolved_to() {
+    let h = harness!();
+
+    let out = payload(
+        h.mcp_tools(Arc::new(BotsOnly))
+            .whoami()
+            .await
+            .expect("whoami"),
+    );
+    assert_eq!(out["user_id"], USER_ID.to_string());
+    assert_eq!(out["vip_level"], 0);
+    assert_eq!(out["scopes"], json!([SCOPE_READ, SCOPE_WRITE]));
+    assert_eq!(
+        out["telegram"],
+        USER_ID.to_string(),
+        "the harness binds the operator's telegram id: {out}"
+    );
+}
+
+#[tokio::test]
+async fn describe_bot_carries_the_state_and_the_described_config() {
+    let h = harness!();
+    h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
+    h.configs.put(
+        BotConfig::from_template(
+            USER_ID.to_string(),
+            BOT_ID.to_string(),
+            &a_template("v7-template"),
+            NOW,
+        )
+        .expect("a config from the template"),
+    );
+
+    let out = payload(
+        h.mcp_tools(Arc::new(BotsOnly))
+            .describe_bot(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("describe_bot"),
+    );
+    assert_eq!(out["bot_id"], BOT_ID);
+    assert_eq!(out["phase"], Value::Null, "nothing has run yet");
+    assert_eq!(out["config"]["template_name"], "v7-template");
+    assert_eq!(out["config"]["coins"]["long"], json!(["XRP"]));
+    assert_eq!(out["config"]["sides"]["short"], json!(false));
+}
+
+#[tokio::test]
+async fn a_bot_in_another_tenant_is_indistinguishable_from_one_that_is_gone() {
+    let h = harness!();
+    h.given_bot(a_bot(OTHER_TENANT, "someone-elses")).await;
+    let tools = h.mcp_tools(Arc::new(BotsOnly));
+
+    for name in ["someone-elses", "no-such-bot"] {
+        let err = tools
+            .describe_bot(params(json!({ "bot_id": name })))
+            .await
+            .expect_err("neither bot is the caller's");
+        assert!(err.message.contains("no bot"), "{}", err.message);
+    }
+}
+
+#[tokio::test]
+async fn binding_and_releasing_telegram_go_through_the_same_use_cases() {
+    let h = harness!();
+    let tools = h.mcp_tools(operator());
+
+    let ticket = payload(
+        tools
+            .issue_telegram_bind_ticket()
+            .await
+            .expect("issue a bind ticket"),
+    );
+    let token = ticket["token"].as_str().expect("a token").to_string();
+    assert!(!token.is_empty());
+    assert_eq!(
+        ticket["url"],
+        format!("https://t.me/{BOT_USERNAME}?start={token}"),
+        "the deep link is what the account holder opens: {ticket}"
+    );
+
+    let released = payload(tools.unbind_telegram().await.expect("unbind"));
+    assert_eq!(
+        released["released"], 1,
+        "the harness bound one telegram id: {released}"
+    );
+    assert_eq!(
+        payload(tools.whoami().await.expect("whoami"))["telegram"],
+        Value::Null
+    );
 }
 
 // --- The registry's own boundaries -----------------------------------------
@@ -373,6 +524,12 @@ async fn the_registry_exposes_no_whole_config_overwrite() {
         "list_bots",
         "get_bot_status",
         "get_bot_config",
+        "whoami",
+        "describe_bot",
+        "describe_template",
+        "get_bot_returns",
+        "issue_telegram_bind_ticket",
+        "unbind_telegram",
         "list_templates",
         "start_bot",
         "stop_bot",
