@@ -35,7 +35,7 @@ build-time variables.
 | --- | --- | --- |
 | `bots:read` | `permission_01M221PCDBDFH9GCXK82TMX6KF` | list bots, read status and described config |
 | `bots:write` | `permission_01M221PK4BMQ38V0F3E320GFHZ` | start/stop, change config fields, add/delete, unlink |
-| `config:read` | `(create it: see checklist)` | read a bot's stored passivbot config, strategy parameters included |
+| `config:read` | `permission_01M24YZMAJ6QJ6GNJ5F2VA7FWB` | read a bot's stored passivbot config, strategy parameters included |
 
 `config:read` belongs to the **MCP** application only. The web console never
 returns a config, so assigning it there would hand every browser sign-in the
@@ -55,7 +55,7 @@ our side takes the intersection with `scope` ([mcp.md](mcp.md)).
 | id / client id | `app_01M221M345XAZQ98764YFD3B65` / `client_01M221M345JQQ6ASA7X68S5ZT4` |
 | confidentiality | Confidential — one secret, hint `c5b35b79` |
 | redirect URIs | `https://wpgsvdyyl6rb4omtrgb7ox6weu0krirm.lambda-url.ap-northeast-1.on.aws/link/callback` (default), `http://localhost:8765/callback` (manual testing) |
-| permissions | `bots:read`, `bots:write`; `config:read` once it is created |
+| permissions | `bots:read`, `bots:write`, `config:read` |
 
 Used by the **link flow** (`src/interface/link/`) as an OAuth *client*, and by
 MCP clients (Claude Code, etc.) that need a client id. Our side:
@@ -77,6 +77,24 @@ Used by the **web console** (`site/src/auth/oauth.ts`). Our side: the
 `VITE_OAUTH_CLIENT_ID` / `VITE_OAUTH_ISSUER` / `VITE_API_URL` variables in
 `.github/workflows/pages-publish.yml` (and `site/.env.example` for local dev).
 All three are public identifiers, not secrets.
+
+### Roles and the organization — what a user holds
+
+Connect's `scope` is bounded by the *application's* permissions alone; the
+default `member` role holds nothing, and a Web token still carries both bot
+scopes. What a *user* holds is RBAC: a role on an organization membership,
+published in the token's `permissions` claim.
+
+| object | id | holds |
+| --- | --- | --- |
+| role `member` (environment default) | `role_01M208X163WC682QXACVBH5Z47` | `bots:read`, `bots:write` |
+| role `operator` | `role_01M24YZYPYGVK6QHXEFR734WBZ` | `bots:read`, `bots:write`, `config:read` |
+| organization `pbtb` | `org_01M24YZZJMZ8S9AMW6A5419T2Y` | every tenant; `allowProfilesOutsideOrganization` on |
+
+Signup does not add a user to the organization; a membership is written by
+hand (`addUserToOrganization`, dashboard or the WorkOS MCP server) and a user
+without one carries no `permissions` claim, so their token is read on its
+`scope` alone.
 
 ### AuthKit OAuth resource — the token audience
 
@@ -218,7 +236,10 @@ WorkOS side (dashboard or the MCP server):
    `https://iengai.github.io/pbtb-rust/callback` and
    `http://localhost:5173/callback`.
 5. `updateCorsConfig`: `https://iengai.github.io`, `http://localhost:5173`.
-6. Google: dashboard → Authentication → Google OAuth; in Production supply a
+6. `updateRole` `member` to hold `bots:read`, `bots:write`; `createRole`
+   `operator` with all three; `createOrganization`; `addUserToOrganization`
+   for the operator with that role.
+7. Google: dashboard → Authentication → Google OAuth; in Production supply a
    real Google client id/secret.
 
 Our side:
