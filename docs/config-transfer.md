@@ -66,10 +66,12 @@ A letter disambiguates templates that agree on every field, tamest first.
 
 The id addresses the template — it is the S3 key, the site URL, and what a
 bot's stored config and its config-switch history quote — so it is **fixed for
-the life of the template**. The titles are wording and can be rewritten in
-place. What must never go in either: the optimizer run that produced it, and
-any claim about what it returns. `scripts/rename_predefined.py` carries the
-mapping from the names this store used before, and re-running it is a no-op.
+the life of the template**, including its letter after a sibling retires. The
+titles are wording and can be rewritten in place, and that is where a stale
+sibling marker gets dropped. What must never go in either: the optimizer run
+that produced it, and any claim about what it returns.
+`scripts/rename_predefined.py` carries the mapping from the names this store
+used before, and re-running it is a no-op.
 
 Run it:
 
@@ -88,6 +90,17 @@ python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --uploa
 > A combined bot mixes strategies per side (e.g. one strategy's `long`, another's
 > `short`). Each predefined file still describes only its own strategy; the
 > combination lives in the per-bot config's `strategies` array.
+
+### Retiring one
+
+A template another one beats on both gain and worst drawdown at the same
+capital tier is not worth offering. `scripts/retire_templates.py <id> …
+--apply` moves the object to `retired/` — out of every listing, content and
+history intact — deletes its backtest artifact and rebuilds the site index;
+`--restore` puts it back. It refuses to retire a template a bot's stored config
+names, resolving the old names those configs still carry through the rename
+catalogue first. Only drawdowns measured over the **same backtest window** may
+be compared: a run that stops at 2025-04-30 never met the 2025-10-10 crash.
 
 ## Stage 2 — per-bot adjustments (telebot, not the transfer script)
 

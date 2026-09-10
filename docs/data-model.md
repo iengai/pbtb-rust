@@ -115,13 +115,15 @@ new one.
 
 ## S3 (configurations, templates, API keys)
 
-A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `predefined/` and per-bot data under `{user_id}/{bot_id}/`.
+A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `predefined/`, the ones taken out of the catalogue under `retired/`, and per-bot data under `{user_id}/{bot_id}/`.
 
 ```
 Bucket: {project}-{env}-bot-configs
 ├── predefined/              # Configuration templates, keyed by id
 │   ├── bybit-mix10-1000u-balanced-v8.json
 │   └── bybit-xrp-100u-bold-v7.json
+├── retired/                 # Same objects, out of every listing
+│   └── bybit-mix10-700u-bold-v7-b.json
 └── {user_id}/              # User-specific data
     └── {bot_id}/
         ├── {bot_id}.json   # Bot configuration
@@ -135,6 +137,11 @@ Bucket: {project}-{env}-bot-configs
   shown it as; `exchange`, `description`, `strategies`; and `min_vip_level`, the
   lowest account level that may apply it (absent = open to all). An operator
   edits the object to change the gate, no deploy needed.
+- `retired/` — a template that is no longer offered. `S3TemplateRepository::list`
+  scans `predefined/` only, so an object here is absent from the Telegram
+  chooser, the API and the site while its content and version history stay
+  intact. `scripts/retire_templates.py` moves an id either way and refuses to
+  retire one a bot's stored config still names.
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
 - `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
 
