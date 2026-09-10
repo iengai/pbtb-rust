@@ -37,10 +37,21 @@ What it rewrites, per template:
   the ``source_sha`` of the rewritten config, so the backtests are not re-run,
   and ``site/templates/index.json`` rebuilt from the result.
 
+``--bots`` does the other half: a bot's stored config keeps the template name it
+was applied under, so every config written before the rename still quotes a name
+that no longer resolves. It is not only cosmetic — a check that reads a stored
+name and compares it against the catalogue sees an unknown template and lets
+through one a bot is running. This restamps each config's ``pbtb`` block onto
+the current id and the template's current titles, drops the legacy top-level
+markers beside it, and touches nothing under ``bot`` or ``live``: the running
+task already holds its own copy, and the next launch reads the same parameters
+it would have read before.
+
 Usage::
 
     python scripts/rename_predefined.py                  # dry run
     python scripts/rename_predefined.py --apply --profile dev
+    python scripts/rename_predefined.py --bots --apply --profile dev
 
 Re-running after a completed migration is a no-op: a template whose old key is
 already gone and whose new key is in place is skipped.
@@ -61,6 +72,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 BUCKET = "scalable-cluster-dev-bot-configs"
 PREFIX = "predefined/"
+RETIRED_PREFIX = "retired/"
+TABLE = "scalable-cluster-dev-bots"
 
 # Our own markers, superseded by the `pbtb` block.
 LEGACY_KEYS = ("strategy_name", "strategies", "name", "description")
@@ -227,6 +240,93 @@ def aws(args: list[str], profile: str | None, capture: bool = True) -> str:
     return result.stdout.decode("utf-8") if capture else ""
 
 
+def to_id(name: str) -> str:
+    """The id a template name resolves to, or the name itself if it is already
+    one. A config applied before the rename quotes the old name, and one bot's
+    copy (`cap300-iter1-winner-v712`) had lost its `bybit-` prefix before that.
+    """
+    for candidate in (name, f"bybit-{name}"):
+        if candidate in CATALOG:
+            return CATALOG[candidate][0]
+    return name
+
+
+def read_template(new_id: str, profile: str | None) -> dict:
+    """The template's own `pbtb` block, wherever the object lives now."""
+    for prefix in (PREFIX, RETIRED_PREFIX):
+        try:
+            body = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{prefix}{new_id}.json", "-"], profile))
+        except subprocess.CalledProcessError:
+            continue
+        return body.get("pbtb") or {}
+    return {}
+
+
+def restamp_bot_config(raw: dict, meta: dict, new_id: str) -> dict:
+    """Return `raw` with one `pbtb` block naming `new_id`, everything passivbot
+    reads left exactly as it is."""
+    old_meta = raw.get("pbtb") or {}
+    entries = old_meta.get("strategies") or raw.get("strategies") or [{"side": "long"}]
+    out = {k: v for k, v in raw.items() if k not in LEGACY_KEYS and k != "pbtb"}
+    out["pbtb"] = {
+        **old_meta,
+        "name": new_id,
+        "title": meta.get("title"),
+        "title_zh": meta.get("title_zh"),
+        "exchange": meta.get("exchange") or old_meta.get("exchange"),
+        "description": meta.get("description") or old_meta.get("description") or raw.get("description"),
+        # A combined bot names a different strategy per side, so each entry
+        # resolves on its own rather than all taking this config's template.
+        "strategies": [
+            {"name": to_id(e["name"]) if e.get("name") else new_id, "side": e.get("side", "long")}
+            for e in entries
+        ],
+    }
+    return out
+
+
+def migrate_bots(profile: str | None, apply: bool) -> None:
+    scan = json.loads(aws(["dynamodb", "scan", "--table-name", TABLE, "--output", "json"], profile))
+    for item in scan.get("Items", []):
+        pk = item.get("pk", {}).get("S", "")
+        sk = item.get("sk", {}).get("S", "")
+        if not pk.startswith("user_id#") or "#" in sk:
+            continue  # only bot rows, whose sk is the bare bot_id
+        user_id = pk.removeprefix("user_id#")
+        key = f"{user_id}/{sk}/{sk}.json"
+        bot_name = item.get("name", {}).get("S", sk)
+        try:
+            raw = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{key}", "-"], profile))
+        except subprocess.CalledProcessError:
+            print(f"  {bot_name:18} no config")
+            continue
+        meta = raw.get("pbtb") or {}
+        stored = meta.get("name") or raw.get("strategy_name") or raw.get("name")
+        if not stored:
+            print(f"  {bot_name:18} config names no template")
+            continue
+        new_id = to_id(stored)
+        template = read_template(new_id, profile)
+        if not template:
+            print(f"  {bot_name:18} {stored} -> {new_id} (no such template; skipped)")
+            continue
+        out = restamp_bot_config(raw, template, new_id)
+        if out == raw:
+            print(f"  {bot_name:18} {new_id} already current")
+            continue
+        print(f"  {bot_name:18} {stored}")
+        print(f"  {'':18} -> {new_id}  |  {template.get('title_zh')}")
+        assert out.get("bot") == raw.get("bot") and out.get("live") == raw.get("live"), (
+            f"{bot_name}: the restamp would change what passivbot reads"
+        )
+        if not apply:
+            continue
+        tmp = REPO_ROOT / ".cache" / "rename_predefined" / f"bot-{sk}.json"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(body_bytes(out))
+        aws(["s3", "cp", str(tmp), f"s3://{BUCKET}/{key}", "--content-type", "application/json"], profile)
+
+
 def rewrite_config(raw: dict, new_id: str, title: str, title_zh: str) -> dict:
     """Return `raw` with one `pbtb` block and no legacy top-level markers."""
     old_meta = raw.get("pbtb") or {}
@@ -332,12 +432,21 @@ def main() -> int:
     parser.add_argument("--profile", default=None, help="AWS CLI profile")
     parser.add_argument("--artifacts-only", action="store_true",
                         help="leave the bucket alone; rewrite site/templates only")
+    parser.add_argument("--bots", action="store_true",
+                        help="restamp the bots' stored configs instead of the templates")
     args = parser.parse_args()
 
     ids = [v[0] for v in CATALOG.values()]
     if len(set(ids)) != len(ids):
         print("error: the catalog maps two templates onto one id", file=sys.stderr)
         return 1
+
+    if args.bots:
+        print("bot configs:")
+        migrate_bots(args.profile, args.apply)
+        if not args.apply:
+            print("\n(dry run) re-run with --apply to write.")
+        return 0
 
     print(f"S3 {PREFIX} ({len(CATALOG)} templates):")
     bodies = migrate_s3(args.profile, args.apply, write=not args.artifacts_only)
