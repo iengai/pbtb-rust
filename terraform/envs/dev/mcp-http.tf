@@ -94,6 +94,9 @@ module "lambda_mcp_http" {
   environment_variables = {
     ENV = var.env
 
+    APP__SENTRY__DSN         = var.sentry_dsn
+    APP__SENTRY__ENVIRONMENT = var.env
+
     APP__DYNAMODB__REGION     = var.region
     APP__DYNAMODB__TABLE_NAME = module.dynamodb.bots_table_name
 

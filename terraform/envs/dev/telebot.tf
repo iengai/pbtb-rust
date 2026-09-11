@@ -63,6 +63,10 @@ locals {
     # Where the bot sends a sender it does not know: accounts are created and a
     # Telegram id is bound on the web.
     "APP__TELEGRAM__SITE_URL=${var.site_url}",
+    # The DSN is a write-only key, not a credential (see var.sentry_dsn), so it
+    # may sit in this plaintext parameter where the token may not.
+    "APP__SENTRY__DSN=${var.sentry_dsn}",
+    "APP__SENTRY__ENVIRONMENT=${var.env}",
     # Not APP__-prefixed: the binary never reads it. telebot-deploy resolves each
     # family's revision into APP__ECS__TD_PASSIVBOT_BY_ENGINE at deploy time.
     "PBTB_PASSIVBOT_FAMILIES=${local.passivbot_families}",

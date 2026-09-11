@@ -48,8 +48,22 @@ resource "aws_iam_role_policy_attachment" "vpc_access" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
+# The runtime creates this group on the first invocation if nobody else does,
+# with no retention. Declaring it here sets the retention and makes the group
+# exist before the function can log to it.
+resource "aws_cloudwatch_log_group" "this" {
+  name              = "/aws/lambda/${var.project}-${var.env}-${var.function_name}"
+  retention_in_days = var.log_retention_days
+
+  tags = merge(
+    var.common_tags,
+    { Name = "${var.project}-${var.env}-${var.function_name}-logs" }
+  )
+}
+
 resource "aws_lambda_function" "this" {
   function_name = "${var.project}-${var.env}-${var.function_name}"
+  depends_on    = [aws_cloudwatch_log_group.this]
   role          = aws_iam_role.lambda_exec.arn
 
   s3_bucket = aws_s3_object.lambda_zip.bucket

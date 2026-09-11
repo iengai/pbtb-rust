@@ -109,6 +109,25 @@ published versions.
 > `target/lambda/task_state_change_handler/bootstrap` to exist — build the lambda
 > first or the command errors on the missing file.
 
+## Log groups
+
+Each function's `/aws/lambda/<function_name>` group is declared in the `base`
+module with a 30-day retention (`log_retention_days`). The Lambda runtime
+creates the group itself on the first invocation if Terraform has not, without
+retention, so a group that predates its declaration has to be imported rather
+than created:
+
+```bash
+terraform import 'module.lambda_task_state_change_handler.module.base.aws_cloudwatch_log_group.this' /aws/lambda/scalable-cluster-dev-task-state-change-handler
+```
+
+The collector follows the same pattern
+(`module.lambda_daily_pnl_snapshot.module.base.aws_cloudwatch_log_group.this`);
+`mcp-http` instantiates `base` directly, so its address has one module segment
+(`module.lambda_mcp_http[0].aws_cloudwatch_log_group.this`). Two groups from
+retired function names (`bot-restarter`, `task-stopped-event-handler`) are
+unmanaged leftovers.
+
 ## Drift and emergency Terraform deploy
 
 `aws_lambda_function.this` (in `terraform/modules/lambda/base/main.tf`) carries:
