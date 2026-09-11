@@ -1,0 +1,46 @@
+name: incident-intake
+
+# File a GitHub Incident issue for every Sentry issue that has none yet.
+# Sentry's own issue-creating integration is a paid feature, so the repo pulls
+# instead: the script lists the project's unresolved issues, skips the ones an
+# incident issue already carries (by the `<!-- sentry:<id> -->` marker in its
+# body), and files the rest in the Incident template's shape with the
+# `source:agent` label. Nothing here touches AWS or trading.
+#
+# One-time setup: repo secret SENTRY_AUTH_TOKEN (event:read + project:read).
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the issues that would be filed instead of filing them
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+# Two overlapping runs would both see the same Sentry issue as unfiled.
+concurrency:
+  group: incident-intake
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: File incidents from Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          args=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args="--dry-run"; fi
+          python3 scripts/ops/sentry_issues.py file $args
