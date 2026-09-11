@@ -9,14 +9,18 @@ name: issue-fix
 # a PR only after a `cargo test` was seen failing and the same command then
 # passing, and any change only after the same gate CI runs is green. The PR
 # body carries the gate lines, the red→green evidence and a REVIEW.md pass by
-# the same model; a person reviews and merges. Nothing here merges or
-# deploys, and neither job has AWS credentials.
+# the same model. At a merge tier, and only while the ruleset on main
+# requires the `gate` check, the PR is armed to merge itself when that
+# check passes; otherwise a person merges. Nothing here deploys, and
+# neither job has AWS credentials.
 #
 # Two jobs, because the model's test code executes in the first: `fix` holds
 # a read-only token and the model key, keeps no credentials in the checkout,
 # runs the model's commands without even those, and hands over a patch and
 # a result file as an artifact; `publish` holds the write token, runs no
-# model code, and turns the result into a comment or a branch + PR. The
+# model code, and turns the result into a comment or a branch + PR; it
+# takes nothing that decides a merge from the artifact (the tier is read
+# from the issue again, the paths re-checked, the check is CI's). The
 # model keys reach the model's process through a file it deletes on reading
 # and the token leaves its environment before the loop, so a hostile test
 # in `fix` finds a public repo and the runner, nothing that outlives the run.
@@ -34,7 +38,9 @@ name: issue-fix
 # (and the LLM_FALLBACK_* pair), secret LLM_API_KEY. One repository setting
 # of its own: "Allow GitHub Actions to create and approve pull requests"
 # (Settings → Actions → General), without which the token can push the
-# branch but `gh pr create` is refused.
+# branch but `gh pr create` is refused; for the merge tiers also "Allow
+# auto-merge" and "Automatically delete head branches" (Settings →
+# General → Pull Requests) and the ruleset on main requiring `gate`.
 
 on:
   issues:

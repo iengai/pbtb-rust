@@ -55,13 +55,28 @@ than the review asked for.
 2. Fix every 🔴 Important finding before the PR exists, or say in the PR why
    it is not one. 🟡 Nits are yours to take or leave. A 🟣 Pre-existing bug
    becomes an Intent issue (`gh issue create --label intent,bug,source:agent
-   --body-file`, the template's fields), not part of this PR.
+   --body-file`, the template's fields), not part of this PR. When it is
+   self-evident (docs/conventions.md § Issues: confirmed at file:line,
+   self-contained, bounded, too large to inline) add `agent:fix` to the
+   labels and set the tier field to *Merge when the verify gate and CI are
+   green*; the fix workflow takes it from there.
 3. The PR body's **Review** section carries each reviewer's tally line and
    what was done with the findings; a finding you overruled is named there, so
    the PR stays the audit record.
 4. A class of mistake the review has corrected twice goes into the knowledge
    layer it belongs to (docs/conventions.md § Knowledge placement), not only
    into the fix.
+
+## The merge-when-green tier
+
+A task that arrived as a suggested-task chip, or an issue whose *How far the
+agent may go* is *Merge when the verify gate and CI are green*, does not
+wait for a person at the PR: run the review passes and the gate as above,
+open the PR with `closes #<n>`, wait for the `gate` check (`gh pr checks
+<n> --watch`), and merge it yourself with `gh pr merge <n> --rebase
+--delete-branch`. An 🔴 Important finding you cannot resolve, a red check,
+or a diff that grew past the task's four tests (docs/conventions.md §
+Issues) drops the task back to *open a PR*: say so in the PR body and stop.
 
 ## Rebasing a stale PR
 
