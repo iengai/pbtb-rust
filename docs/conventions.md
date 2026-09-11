@@ -130,6 +130,7 @@ An issue is the interface between human judgment and agent execution: one change
 - One template per kind of work, in `.github/ISSUE_TEMPLATE/`: **Intent** (a change: problem, outcome, *done when*, out of scope, invariants touched, how far the agent may go), **Incident** (a symptom, verbatim; the agent starts with `pbtb-triage` and delivers a diagnosis before a patch), **Rollout** (what, window, rollback, done when), **Knowledge drift** (what is written, what is true, which layer gets the fact). Blank issues are off.
 - Every template carries a *done when* an agent can run and an autonomy tier (open a PR / merge when green / merge and deploy). Trading actions are never delegated through an issue.
 - An agent starts from `gh issue view <n>`, restates *done when* in its PR, and closes with `closes #<n>`. Findings an agent makes on its own (a red not in its diff, a `deploy-audit` finding, a stale doc) go in through the same templates via `gh issue create --body-file`, so a human triages them like anything else.
+- Runtime errors arrive the same way: every binary reports `tracing::error!` events to Sentry, and the `incident-intake` workflow (`scripts/ops/sentry_issues.py`, every six hours) files one Incident issue per unresolved Sentry issue, labelled `incident` + `source:agent`, at the "diagnose only" tier. The Sentry id sits in the body as `<!-- sentry:<id> -->`; that marker is what stops a second filing, so leave it in when editing. Resolving the Sentry issue is a human act, done once the GitHub issue closes.
 
 ## Do Not
 
