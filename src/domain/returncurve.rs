@@ -7,10 +7,10 @@ use serde_json::Value;
 
 /// Read access to a bot's return series, keyed by tenant and bot.
 ///
-/// The series is the collector's artifact — a normalized index, no balances —
-/// and nothing here interprets it: it is handed to the owner as the JSON it
-/// was stored as, so the collector's shape can grow without a domain type
-/// chasing it.
+/// The series is the collector's artifact — a return index and the realized
+/// PnL, never a balance — and nothing here interprets it: it is handed to the
+/// owner as the JSON it was stored as, so the collector's shape can grow
+/// without a domain type chasing it.
 #[async_trait]
 pub trait ReturnCurveRepository: Send + Sync {
     /// `Ok(None)` when the collector has not written a series for this bot

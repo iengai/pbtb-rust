@@ -2,10 +2,12 @@
 //! split so the return index can be recomputed incrementally from accumulated
 //! state without re-fetching history.
 //!
-//! The output carries only NORMALIZED performance (a time-weighted return
-//! index and cumulative return %) — never an absolute balance/equity. It is
-//! keyed by the bot's immutable id, so a rename never orphans it; the readable
-//! name rides inside as mutable data. Nothing here is Bybit-specific.
+//! The output carries two readings of the same ledger: a time-weighted return
+//! index (cumulative return %, deposit-neutral) and the realized PnL in the
+//! settlement coin, per day and accumulated. It never carries a balance or
+//! equity — how much money the owner has is not the collector's to tell. It
+//! is keyed by the bot's immutable id, so a rename never orphans it; the
+//! readable name rides inside as mutable data. Nothing here is Bybit-specific.
 
 use std::collections::BTreeMap;
 
@@ -65,12 +67,20 @@ impl BotState {
     }
 }
 
-/// One point per UTC day. Normalized only.
+/// One point per UTC day: where the return index stands, and the money the
+/// day made. The two do not agree by construction — a capital reset restarts
+/// the index but the realized figures keep counting, since the coins earned
+/// on either side of a re-funding are equally real.
 #[derive(Debug, Clone, Serialize)]
 pub struct DailyPoint {
     pub ts: i64,
     pub index: f64,
     pub return_pct: f64,
+    /// The day's realized PnL in the settlement coin (net of fees and
+    /// funding, deposits excluded).
+    pub realized_usdt: f64,
+    /// Realized PnL summed from the first recorded day through this one.
+    pub cum_realized_usdt: f64,
 }
 
 /// The return index over a bot's history, plus the days on which it restarted.
@@ -100,6 +110,8 @@ pub struct BotReturnSeries {
     pub exchange: String,
     pub generated_at: i64,
     pub current_return_pct: f64,
+    /// Realized PnL over every recorded day, in the settlement coin.
+    pub total_realized_usdt: f64,
     pub points: Vec<DailyPoint>,
     pub config_switches: Vec<SwitchMarker>,
     /// Days the index restarted; the chart never re-bases across one.
@@ -120,6 +132,7 @@ impl BotReturnSeries {
             capital_resets,
         } = series;
         let current_return_pct = points.last().map(|p| p.return_pct).unwrap_or(0.0);
+        let total_realized_usdt = points.last().map(|p| p.cum_realized_usdt).unwrap_or(0.0);
         let config_switches = switches
             .iter()
             .map(|s| SwitchMarker {
@@ -133,6 +146,7 @@ impl BotReturnSeries {
             exchange: exchange.to_string(),
             generated_at,
             current_return_pct,
+            total_realized_usdt,
             points,
             config_switches,
             capital_resets,
@@ -140,8 +154,26 @@ impl BotReturnSeries {
     }
 }
 
+/// Whether a ledger entry moves money into or out of the account rather than
+/// earning or losing it: transfers and deposits, exchange gifts, coin
+/// conversions, and the institutional-loan legs. Everything else — trades,
+/// settlement, funding, fees and their refunds, liquidation, ADL, margin
+/// interest — is the cost or the reward of trading, and counts as realized.
 fn is_capital_flow(kind: &str) -> bool {
-    matches!(kind, "TRANSFER_IN" | "TRANSFER_OUT")
+    matches!(
+        kind,
+        "TRANSFER_IN"
+            | "TRANSFER_OUT"
+            | "DEPOSIT"
+            | "WITHDRAW"
+            | "AIRDROP"
+            | "BONUS"
+            | "RECEIVE"
+            | "CURRENCY_BUY"
+            | "CURRENCY_SELL"
+    ) || kind.starts_with("TRANSFER_")
+        || kind.starts_with("SPOT_REPAYMENT_")
+        || kind.ends_with("_INS_LOAN")
 }
 
 fn round4(v: f64) -> f64 {
@@ -211,6 +243,7 @@ pub fn aggregate(ledger: &[LedgerEntry]) -> (Vec<DayAgg>, Option<f64>) {
 pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
     let mut prev_end: Option<f64> = None;
     let mut idx = 100.0_f64;
+    let mut cum = 0.0_f64;
     let mut points = Vec::with_capacity(days.len());
     let mut capital_resets = Vec::new();
 
@@ -218,19 +251,25 @@ pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
         let start = prev_end.unwrap_or(first_pre_balance);
         let ts = d.day * DAY_S;
         prev_end = Some(d.end_balance);
+        cum += d.realized;
+        let realized_usdt = round4(d.realized);
+        let cum_realized_usdt = round4(cum);
 
-        // `aggregate` keeps transfers out of `realized`, so whatever else moved
-        // the balance that day is capital flowing in or out.
+        // `aggregate` keeps capital flows out of `realized`, so whatever else
+        // moved the balance that day is money arriving or leaving.
         let flow = d.end_balance - start - d.realized;
         if flow > 0.0 && d.end_balance > 0.0 && (start <= 0.0 || flow >= REVIVE_RATIO * start) {
-            // The day's own PnL is dropped: it was earned on the dust that the
-            // deposit replaced, and there is no base to measure it against.
+            // The day's own return is dropped: it was earned on the dust that
+            // the deposit replaced, and there is no base to measure it
+            // against. The coins it made are still counted.
             idx = 100.0;
             capital_resets.push(ts);
             points.push(DailyPoint {
                 ts,
                 index: 100.0,
                 return_pct: 0.0,
+                realized_usdt,
+                cum_realized_usdt,
             });
             continue;
         }
@@ -247,6 +286,8 @@ pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
             ts,
             index: round4(idx),
             return_pct: round4(idx - 100.0),
+            realized_usdt,
+            cum_realized_usdt,
         });
     }
 
@@ -335,6 +376,44 @@ mod tests {
         assert_eq!(s.capital_resets, vec![2 * DAY_S]);
         assert_eq!(s.points[2].index, 100.0);
         assert!((s.points[3].return_pct - 9.999).abs() < 0.01);
+    }
+
+    #[test]
+    fn realized_money_keeps_counting_across_a_reset() {
+        // The index forgets the wiped stake; the coins do not: −999.99 lost,
+        // then +2 earned on the dust the same day the re-funding landed, then
+        // +10 on the new stake.
+        let days = vec![
+            agg(0, 0.0, 1000.0),
+            agg(1, -999.99, 0.01),
+            agg(2, 2.0, 102.01),
+            agg(3, 10.0, 112.01),
+        ];
+        let s = compute_points(&days, 1000.0);
+        assert_eq!(s.capital_resets, vec![2 * DAY_S]);
+        assert_eq!(s.points[2].return_pct, 0.0);
+        assert!((s.points[2].realized_usdt - 2.0).abs() < 1e-9);
+        assert!((s.points[3].cum_realized_usdt - (-999.99 + 2.0 + 10.0)).abs() < 1e-9);
+        let series = BotReturnSeries::new("b", "b", "bybit", s, &[], 0);
+        assert!((series.total_realized_usdt - (-987.99)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn money_arriving_or_leaving_is_not_realized() {
+        let ledger = vec![
+            entry(1000, "TRADE", 10.0, 1010.0),
+            entry(2000, "DEPOSIT", 500.0, 1510.0),
+            entry(3000, "BONUS", 5.0, 1515.0),
+            entry(4000, "TRANSFER_IN_INS_LOAN", 100.0, 1615.0),
+            entry(5000, "SPOT_REPAYMENT_SELL", -20.0, 1595.0),
+            entry(6000, "WITHDRAW", -300.0, 1295.0),
+            entry(7000, "FEE_REFUND", 0.5, 1295.5),
+            entry(8000, "LIQUIDATION", -7.0, 1288.5),
+        ];
+        let (aggs, _) = aggregate(&ledger);
+        assert_eq!(aggs.len(), 1);
+        assert!((aggs[0].realized - 3.5).abs() < 1e-9);
+        assert!((aggs[0].end_balance - 1288.5).abs() < 1e-9);
     }
 
     #[test]
