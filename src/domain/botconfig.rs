@@ -177,23 +177,35 @@ const SHORT_EXPOSURE: ExposurePaths = ExposurePaths {
     risk: "bot.short.risk.total_wallet_exposure_limit",
 };
 
+/// A template's internal record, kept out of every bot built from it.
+const LAB_KEY: &str = "lab";
+
 impl BotConfig {
     /// Create a new BotConfig from a template.
     /// The live.user field is overridden with the bot_id so the running task
     /// reports under the correct identity.
+    ///
+    /// The template's `lab` block stays with the template: it is the strategy
+    /// lab's record of the tuning (optimizer run, seeds, internal verdicts),
+    /// nothing a bot runs reads it, and a bot's stored config is handed back
+    /// whole by `get_bot_config`.
     pub fn from_template(
         user_id: String,
         bot_id: String,
         template: &ConfigTemplate,
         timestamp: i64,
     ) -> Result<Self, DomainError> {
+        let mut config_data = template.config_data.clone();
+        if let Some(fields) = config_data.as_object_mut() {
+            fields.remove(LAB_KEY);
+        }
         let mut config = Self {
             user_id,
             bot_id: bot_id.clone(),
             bot_type: BotType::Passivbot,
             template_name: template.name.clone(),
             template_version: template.version.clone(),
-            config_data: template.config_data.clone(),
+            config_data,
             created_at: timestamp,
             updated_at: timestamp,
         };
@@ -670,6 +682,27 @@ mod tests {
         };
         let config = BotConfig::from_template("u".into(), "bot-id".into(), &template, 10).unwrap();
         assert_eq!(config.config_data["live"]["user"].as_str(), Some("bot-id"));
+    }
+
+    #[test]
+    fn a_bot_built_from_a_template_does_not_carry_its_lab_block() {
+        let template = ConfigTemplate {
+            name: "bybit-x".into(),
+            description: None,
+            config_data: json!({
+                "bot": { "long": { "total_wallet_exposure_limit": 1.0 } },
+                "live": { "leverage": 2.0 },
+                "pbtb": { "name": "bybit-x", "title": "X" },
+                "lab": { "member": "6501db3f96", "notes": "internal" }
+            }),
+            version: None,
+        };
+        let config = BotConfig::from_template("u".into(), "b".into(), &template, 10).unwrap();
+
+        assert!(config.config_data.get("lab").is_none());
+        assert_eq!(config.title(), Some("X"));
+        assert_eq!(config.config_data["bot"], template.config_data["bot"]);
+        assert!(template.config_data.get("lab").is_some());
     }
 
     #[test]

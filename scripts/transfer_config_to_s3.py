@@ -22,6 +22,11 @@ passivbot schema is one top-level `pbtb` object:
   * `description` (string, optional) — a free-text strategy explanation, shown
     in the Telegram State view. Only written when --description is given.
 
+With --lab it also writes a top-level `lab` object beside `pbtb`: the strategy
+lab's record of the tuning (source config, run, member, seeds, genome, notes).
+No surface reads it and a bot built from the template does not copy it; see
+scripts/annotate_templates.py for the fields.
+
 Everything else (`bot`, `live`, `approved_coins`, `forced_mode_*`, leverage,
 `coin_overrides`, ...) is left exactly as passivbot produced it. Per-bot tweaks
 (`live.user`, `live.forced_mode_<side>`, risk/leverage) are applied later by the
@@ -64,8 +69,9 @@ def transform(
     title: str | None = None,
     title_zh: str | None = None,
     exchange: str | None = None,
+    lab: dict | None = None,
 ) -> dict:
-    """Return a copy of `raw` with our `pbtb` block injected.
+    """Return a copy of `raw` with our `pbtb` block (and `lab`, if given) injected.
 
     Pure function — this is the documented transfer contract. It does not mutate
     the input and touches nothing else in the config.
@@ -88,6 +94,10 @@ def transform(
         "description": description,
         "strategies": [{"name": name, "side": side} for side in sides],
     }
+    if lab is not None:
+        if not isinstance(lab, dict):
+            raise ValueError("--lab must hold a JSON object")
+        out["lab"] = lab
     return out
 
 
@@ -107,6 +117,8 @@ def main() -> int:
                         help="comma-separated sides this strategy drives (default: long,short)")
     parser.add_argument("--description", default=None,
                         help="free-text strategy explanation, stored as `pbtb.description`")
+    parser.add_argument("--lab", default=None,
+                        help="path to a JSON object stored verbatim as the internal `lab` block")
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     parser.add_argument("--prefix", default=DEFAULT_PREFIX)
     parser.add_argument("--profile", default=None, help="AWS CLI profile for the upload")
@@ -122,9 +134,14 @@ def main() -> int:
     with open(args.config, "r", encoding="utf-8") as fh:
         raw = json.load(fh)
 
+    lab = None
+    if args.lab:
+        with open(args.lab, "r", encoding="utf-8") as fh:
+            lab = json.load(fh)
+
     try:
         result = transform(
-            raw, name, sides, args.description, args.title, args.title_zh, args.exchange
+            raw, name, sides, args.description, args.title, args.title_zh, args.exchange, lab
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
