@@ -134,13 +134,14 @@ OUT=$(python .claude/hooks/guard-shell.py --self-test 2>&1); RC=$?
 gate hook-guard-shell $RC; [ $RC -ne 0 ] && show "$OUT" "^FAIL"
 
 # 9. knowledge budgets (docs/conventions.md § Knowledge placement): the files
-# every session loads and every skill description have a byte ceiling, and a
+# every session loads, the review policy (applied whole, so kept short) and
+# every skill description have a byte ceiling, and a
 # change to the row layout or the infra is a prompt to re-read the leaf that
 # describes it.
 python - <<'PY'; gate knowledge-budget $?
 import glob, os, re, sys
 bad = 0
-for f, lim in [("AGENTS.md", 6144), (".claude/CLAUDE.md", 1536)]:
+for f, lim in [("AGENTS.md", 6144), (".claude/CLAUDE.md", 1536), ("REVIEW.md", 4096)]:
     n = os.path.getsize(f)
     if n > lim:
         print(f"  {f}: {n} bytes > {lim}"); bad = 1

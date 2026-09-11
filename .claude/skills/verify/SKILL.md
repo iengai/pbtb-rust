@@ -28,7 +28,7 @@ in the container; the script refuses rather than verify the main tree by mistake
 | `cargo test --workspace` | with `dynamodb-local` up, `tests/botrepository_test.rs` exercises real condition expressions; in-memory mocks once let a `ValidationException` ship |
 | `terraform fmt -check` + `validate` (when `terraform/**` changed) | validate catches interpolation/type errors without credentials; a targeted **read-only plan** is the real proof for state moves and env changes |
 | workflow YAML parses (when `.github/workflows/**` changed) | a broken workflow fails only at dispatch time, on main |
-| knowledge budgets (`AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, skill `description` ≤ 300 B) | the always-loaded context is paid by every session; docs/conventions.md § Knowledge placement says what to demote instead of growing it |
+| knowledge budgets (`AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, `REVIEW.md` ≤ 4 KB, skill `description` ≤ 300 B) | the always-loaded context is paid by every session, and a review policy is applied whole or not at all; docs/conventions.md § Knowledge placement says what to demote instead of growing it |
 
 A runtime change is not verified by tests alone. If the diff touches a launch
 path, an env variable, or IAM, the verification includes the matching probe
