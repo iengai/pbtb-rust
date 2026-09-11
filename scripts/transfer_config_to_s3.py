@@ -23,8 +23,9 @@ passivbot schema is one top-level `pbtb` object:
     `long` and `short`. A combined bot ends up with one entry per side, possibly
     from different strategies, but a single predefined file only describes its
     own strategy.
-  * `description` (string, optional) — a free-text strategy explanation, shown
-    in the Telegram State view. Only written when --description is given.
+  * `description` (string, optional) — what a user reads about the template.
+    Only written when --description is given; scripts/describe_templates.py
+    composes the published one once the template has a backtest.
 
 With --lab it also writes a top-level `lab` object beside `pbtb`: the strategy
 lab's record of the tuning (source config, run, member, seeds, genome, notes).
