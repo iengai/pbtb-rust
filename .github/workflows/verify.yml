@@ -26,8 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The gate diffs against origin/main to decide whether the terraform
-          # and workflow checks apply; a shallow clone has no main to diff.
+          # The gate diffs against origin/main to decide which conditional
+          # gates (cargo, terraform, workflow) apply; a shallow clone has no
+          # main to diff.
           fetch-depth: 0
 
       # Keep in sync with rust-toolchain.toml, which is what actually governs;
@@ -54,4 +55,6 @@ jobs:
       # silently disappears, so the daemon is asserted before the gate runs.
       - run: docker info > /dev/null
 
-      - run: bash .claude/skills/verify/scripts/gate.sh --host
+      # --full: the local gate skips cargo on a branch with no Rust change;
+      # the check the ruleset requires runs everything, every time.
+      - run: bash .claude/skills/verify/scripts/gate.sh --host --full
