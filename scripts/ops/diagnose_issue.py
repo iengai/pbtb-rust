@@ -49,6 +49,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_TURNS = 30
+BUDGET_WARNING_TURNS = 5
 TOOL_OUTPUT_CAP = 12_000
 FILE_CAP = 40_000
 OPS_TIMEOUT_S = 240
@@ -185,8 +186,11 @@ def tool_sentry_issue(issue_id: str) -> str:
     sys.path.insert(0, str(ROOT / "scripts/ops"))
     import sentry_issues as s  # noqa: E402
 
-    issue = s.sentry_get(f"organizations/{s.SENTRY_ORG}/issues/{issue_id}/")
-    event = s.latest_event(issue_id)
+    try:
+        issue = s.sentry_get(f"organizations/{s.SENTRY_ORG}/issues/{issue_id}/")
+        event = s.latest_event(issue_id)
+    except SystemExit as e:  # sentry_get ends its own CLI on an HTTP error; here it is an answer
+        return f"sentry: {e}"
     crumbs = []
     for entry in event.get("entries", []):
         if entry.get("type") == "breadcrumbs":
@@ -269,13 +273,13 @@ CANDIDATES: list[Candidate] = []
 RETRY_BACKOFF_S = 10
 
 
-def ask(cand: Candidate, messages: list[dict]) -> dict:
+def ask(cand: Candidate, messages: list[dict], tools: bool = True) -> dict:
     """One candidate's answer, or an exception describing why it is unusable."""
     body = json.dumps({
         "model": cand.model,
         "messages": messages,
         "tools": tool_specs(),
-        "tool_choice": "auto",
+        "tool_choice": "auto" if tools else "none",
         "temperature": 0.2,
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -301,13 +305,13 @@ def ask(cand: Candidate, messages: list[dict]) -> dict:
     raise RuntimeError(last)
 
 
-def chat(messages: list[dict]) -> dict:
+def chat(messages: list[dict], tools: bool = True) -> dict:
     """The first live candidate's answer; a failing one is retired for the run."""
     for cand in CANDIDATES:
         if cand.dead:
             continue
         try:
-            return ask(cand, messages)
+            return ask(cand, messages, tools)
         except RuntimeError as e:
             cand.dead = str(e)
             print(f"llm {cand.model} dropped: {cand.dead[:200]}", file=sys.stderr)
@@ -334,7 +338,7 @@ def diagnose(title: str, body: str) -> tuple[str, list[str]]:
         {"role": "user", "content": f"Incident issue: {title}\n\n{body}"},
     ]
     trail: list[str] = []
-    for _ in range(MAX_TURNS):
+    for turn in range(MAX_TURNS):
         msg = chat(messages)
         messages.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls")})
         calls = msg.get("tool_calls") or []
@@ -347,7 +351,19 @@ def diagnose(title: str, body: str) -> tuple[str, list[str]]:
             trail.append(f"{name}({raw[:200]})")
             print(f"tool {name} {raw[:200]} -> {len(out)} chars", file=sys.stderr)
             messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": out})
-    return "The diagnosis did not converge within the tool-call budget; the trail is listed below.", trail
+        left = MAX_TURNS - turn - 1
+        if left == BUDGET_WARNING_TURNS:
+            messages.append({"role": "user", "content": (
+                f"{left} tool turns remain. Finish the evidence you need and answer; "
+                "the answer is required whether or not the cause is found.")})
+    # Tools are withdrawn so the model has to write from what it gathered; a
+    # verdict with the trail beats an empty comment after a long run.
+    messages.append({"role": "user", "content": (
+        "The tool budget is spent. Answer now in the required shape from the "
+        "evidence above, and say what remains unverified.")})
+    msg = chat(messages, tools=False)
+    answer = (msg.get("content") or "").strip()
+    return (answer or "The diagnosis did not converge within the tool-call budget; the trail is listed below."), trail
 
 
 # ----------------------------------------------------------------- github
