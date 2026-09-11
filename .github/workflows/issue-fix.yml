@@ -1,0 +1,134 @@
+name: issue-fix
+
+# Open a fix PR for one issue at its "open a PR" tier. scripts/ops/fix_issue.py
+# drives an OpenAI-compatible chat model on a clean checkout of main with
+# write tools bounded to the checkout (a deny list keeps workflows,
+# terraform, hooks, the scripts behind these workflows, .git, .cargo, build
+# scripts, dependency manifests, AGENTS.md and REVIEW.md human-owned) and a
+# whitelist of cargo / gate commands. A change under src/ or tests/ becomes
+# a PR only after a `cargo test` was seen failing and the same command then
+# passing, and any change only after the same gate CI runs is green. The PR
+# body carries the gate lines, the red→green evidence and a REVIEW.md pass by
+# the same model; a person reviews and merges. Nothing here merges or
+# deploys, and neither job has AWS credentials.
+#
+# Two jobs, because the model's test code executes in the first: `fix` holds
+# a read-only token and the model key, keeps no credentials in the checkout,
+# runs the model's commands without even those, and hands over a patch and
+# a result file as an artifact; `publish` holds the write token, runs no
+# model code, and turns the result into a comment or a branch + PR. The
+# model's process drops the token and the model keys from its environment
+# before the loop, so a hostile test in `fix` finds a public repo and the
+# runner, nothing that outlives the run.
+#
+# Starts when the `agent:fix` label lands on an issue (only triage access
+# and above can label, so the label is the authorization, whoever wrote the
+# issue) and its "How far the agent may go" field grants a PR (the field,
+# not the label, is what fix_issue.py checks), or by dispatch with an issue
+# number. The verify workflow does not run on a PR the repository token
+# opens, so fix_issue.py dispatches it on the branch.
+#
+# Setup shared with incident-diagnose: variables LLM_BASE_URL, LLM_MODEL
+# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: The issue to fix
+        type: number
+        required: true
+      dry_run:
+        description: Run the model and the gate, print the PR in the log; do not push, open or comment
+        type: boolean
+        default: false
+
+env:
+  ISSUE: ${{ github.event.inputs.issue_number || github.event.issue.number }}
+
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent:fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    # One fix attempt per issue at a time; a second trigger waits its turn.
+    concurrency:
+      group: issue-fix-${{ github.event.inputs.issue_number || github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git log is one of the model's tools; the gate diffs against main
+          ref: main
+          persist-credentials: false
+
+      # The toolchain steps mirror verify.yml so the gate the model runs is
+      # the gate CI runs.
+      - uses: dtolnay/rust-toolchain@1.89
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: sudo apt-get update && sudo apt-get install -y nasm
+
+      # No terraform: the gate's terraform checks run only for a change under
+      # terraform/, which the deny list refuses, and `terraform init` would
+      # rewrite the tracked provider lock on this platform before the model
+      # starts.
+      - run: docker info > /dev/null
+
+      - name: Fix
+        env:
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_FALLBACK_BASE_URL: ${{ vars.LLM_FALLBACK_BASE_URL }}
+          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
+          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          args=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args="--dry-run"; fi
+          python3 scripts/ops/fix_issue.py run --issue "$ISSUE" --out "$RUNNER_TEMP/fix" $args
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fix-${{ env.ISSUE }}
+          path: ${{ runner.temp }}/fix
+          retention-days: 7
+
+  publish:
+    needs: fix
+    if: github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: fix-${{ env.ISSUE }}
+          path: ${{ runner.temp }}/fix
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FIX_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ops/fix_issue.py publish --issue "$ISSUE" --in "$RUNNER_TEMP/fix"

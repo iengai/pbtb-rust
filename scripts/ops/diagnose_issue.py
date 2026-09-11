@@ -110,6 +110,8 @@ def _safe_path(rel: str) -> Path:
     p = (ROOT / rel).resolve()
     if ROOT not in p.parents and p != ROOT:
         raise ValueError(f"path escapes the checkout: {rel}")
+    if ".git" in p.relative_to(ROOT).parts:
+        raise ValueError(f"the repository metadata is off limits: {rel}")
     return p
 
 
@@ -224,16 +226,16 @@ TOOLS = {
 }
 
 
-def tool_specs() -> list[dict]:
+def tool_specs(table: dict | None = None) -> list[dict]:
     return [{
         "type": "function",
         "function": {"name": name, "description": desc,
                      "parameters": {"type": "object", "properties": props, "required": req}},
-    } for name, (_, desc, props, req) in TOOLS.items()]
+    } for name, (_, desc, props, req) in (TOOLS if table is None else table).items()]
 
 
-def run_tool(name: str, raw_args: str) -> str:
-    fn = TOOLS.get(name)
+def run_tool(name: str, raw_args: str, table: dict | None = None) -> str:
+    fn = (TOOLS if table is None else table).get(name)
     if fn is None:
         return f"unknown tool {name}"
     try:
@@ -273,15 +275,13 @@ CANDIDATES: list[Candidate] = []
 RETRY_BACKOFF_S = 10
 
 
-def ask(cand: Candidate, messages: list[dict], tools: bool = True) -> dict:
+def ask(cand: Candidate, messages: list[dict], tools: bool = True, specs: list[dict] | None = None) -> dict:
     """One candidate's answer, or an exception describing why it is unusable."""
-    body = json.dumps({
-        "model": cand.model,
-        "messages": messages,
-        "tools": tool_specs(),
-        "tool_choice": "auto" if tools else "none",
-        "temperature": 0.2,
-    }).encode("utf-8")
+    specs = tool_specs() if specs is None else specs
+    payload = {"model": cand.model, "messages": messages, "temperature": 0.2}
+    if specs:  # an empty tools array is rejected by some endpoints; omit it
+        payload.update(tools=specs, tool_choice="auto" if tools else "none")
+    body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         f"{cand.base}/chat/completions", data=body, method="POST",
         headers={"Authorization": f"Bearer {cand.key}", "Content-Type": "application/json"},
@@ -305,13 +305,13 @@ def ask(cand: Candidate, messages: list[dict], tools: bool = True) -> dict:
     raise RuntimeError(last)
 
 
-def chat(messages: list[dict], tools: bool = True) -> dict:
+def chat(messages: list[dict], tools: bool = True, specs: list[dict] | None = None) -> dict:
     """The first live candidate's answer; a failing one is retired for the run."""
     for cand in CANDIDATES:
         if cand.dead:
             continue
         try:
-            return ask(cand, messages, tools)
+            return ask(cand, messages, tools, specs)
         except RuntimeError as e:
             cand.dead = str(e)
             print(f"llm {cand.model} dropped: {cand.dead[:200]}", file=sys.stderr)
