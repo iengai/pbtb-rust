@@ -10,7 +10,7 @@ Bucket: `scalable-cluster-dev-bot-configs`
 
 | Stage | S3 key | Who writes it | Custom properties touched |
 |-------|--------|---------------|---------------------------|
-| Predefined strategy | `predefined/<id>.json` | `scripts/transfer_config_to_s3.py` | `pbtb` (and nothing else) |
+| Predefined strategy | `predefined/<id>.json` | `scripts/transfer_config_to_s3.py` | `pbtb`, `lab` (and nothing else) |
 | Per-bot config | `<user_id>/<bot_id>/<bot_id>.json` | telebot use cases | `live.user`, `live.forced_mode_<side>`, `bot.<side>.total_wallet_exposure_limit` (v8: `bot.<side>.risk.total_wallet_exposure_limit`), `live.leverage` |
 | API keys | `<user_id>/<bot_id>/api-keys.json` | provided per bot | — |
 
@@ -21,7 +21,10 @@ which launches passivbot live (the user is read from `live.user`).
 ## Stage 1 — predefined transfer (the only schema addition)
 
 A raw passivbot optimizer/strategy config is already valid; the transfer adds
-**one top-level `pbtb` object and nothing else**:
+**two top-level objects and nothing else**, split by who may read them: `pbtb`
+is the console's, `lab` is ours.
+
+### `pbtb` — what the console reads
 
 ```json
 "pbtb": {
@@ -43,9 +46,37 @@ A raw passivbot optimizer/strategy config is already valid; the transfer adds
   **State** view (`• Description:`) and returned by the API. Written only when
   the transfer is run with `--description`; absent configs show `—`.
 
-Everything outside `pbtb` — `live`, `bot`, `approved_coins`, `coin_overrides`,
-`optimize`, `backtest`, `analysis`, `logging`, `disable_plotting` — is
-byte-for-byte what passivbot produced.
+Anything under `pbtb` can reach a user.
+
+### `lab` — the strategy lab's record
+
+```json
+"lab": {
+  "original_name": "bybit-cap1000-iter7-winner-v810",
+  "source": "cap1000_iter7_winner",
+  "tier": "cap1000", "iter": 7,
+  "run": "1b750084", "member": "8914adeb2d",
+  "seeds": ["cap1000_iter6_winner", "…"],
+  "genome": "6501db3f96", "branch": "let-profits-run",
+  "notes": "…"
+}
+```
+
+Where the tuning came from: the lab config it was harvested as (`source`, with
+its `tier` and `iter`), the optimizer `run` and population `member`, the
+`seeds` that run warm-started from, the `genome` (the member its family
+descends from; a template with no family is its own) and `branch` within it,
+`migrated_from` on a v8 conversion of a v7 template, the lab's `status` verdict
+and free-text `notes`. The name before the rename stays as `original_name`.
+
+No surface reads `lab`, and `BotConfig::from_template` leaves it out of a bot's
+copy, so the MCP `get_bot_config` tool never returns it. Write it with
+`transfer_config_to_s3.py --lab <file.json>`; `scripts/annotate_templates.py`
+holds the catalogue's lineage and re-applies it.
+
+Everything outside `pbtb` and `lab` — `live`, `bot`, `approved_coins`,
+`coin_overrides`, `optimize`, `backtest`, `analysis`, `logging`,
+`disable_plotting` — is byte-for-byte what passivbot produced.
 
 Older templates carried the same fields as top-level `strategy_name` /
 `strategies` / `name` / `description`. `BotConfig::meta` still reads those, for
