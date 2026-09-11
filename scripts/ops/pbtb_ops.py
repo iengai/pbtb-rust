@@ -358,7 +358,7 @@ def cmd_deploy_audit(a):
         findings.append(f"telebot image :latest is {behind} commit(s) behind main "
                         f"(telebot-build only runs on src/Cargo/Dockerfile changes; may be expected)")
     nat = nat_instance(c, a)
-    host_probe_err = None
+    host_probe_err, host_probed = None, False
     if nat:
         # Labelled lines: robust to blank lines and to any one command failing.
         try:
@@ -367,6 +367,7 @@ def cmd_deploy_audit(a):
                 "echo DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' $(docker inspect --format '{{.Image}}' telebot 2>/dev/null) 2>/dev/null)",
                 "echo TABLE=$(grep -E '^APP__ECS__TD_PASSIVBOT_BY_ENGINE=' /etc/telebot/telebot.env 2>/dev/null | cut -d= -f2-)",
             ], a)
+            host_probed = True
         except RuntimeError as e:
             # A principal without ssm:SendCommand (the diagnose CI role) still
             # gets every other section; the host is reported as unprobed, not down.
@@ -390,7 +391,7 @@ def cmd_deploy_audit(a):
                                 f"-> stale binary; run telebot-deploy")
             elif host_digest is None:
                 findings.append("could not read the telebot image digest on the NAT host (docker inspect RepoDigests empty)")
-        if not host_table:
+        if host_probed and not host_table:
             findings.append("telebot.env on the NAT host has no APP__ECS__TD_PASSIVBOT_BY_ENGINE (pre-#34 env)")
     else:
         findings.append("NAT instance (tag Name=nat-instance) not found / not running")
@@ -428,7 +429,9 @@ def cmd_deploy_audit(a):
     lam_env = (lam.get("Environment") or {}).get("Variables") or {}
     lam_table = lam_env.get("APP__ECS__TD_PASSIVBOT_BY_ENGINE")
     print(f"lambda {fn}: sha={lam['CodeSha256'][:12]} modified={lam['LastModified'][:16]}")
-    for label, tbl in (("lambda", lam_table), ("telebot", host_table)):
+    # The host's table is only comparable when the host answered; an unprobed
+    # or absent host has its own finding above and must not read as "no table".
+    for label, tbl in [("lambda", lam_table)] + ([("telebot", host_table)] if host_probed else []):
         if not tbl:
             findings.append(f"{label} has no engine table")
             continue
