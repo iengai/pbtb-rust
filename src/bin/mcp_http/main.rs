@@ -34,17 +34,17 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let telemetry = Arc::new(pbtb_rust::observability::Telemetry::init("mcp-http"));
 
     let server = Arc::new(build().await?);
     run(service_fn(move |request: Request| {
         let server = server.clone();
-        async move { serve(&server, request).await }
+        let telemetry = telemetry.clone();
+        async move {
+            let result = serve(&server, request).await;
+            telemetry.flush();
+            result
+        }
     }))
     .await
 }

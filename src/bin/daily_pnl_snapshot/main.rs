@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
-use lambda_runtime::{Error, LambdaEvent, run, service_fn, tracing};
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 
 use crate::config::DailyPnlSnapshotConfig;
 use pbtb_rust::config::configs::load_config;
 use pbtb_rust::infra::client::{create_dynamodb_client, create_s3_client};
 use pbtb_rust::infra::{DynamoBotRepository, S3ApiKeyRepository};
+use pbtb_rust::observability::Telemetry;
 
 mod bybit;
 mod config;
@@ -31,7 +32,7 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing::init_default_subscriber();
+    let telemetry = Arc::new(Telemetry::init("daily-pnl-snapshot"));
 
     // Cold-start init: run once.
     let configs: DailyPnlSnapshotConfig =
@@ -63,7 +64,12 @@ async fn main() -> Result<(), Error> {
 
     run(service_fn(move |event: LambdaEvent<EventBridgeEvent>| {
         let state = state.clone();
-        async move { event_handler::function_handler(event, state).await }
+        let telemetry = telemetry.clone();
+        async move {
+            let result = event_handler::function_handler(event, state).await;
+            telemetry.flush();
+            result
+        }
     }))
     .await
 }
