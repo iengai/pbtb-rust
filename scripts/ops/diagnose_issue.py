@@ -95,7 +95,22 @@ code change is the fix, name the file and the failing test to write first.
 
 ### Confidence
 high / medium / low, and what would raise it.
+
+### Self-evident
+`yes` or `no`, then one line per test: the cause is at a file:line, not a
+guess; the next step above names a failing test or command the fix agent can
+run; the fix is one component, touches no AGENTS.md invariant and nothing
+under terraform/, .github/ or the hooks; it is a code or doc change, not a
+change to AWS data or config. `yes` only when all four hold.
 """
+
+SELF_EVIDENT_TIER = "Diagnose and open a PR with the fix (failing test first)"
+DIAGNOSE_ONLY_TIER = "Diagnose only; report here"
+
+
+def self_evident(answer: str) -> bool:
+    m = re.search(r"^### Self-evident\s*\n\s*`?(yes|no)`?", answer, re.M | re.I)
+    return bool(m) and m.group(1).lower() == "yes"
 
 # ------------------------------------------------------------------ tools
 
@@ -395,9 +410,28 @@ def main() -> int:
     tools_used = "\n".join(f"- `{t}`" for t in trail) or "- (none)"
     comment = (f"{header}\n\n{answer}\n\n<details><summary>Tool calls ({len(trail)})</summary>\n\n"
                f"{tools_used}\n\n</details>\n\n_Read-only run: nothing was changed, started or stopped._")
+    # An issue an agent filed at "diagnose only" is raised one tier when the
+    # diagnosis finds it self-evident (docs/conventions.md § Issues); a
+    # person's tier is never changed. The label alone starts nothing: an
+    # event raised with the repository token runs no workflow, so the fix
+    # workflow is dispatched by number.
+    body = issue.get("body") or ""
+    labels = {l["name"] for l in issue.get("labels", [])}
+    raise_tier = "source:agent" in labels and DIAGNOSE_ONLY_TIER in body and self_evident(answer)
     if a.dry_run:
         print(comment)
+        print(f"would raise the tier: {raise_tier}", file=sys.stderr)
         return 0
+    if raise_tier:
+        # The body is fetched again: the diagnosis took minutes and a person
+        # may have edited the issue meanwhile.
+        body = json.loads(gh("issue", "view", str(a.issue), "--json", "body")).get("body") or ""
+        if DIAGNOSE_ONLY_TIER in body:
+            gh("issue", "edit", str(a.issue), "--body", body.replace(DIAGNOSE_ONLY_TIER, SELF_EVIDENT_TIER),
+               "--add-label", "agent:fix,bug")
+            gh("workflow", "run", "issue-fix.yml", "-f", f"issue_number={a.issue}")
+            comment += "\n\n_Self-evident: raised to \"open a PR\" and handed to the fix workflow._"
+            print(f"raised #{a.issue} to open-a-PR and dispatched issue-fix", file=sys.stderr)
     gh("issue", "comment", str(a.issue), "--body", comment)
     print(f"commented on #{a.issue}", file=sys.stderr)
     return 0

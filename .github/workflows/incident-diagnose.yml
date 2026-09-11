@@ -13,6 +13,10 @@ name: incident-diagnose
 # repository token, which raises no `issues` event by design, so it
 # dispatches this workflow by number instead.
 #
+# A diagnosis that ends "Self-evident: yes" on an issue the intake filed
+# raises that issue to the "open a PR" tier and dispatches issue-fix; an
+# issue a person filed keeps the tier the person chose.
+#
 # One-time setup: repo variables LLM_BASE_URL and LLM_MODEL (comma-separated
 # models in order of preference), repo secrets LLM_API_KEY and
 # AWS_DIAGNOSE_ROLE_ARN (terraform output gh_diagnose_role_arn);
@@ -39,6 +43,7 @@ permissions:
   contents: read
   issues: write
   id-token: write
+  actions: write # dispatches issue-fix when a diagnosis is self-evident
 
 env:
   AWS_REGION: ap-northeast-1

@@ -23,7 +23,8 @@ same command later passed; any change only after a green gate.
 `fix/issue-N`, opens the PR with the body above and `closes #N`, and
 dispatches the verify workflow (the pull_request run a PR opened by the
 repository token gets waits for a maintainer's approval, when it appears at
-all). Nothing is merged or deployed at this tier.
+all). At a merge tier it arms auto-merge on the PR, and only when the
+ruleset on main requires the `gate` check; deploys stay with a person.
 
 The issue's "How far the agent may go" field is the authority: a body that
 does not carry a PR-granting tier ends the run with a comment, however it
@@ -86,13 +87,32 @@ DENY = [
     ".git/*", ".cargo/*", "build.rs", "*/build.rs",
 ]
 
+# The templates' option strings, verbatim: the field is compared whole, so
+# text quoted inside the body (a Sentry message, a pasted issue) cannot pass
+# as the field.
 PR_TIERS = (
     "Open a PR; I review and merge",
     "Merge when the verify gate and CI are green",
-    "Merge and deploy to dev",
+    "Merge and deploy to dev (per the pbtb-deploy skill; never trading actions)",
     "Diagnose and open a PR with the fix (failing test first)",
     "Diagnose, fix, merge when green, and deploy to dev",
 )
+# The tiers at which the PR merges itself once the required check is green;
+# the deploy half of the last two stays with a person.
+MERGE_TIERS = (
+    "Merge when the verify gate and CI are green",
+    "Merge and deploy to dev (per the pbtb-deploy skill; never trading actions)",
+    "Diagnose, fix, merge when green, and deploy to dev",
+)
+DEPLOY_TIERS = MERGE_TIERS[1:]
+# What a merge tier becomes when the issue's author is not a member of the
+# repository: anyone can open an issue on a public repo and pick any tier,
+# or edit their own body after a collaborator labelled it.
+HELD_TIER = {
+    MERGE_TIERS[0]: "Open a PR; I review and merge",
+    MERGE_TIERS[1]: "Open a PR; I review and merge",
+    MERGE_TIERS[2]: "Diagnose and open a PR with the fix (failing test first)",
+}
 
 RUN_ALLOWED = [
     re.compile(r"^cargo (test|check|clippy|build|fmt)( (--|--?[A-Za-z0-9-]+(=[A-Za-z0-9_:./,-]+)?|[A-Za-z0-9_:./,-]+))*$"),
@@ -333,6 +353,16 @@ def section(answer: str, name: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+# GitHub closes an issue named right after one of these words in a PR body or
+# a commit that lands on main; at a merge tier nobody reads either first.
+CLOSING = re.compile(r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s*:?\s*)(?=(?:[\w.-]+/[\w.-]+)?#\d|https?://)", re.I)
+
+
+def quiet(text: str) -> str:
+    """The model's prose with issue references that would close something turned into plain mentions."""
+    return CLOSING.sub(r"\1 issue\2", text)
+
+
 def commit_subject(answer: str, title: str) -> str:
     lines = [l.strip("` ") for l in section(answer, "Commit subject").strip("` \n").splitlines() if l.strip("` ")]
     line = lines[0] if lines else ""
@@ -342,9 +372,47 @@ def commit_subject(answer: str, title: str) -> str:
     return f"fix: {slug}"[:72]
 
 
+def tier_field(body: str) -> str:
+    """The issue form's autonomy field: the last such heading, since the body
+    may quote arbitrary text (the intake opens with the Sentry message) and
+    the form puts the field after all of it."""
+    fields = re.findall(r"^### How far the agent may go\s*\n(.*?)(?=^### |\Z)", body, re.S | re.M)
+    return fields[-1].strip() if fields else ""
+
+
 def tier_allows_pr(body: str) -> bool:
-    field = re.search(r"^### How far the agent may go\s*\n(.*?)(?=^### |\Z)", body, re.S | re.M)
-    return bool(field) and any(t in field.group(1) for t in PR_TIERS)
+    return tier_field(body) in PR_TIERS
+
+
+def tier_allows_merge(tier: str) -> bool:
+    return tier in MERGE_TIERS
+
+
+def resolve_tier(issue: int, body: str) -> tuple[str, str]:
+    """The tier the run works at, and a note when it is not the one asked for."""
+    tier, note = tier_field(body), ""
+    if tier_allows_merge(tier):
+        repo = os.environ.get("GH_REPO") or d.gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+        assoc = d.gh("api", f"repos/{repo}/issues/{issue}", "--jq", ".author_association").strip()
+        if assoc not in TRUSTED:
+            note = f"The issue asks for *{tier}*, but its author is outside the repository ({assoc}); held at *{HELD_TIER[tier]}*."
+            tier = HELD_TIER[tier]
+    return tier, note
+
+
+def gate_is_required() -> bool | None:
+    """Whether the ruleset on main requires the `gate` check (None: could not read the rules).
+
+    Auto-merge without a required check merges at once, so it is armed only on True.
+    """
+    repo = os.environ.get("GH_REPO") or d.gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+    try:
+        rules = json.loads(d.gh("api", f"repos/{repo}/rules/branches/main"))
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+    return any(r.get("type") == "required_status_checks"
+               and any(c.get("context") == "gate" for c in r.get("parameters", {}).get("required_status_checks", []))
+               for r in rules)
 
 
 def main() -> int:
@@ -394,13 +462,15 @@ def run(a: argparse.Namespace) -> int:
         sys.exit("the checkout is not clean")
 
     issue = json.loads(d.gh("issue", "view", str(a.issue), "--json", "title,body,comments"))
+    tier, tier_note = resolve_tier(a.issue, issue.get("body") or "")
     # The candidates hold the model keys in memory and nothing after this point
     # needs the token; a test the model writes runs as a child of this process
     # and could read its environment, so the secrets leave it here.
     for k in [k for k in os.environ if k.startswith(("GH_", "GITHUB_TOKEN", "LLM_", "AWS_"))]:
         os.environ.pop(k, None)
     title, body = issue["title"], issue.get("body") or ""
-    result: dict = {"issue": a.issue, "title": title, "model": "?", "fell_back": [], "trail": []}
+    result: dict = {"issue": a.issue, "title": title, "tier": tier, "tier_note": tier_note,
+                    "model": "?", "fell_back": [], "trail": []}
     if not tier_allows_pr(body):
         result["verdict"] = "not_started"
         return finish(out, result, a.dry_run)
@@ -480,14 +550,16 @@ def give_up_comment(result: dict) -> str:
 
 
 def pr_body(result: dict) -> str:
-    n, answer = result["issue"], result.get("answer", "")
+    n, answer = result["issue"], quiet(result.get("answer", ""))
     return (
-        f"{header(result)} for #{n}. Opened at the issue's \"open a PR\" tier: nothing merged, nothing deployed.\n\n"
+        f"{header(result)} for #{n}. Tier: *{result.get('tier') or '?'}*. "
+        f"{'Auto-merge is armed when `gate` is a required check; ' if tier_allows_merge(result.get('tier', '')) else 'Merge is yours; '}"
+        f"nothing is deployed by this workflow. {result.get('tier_note', '')}\n\n"
         f"## Why\n\n{result['title']} (#{n})\n\n"
         f"## What\n\n{section(answer, 'Change') or answer}\n\n"
         f"## Done when\n\n{section(answer, 'Done when') or '(not stated)'}\n\n"
-        f"## Verification\n\n```\n{result['gate_lines']}\n```\n\n{result['evidence']}\n\n{section(answer, 'Test') or '(not stated)'}\n\n"
-        f"## Review\n\n{result['review']}\n\n"
+        f"## Verification\n\n```\n{result['gate_lines']}\n```\n\n{quiet(result['evidence'])}\n\n{section(answer, 'Test') or '(not stated)'}\n\n"
+        f"## Review\n\n{quiet(result['review'])}\n\n"
         f"## Knowledge\n\n- [ ] `AGENTS.md`, the `docs/` leaf for this area, and any skill this change makes stale are updated, "
         f"or nothing described the old behaviour. (Left for the reviewer: the agent cannot edit `AGENTS.md`.)\n\n"
         f"## Open questions\n\n{section(answer, 'Open questions') or 'none'}\n\n{trail_md(result)}\n\ncloses #{n}\n"
@@ -515,6 +587,12 @@ def publish(a: argparse.Namespace) -> int:
 
     if git("status", "--porcelain").strip():
         sys.exit("the checkout is not clean")
+    # The artifact was written by the job that ran the model's tests, so
+    # nothing in it decides merge authority: the tier is derived here again
+    # from the issue, the staged paths are re-checked below, and the check
+    # that gates the merge is the one CI reports on the pushed commit.
+    body = json.loads(d.gh("issue", "view", str(a.issue), "--json", "body")).get("body") or ""
+    result["tier"], result["tier_note"] = resolve_tier(a.issue, body)
     branch = f"fix/issue-{a.issue}"
     # A branch a person has pushed to is theirs; the agent does not force over it.
     if git("ls-remote", "--heads", "origin", branch).strip():
@@ -537,7 +615,7 @@ def publish(a: argparse.Namespace) -> int:
     git("config", "user.name", "pbtb fix agent")
     git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
     git("commit", "-q", "-m", subject, "-m",
-        f"{section(result.get('answer', ''), 'Change')}\n\nrefs #{a.issue}\n\n"
+        f"{quiet(section(result.get('answer', ''), 'Change'))}\n\nrefs #{a.issue}\n\n"
         f"Co-Authored-By: {result.get('model', 'model')} via fix_issue.py <noreply@github.com>")
     d.gh("auth", "setup-git")
     git("push", "--force", "-u", "origin", f"HEAD:refs/heads/{branch}")
@@ -565,7 +643,33 @@ def publish(a: argparse.Namespace) -> int:
     # verify workflow is dispatched on the branch as well.
     dispatched = subprocess.run(["gh", "workflow", "run", "verify.yml", "--ref", branch], capture_output=True).returncode == 0
     ci = "the verify workflow was dispatched on it" if dispatched else "dispatching the verify workflow FAILED; run it by hand"
-    say(f"{header(result)}\n\nOpened #{number} (`{subject}`) on `{branch}`; {ci}. Review and merge are yours.")
+    tier = result.get("tier", "")
+    if not tier_allows_merge(tier):
+        rest = "Review and merge are yours."
+    else:
+        required = gate_is_required()
+        if required:
+            # Auto-merge waits for the required `gate` check; the ruleset on
+            # main is what makes that wait real. The branch is left for the
+            # repository's delete-on-merge setting: with --auto the merge
+            # has not happened yet, so gh cannot delete it here.
+            arm = subprocess.run(["gh", "pr", "merge", str(number), "--auto", "--rebase"], capture_output=True,
+                                 text=True, encoding="utf-8", errors="replace")
+            state = json.loads(d.gh("pr", "view", str(number), "--json", "autoMergeRequest")).get("autoMergeRequest")
+            if state:
+                rest = ("Auto-merge is armed: it merges when `gate` passes. A merge by the repository token may "
+                        "raise no push run on `main`; check that the build / publish workflows ran, or dispatch them.")
+            else:
+                rest = ("Arming auto-merge FAILED (is *Allow auto-merge* on under Settings → General?); "
+                        f"merge by hand once `gate` is green.\n\n```\n{arm.stderr.strip()[:500]}\n```")
+        elif required is None:
+            rest = "Could not read the rules on `main`, so auto-merge was not armed; merge by hand once `gate` is green."
+        else:
+            rest = ("Auto-merge not armed: `main` has no ruleset requiring the `gate` check, so it would merge unchecked. "
+                    "Merge by hand once `gate` is green.")
+        if tier in DEPLOY_TIERS:
+            rest += " The deploy is yours (`pbtb-deploy` skill)."
+    say(f"{header(result)}\n\n{'Updated' if existing else 'Opened'} #{number} (`{subject}`) on `{branch}`; {ci}. {rest}")
     print(f"opened PR #{number}", file=sys.stderr)
     return 0
 
