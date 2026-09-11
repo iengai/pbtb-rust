@@ -12,7 +12,7 @@ Policy for every review of a change to this repo, whether a reviewer agent in `.
 
 - 🔴 **Important**: could launch a second live task, recreate the NAT instance, leak a key or a cross-tenant row, corrupt or misread a row, ship an unscoped `terraform apply`, leave a deployed binary reading an env it no longer gets, or turn CI red. Fixed before merge.
 - 🟡 **Nit**: naming, wording, a comment, a doc phrasing, a refactor that would be nicer. At most five per review; the rest as a count in the summary.
-- 🟣 **Pre-existing**: a real bug the diff did not introduce. Reported once, then filed as an Intent issue, not fixed in this PR.
+- 🟣 **Pre-existing**: a real bug the diff did not introduce. Reported once, then filed as an Intent issue labelled `bug` and `source:agent`, not fixed in this PR.
 
 ## Do not report
 

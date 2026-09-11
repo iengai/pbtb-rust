@@ -54,8 +54,8 @@ than the review asked for.
    three are read-only and independent: run them in parallel.
 2. Fix every 🔴 Important finding before the PR exists, or say in the PR why
    it is not one. 🟡 Nits are yours to take or leave. A 🟣 Pre-existing bug
-   becomes an Intent issue (`gh issue create --body-file`, the template's
-   fields), not part of this PR.
+   becomes an Intent issue (`gh issue create --label intent,bug,source:agent
+   --body-file`, the template's fields), not part of this PR.
 3. The PR body's **Review** section carries each reviewer's tally line and
    what was done with the findings; a finding you overruled is named there, so
    the PR stays the audit record.
@@ -82,8 +82,9 @@ than the review asked for.
 ## PR
 
 - `gh pr create --base main --head <branch> --title "<type>: …" --body "$(cat <<'EOF' … EOF)"`
-  with sections **Why / What / Verification / Review / Rollout** (rollout only
-  if it changes deployed shape — say the order and the window, see pbtb-deploy).
+  with sections **Why / What / Verification / Review / Rollout** (`closes #<n>`
+  in Why when the change started from an issue, so the merge closes it; rollout
+  only if it changes deployed shape — say the order and the window, see pbtb-deploy).
 - GitHub recomputes mergeability asynchronously after a force-push; `CONFLICTING`
   right after pushing is stale — poll `gh pr view --json mergeable` until it
   settles rather than trusting the first answer.

@@ -7,7 +7,7 @@ Two halves, meant for two jobs with different tokens. `run` is the same
 OpenAI-compatible model loop as diagnose_issue.py, on a clean checkout of
 main, with write tools bounded to the checkout, a command whitelist (cargo
 test / check / clippy / fmt / build with plain arguments, git diff /
-status, the gate, py_compile) and a deny list of human-owned paths
+status, the gate, py_compile, the stdlib test runners, python -c) and a deny list of human-owned paths
 (workflows, terraform, hooks, the scripts behind these workflows, .git,
 .cargo, build scripts, dependency manifests, AGENTS.md, REVIEW.md). It
 executes code the model wrote (a test), so its job holds only a read-only
@@ -21,15 +21,19 @@ same command later passed; any change only after a green gate.
 `publish` runs no model code: from the result it comments on the issue
 (give-up, with the diff) or applies the patch on a branch, commits, pushes
 `fix/issue-N`, opens the PR with the body above and `closes #N`, and
-dispatches the verify workflow (a PR the repository token opens raises no
-pull_request event). Nothing is merged or deployed at this tier.
+dispatches the verify workflow (the pull_request run a PR opened by the
+repository token gets waits for a maintainer's approval, when it appears at
+all). Nothing is merged or deployed at this tier.
 
 The issue's "How far the agent may go" field is the authority: a body that
 does not carry a PR-granting tier ends the run with a comment, however it
 was triggered.
 
 Environment: LLM_* as in diagnose_issue.py; GH_TOKEN (read-only for `run`);
-FIX_RUN_URL optional.
+FIX_RUN_URL optional. `run` prefers LLM_KEYS_FILE: a file holding the two
+keys (LLM_API_KEY, then LLM_FALLBACK_API_KEY, one per line) that it reads
+and deletes, so the keys are never in its initial environment, which
+/proc/<pid>/environ exposes to the tests it runs whatever os.environ says.
 """
 from __future__ import annotations
 
@@ -95,6 +99,8 @@ RUN_ALLOWED = [
     re.compile(r"^git (diff|status)( --stat| --short| --name-only| -- [A-Za-z0-9_./-]+)?$"),
     re.compile(r"^" + re.escape(GATE) + r"$"),
     re.compile(r"^python3? -m py_compile [A-Za-z0-9_./-]+\.py$"),
+    re.compile(r"^python3? -m (unittest|doctest)( -v)?( [A-Za-z0-9_./-]+)*$"),
+    re.compile(r"^python3? -c .+$"),
 ]
 # Cargo options that point it at another manifest, config or target dir
 # would let a test run reach outside the checkout.
@@ -187,10 +193,11 @@ def tool_edit_file(path: str, old: str, new: str) -> str:
 
 
 def tool_run(command: str) -> str:
-    command = " ".join(command.split())
-    if not any(r.match(command) for r in RUN_ALLOWED) or RUN_DENY.search(command):
+    # Matched on one line, run as given: a `python -c` body may span lines.
+    norm = " ".join(command.split())
+    if not any(r.match(norm) for r in RUN_ALLOWED) or RUN_DENY.search(norm):
         return ("command not allowed here; allowed: cargo test|check|clippy|build|fmt …, "
-                f"git diff|status …, `{GATE}`, python -m py_compile FILE")
+                f"git diff|status …, `{GATE}`, python -m py_compile|unittest|doctest …, python -c CODE")
     try:
         r = subprocess.run(shlex.split(command), cwd=ROOT, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=RUN_TIMEOUT_S, env=scrubbed_env())
@@ -215,7 +222,8 @@ TOOLS = {
     "edit_file": (tool_edit_file, "Replace one exact occurrence of `old` with `new` in a file; `old` must match exactly once.",
                   {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, ["path", "old", "new"]),
     "run": (tool_run, "Run one whitelisted command in the checkout: cargo test|check|clippy|build|fmt with plain "
-                      f"arguments, git diff|status, `{GATE}`, python -m py_compile FILE. Returns exit code and output tail.",
+                      f"arguments, git diff|status, `{GATE}`, python -m py_compile|unittest|doctest, python -c CODE. "
+                      "Returns exit code and output tail.",
             {"command": {"type": "string"}}, ["command"]),
 }
 SPECS = d.tool_specs(TOOLS)
@@ -290,14 +298,21 @@ def review(diff: str) -> str:
     """One pass of REVIEW.md over the diff by the same model, no tools."""
     policy = (ROOT / "REVIEW.md").read_text(encoding="utf-8")
     messages = [
-        {"role": "system", "content": policy + "\n\nYou are the reviewer. Apply the passes above to the diff; "
-                                             "cite file:line; open with the tally line."},
+        {"role": "system", "content": policy + "\n\nYou are the reviewer. This request has no tools: the diff below "
+                                             "is all the evidence there is. Apply the passes above to it, cite "
+                                             "file:line, open with the tally line, and write nothing but the review."},
         {"role": "user", "content": d._clip(diff, 60_000)},
     ]
     try:
-        return (d.chat(messages, tools=False, specs=[]).get("content") or "").strip() or "(empty review)"
+        text = (d.chat(messages, tools=False, specs=[]).get("content") or "").strip()
     except SystemExit as e:
         return f"(review pass failed: {e})"
+    if not text:
+        return "(empty review; run `pr-reviewer` by hand)"
+    # A model that answers with its tool-call syntax has not reviewed anything.
+    if re.search(r"<[^>]*(invoke|tool_call|function_call|DSML)[^>]*>|<\|channel\|>|\bto=functions\.|\[TOOL_CALLS\]", text):
+        return "(the review pass returned tool-call markup instead of a review; run `pr-reviewer` by hand)"
+    return text
 
 
 # ------------------------------------------------------------------ git/gh
@@ -347,7 +362,26 @@ def main() -> int:
     return run(a) if a.cmd == "run" else publish(a)
 
 
+def load_keys_file() -> None:
+    """Take the model keys from LLM_KEYS_FILE and delete it.
+
+    A test the model writes runs as this process's child with the same uid
+    and can read /proc/<pid>/environ, which is the environment this process
+    was started with, whatever os.environ says afterwards. So the workflow
+    hands the keys over in a file instead of the environment.
+    """
+    path = os.environ.pop("LLM_KEYS_FILE", "")
+    if not path:
+        return
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    Path(path).unlink()
+    for key, value in zip(("LLM_API_KEY", "LLM_FALLBACK_API_KEY"), lines + ["", ""]):
+        if value.strip():
+            os.environ[key] = value.strip()
+
+
 def run(a: argparse.Namespace) -> int:
+    load_keys_file()
     for key in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"):
         if not os.environ.get(key):
             sys.exit(f"{key} is not set")
@@ -514,11 +548,21 @@ def publish(a: argparse.Namespace) -> int:
         d.gh("pr", "comment", str(number), "--body", f"New attempt pushed to `{branch}`.\n\n{body}")
     else:
         d.gh("label", "create", "source:agent", "--force", "--color", "5319e7", "--description", "Filed by a workflow")
-        url = d.gh("pr", "create", "--base", "main", "--head", branch, "--title", subject, "--body", body,
-                   "--label", "source:agent").strip()
+        try:
+            url = d.gh("pr", "create", "--base", "main", "--head", branch, "--title", subject, "--body", body,
+                       "--label", "source:agent").strip()
+        except subprocess.CalledProcessError as e:
+            # The usual cause: the repository setting "Allow GitHub Actions to
+            # create and approve pull requests" is off, so the token may push
+            # but not open a PR. The branch is up; a person can open it.
+            say(f"{header(result)}\n\nPushed `{branch}` but could not open the PR:\n\n```\n{(e.stderr or '').strip()[:1500]}\n```\n\n"
+                f"Open it by hand (`gh pr create --head {branch}`), or turn on *Allow GitHub Actions to create and "
+                f"approve pull requests* under Settings → Actions → General and re-run the failed job.")
+            return 1
         number = int(url.rstrip("/").rsplit("/", 1)[-1])
-    # A PR opened with the repository token raises no pull_request event, so
-    # the verify workflow is dispatched on the branch by hand.
+    # The pull_request run a PR opened by the repository token gets sits in
+    # "awaiting approval" (the bot counts as an outside contributor), so the
+    # verify workflow is dispatched on the branch as well.
     dispatched = subprocess.run(["gh", "workflow", "run", "verify.yml", "--ref", branch], capture_output=True).returncode == 0
     ci = "the verify workflow was dispatched on it" if dispatched else "dispatching the verify workflow FAILED; run it by hand"
     say(f"{header(result)}\n\nOpened #{number} (`{subject}`) on `{branch}`; {ci}. Review and merge are yours.")
