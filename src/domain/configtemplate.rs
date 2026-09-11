@@ -30,6 +30,17 @@ impl ConfigTemplate {
             .map(|v| u8::try_from(v).unwrap_or(u8::MAX))
             .unwrap_or(0)
     }
+
+    /// What a chooser shows the template as (`pbtb.title`): the name is an
+    /// opaque id that says nothing about it. `None` on a template without one.
+    pub fn title(&self) -> Option<&str> {
+        self.config_data
+            .get("pbtb")
+            .and_then(|m| m.get("title"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
 }
 
 /// Repository interface for configuration templates
@@ -92,6 +103,16 @@ mod tests {
         assert_eq!(
             template(json!({ "pbtb": { "min_vip_level": 1000 } })).min_vip_level(),
             u8::MAX
+        );
+    }
+
+    #[test]
+    fn the_title_reads_the_pbtb_block_and_a_blank_one_is_none() {
+        assert_eq!(template(json!({})).title(), None);
+        assert_eq!(template(json!({ "pbtb": { "title": "  " } })).title(), None);
+        assert_eq!(
+            template(json!({ "pbtb": { "title": "XRP only · Bold · $100" } })).title(),
+            Some("XRP only · Bold · $100")
         );
     }
 }

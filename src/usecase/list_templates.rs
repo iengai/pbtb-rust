@@ -2,11 +2,13 @@ use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::error::DomainError;
 use std::sync::Arc;
 
-/// One template as a chooser shows it: its name and the level it asks for, so
-/// a surface can mark what the caller cannot apply yet without hiding it.
+/// One template as a chooser shows it: its id, the title a reader picks it by,
+/// and the level it asks for, so a surface can mark what the caller cannot
+/// apply yet without hiding it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateListing {
     pub name: String,
+    pub title: Option<String>,
     pub min_vip_level: u8,
 }
 
@@ -30,6 +32,7 @@ impl ListTemplatesUseCase {
         for name in self.template_repository.list().await? {
             let template = self.template_repository.get(&name).await?;
             listings.push(TemplateListing {
+                title: template.title().map(str::to_owned),
                 min_vip_level: template.min_vip_level(),
                 name,
             });
@@ -73,10 +76,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_listing_carries_each_templates_level_and_hides_none() {
+    async fn the_listing_carries_each_templates_title_and_level_and_hides_none() {
         let uc = ListTemplatesUseCase::new(Arc::new(Templates(vec![
             template("open", json!({ "pbtb": {} })),
-            template("gated", json!({ "pbtb": { "min_vip_level": 5 } })),
+            template(
+                "gated",
+                json!({ "pbtb": { "min_vip_level": 5, "title": "Gated" } }),
+            ),
         ])));
 
         let listed = uc.execute().await.expect("list");
@@ -86,10 +92,12 @@ mod tests {
             vec![
                 TemplateListing {
                     name: "open".to_string(),
+                    title: None,
                     min_vip_level: 0
                 },
                 TemplateListing {
                     name: "gated".to_string(),
+                    title: Some("Gated".to_string()),
                     min_vip_level: 5
                 },
             ]

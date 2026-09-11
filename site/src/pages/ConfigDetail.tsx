@@ -4,7 +4,17 @@ import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import { EquityChart } from "../chart/EquityChart";
-import { Badge, Chips, Crumbs, ErrorBanner, Loading, Modal, engineLabel, templateTitle } from "../components/ui";
+import {
+  Badge,
+  Chips,
+  Crumbs,
+  ErrorBanner,
+  Loading,
+  Modal,
+  TemplateTags,
+  engineLabel,
+  templateTitle,
+} from "../components/ui";
 import { staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { metricRows, wipedOut } from "./metrics";
@@ -23,11 +33,15 @@ export function ConfigDetail() {
   // Metric labels are keyed by passivbot's metric key; a key the catalog does
   // not know is shown as it comes out of analysis.json.
   const metricLabels: Record<string, string> = t.configs.metric;
+  const styleNames: Record<string, string> = t.configs.style;
 
   return (
     <>
       <Crumbs
-        items={[{ to: "/configs", label: t.common.nav.configs }, { label: <span className="mono">{name}</span> }]}
+        items={[
+          { to: "/configs", label: t.common.nav.configs },
+          { label: data ? templateTitle(data, lang) : <span className="mono">{name}</span> },
+        ]}
       />
       <ErrorBanner error={error} onRetry={reload} />
       {notice && (
@@ -45,6 +59,7 @@ export function ConfigDetail() {
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <h1>{templateTitle(data, lang)}</h1>
+                <TemplateTags tpl={data} />
                 <Badge>{engineLabel(data.engine)}</Badge>
                 {sides.map((s) => (
                   <Badge key={s}>{s}</Badge>
@@ -88,6 +103,10 @@ export function ConfigDetail() {
                   <div>
                     <Chips items={data.coins} />
                   </div>
+                  <div className="k">{t.configs.detail.style}</div>
+                  <div>{data.style ? (styleNames[data.style] ?? data.style) : "—"}</div>
+                  <div className="k">{t.configs.detail.generation}</div>
+                  <div>{data.generation != null ? t.configs.generation(data.generation) : "—"}</div>
                   <div className="k">{t.configs.detail.engine}</div>
                   <div>{t.configs.detail.engineValue(engineLabel(data.engine))}</div>
                 </div>
@@ -136,13 +155,14 @@ function ApplyDialog({
   onDone: (msg: string) => void;
 }) {
   const t = useT();
+  const { lang } = useLang();
   const bots = useLoad(() => api.listBots(), "bots");
   const [botId, setBotId] = useState("");
   const [confirm, setConfirm] = useState(false);
   const action = useAction();
   const chosen = bots.data?.bots.find((b) => b.bot_id === botId);
   return (
-    <Modal title={t.configs.apply.title(template.name)} onClose={onClose}>
+    <Modal title={t.configs.apply.title(templateTitle(template, lang))} onClose={onClose}>
       <ErrorBanner error={bots.error} onRetry={bots.reload} />
       <div className="field">
         <label>{t.configs.apply.botLabel}</label>
@@ -177,7 +197,7 @@ function ApplyDialog({
             onClick={() =>
               void action.run(async () => {
                 await api.applyTemplate(botId, template.name);
-                onDone(t.configs.apply.done(template.name, chosen?.name ?? ""));
+                onDone(t.configs.apply.done(templateTitle(template, lang), chosen?.name ?? ""));
               })
             }
           >

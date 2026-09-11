@@ -11,6 +11,8 @@ export type TemplateSummary = {
   name: string;
   title?: string;
   title_zh?: string;
+  style?: string | null;
+  generation?: number | null;
   engine: string;
   exchange: string;
   coins: string[];

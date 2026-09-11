@@ -7,6 +7,10 @@ export const configs = {
   // window, so both pages mark it.
   liquidatedBadge: "liquidated",
   wipedOut: "wiped out",
+  // A template's naming properties, shown as tags: the strategy family, keyed
+  // by `pbtb.style`, and the lab iteration that produced the tuning.
+  style: { grid: "Grid", martingale: "Martingale", ema_anchor: "EMA anchor" },
+  generation: (n: number) => `Gen ${n}`,
 
   list: {
     title: "Configs",
@@ -32,6 +36,8 @@ export const configs = {
     setupTitle: "Setup",
     sides: "Sides",
     coins: "Coins",
+    style: "Style",
+    generation: "Generation",
     engine: "Engine",
     engineValue: (version: string) => `passivbot ${version} · runs on py or rs`,
     metricsTitle: "Backtest metrics",

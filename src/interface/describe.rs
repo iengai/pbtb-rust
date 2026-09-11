@@ -35,6 +35,8 @@ pub(crate) fn config(config: &BotConfig) -> Value {
         "template_name": config.strategy_name().unwrap_or(&config.template_name),
         "title": config.title(),
         "title_zh": config.title_zh(),
+        "style": config.style(),
+        "generation": config.generation(),
         "template_version": config.template_version,
         "description": config.description(),
         "tuned_on": config.data_exchange(),
@@ -61,9 +63,14 @@ pub(crate) fn config(config: &BotConfig) -> Value {
     })
 }
 
-/// A template as the chooser lists it: its name and the level it asks for.
+/// A template as the chooser lists it: its id, its title and the level it asks
+/// for.
 pub(crate) fn listing(listing: &TemplateListing) -> Value {
-    json!({ "name": listing.name, "min_vip_level": listing.min_vip_level })
+    json!({
+        "name": listing.name,
+        "title": listing.title,
+        "min_vip_level": listing.min_vip_level,
+    })
 }
 
 /// A template described through the same accessors a bot's config is, since a

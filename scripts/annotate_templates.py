@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Record where each template came from, in a `lab` block beside `pbtb`.
+"""Curate the catalogue: each template's `lab` record, naming properties and titles.
 
 A template's JSON carries two blocks of ours, split by who may read them:
 
-* ``pbtb`` is the console's: id, titles, description, strategies, level gate.
-  Anything under it can reach a user.
+* ``pbtb`` is the console's: id, titles, the naming properties
+  (template_naming.py), description, strategies, level gate. Anything under it
+  can reach a user.
 * ``lab`` is ours: the strategy-lab config the template was harvested as, the
   optimizer run and population member, the seeds that run warm-started from,
   the genome it belongs to, the lab's verdicts and notes. No surface reads it,
@@ -28,13 +29,15 @@ descends from, ``branch`` the refinement within it:
   genome, named by its own member.
 * The XRP templates predate the lab and carry none.
 
-``tier`` / ``iter`` / ``source`` are the lab's own coordinates, and
-``original_name`` the S3 name before the rename, so a template can still be
-found in the lab's NOTES.md and STRATEGIES.md, and in config-switch history.
+The tables below are keyed by the readable id each template had before ids went
+opaque, kept as ``lab.readable_id``. ``tier`` / ``iter`` / ``source`` are the
+lab's own coordinates and ``original_name`` the optimizer-run name before that,
+so a template can still be found in the lab's NOTES.md and STRATEGIES.md.
 
-Where a verdict changes what a user should be told, ``PUBLIC`` carries the
-correction into ``pbtb`` too: the id keeps the profile it was published under
-(it is fixed for life), the title and description move.
+Each run also re-derives what the config and the lineage decide (``style``,
+``engine``, ``generation``) and recomposes every title from the naming
+properties across the templates listed together, so a suffix appears or goes
+as templates are added and retired. Re-run it after either.
 
 Nothing passivbot reads is touched. The backtest artifacts' ``source_sha``
 follows the rewritten bytes where it matched the old ones, so the backtests
@@ -57,13 +60,17 @@ from pathlib import Path
 
 from backtest_templates import write_index, write_json
 from rename_predefined import BUCKET, CATALOG, PREFIX, RETIRED_PREFIX, aws, body_bytes
+from template_naming import FACETS, IDS, engine_of, style_of, titles
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 LAB_KEY = "lab"
 OURS = ("pbtb", LAB_KEY)
+LEAD = ("name", "title", "title_zh", *FACETS)
+ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation")
 
 GENOME = "6501db3f96"
+ORIGINAL = {readable: old for old, (readable, _, _) in CATALOG.items()}
 
 
 def lineage(source, tier, iteration, member, *, run=None, seeds=(), genome=None,
@@ -166,7 +173,7 @@ MIGRATED: dict[str, str] = {
     "bybit-xrp-100u-extreme-v8": "bybit-xrp-100u-extreme-v7-a",
 }
 
-# id -> (status, the verdict line appended to the notes).
+# readable id -> (status, the verdict line appended to the notes).
 VERDICTS: dict[str, tuple[str | None, str]] = {
     "bybit-mix10-1000u-balanced-v7-a": (
         "not-deployable",
@@ -190,50 +197,75 @@ VERDICTS: dict[str, tuple[str | None, str]] = {
     ),
 }
 
-PUBLIC: dict[str, dict[str, str]] = {
-    # Published as steady on a 0.154 drawdown; the 2026 window measured 36.9%,
-    # which is the bold tier.
-    "bybit-mix10-1000u-steady-v7": {
-        "title": "10-coin basket · Bold · $1k",
-        "title_zh": "十币组合 · 进取 · $1k",
-        "warning": "⚠️ 2026-04-25→09-04 回测(含 2026-06-06 真实崩盘)回撤 36.9%,不是低回撤配置",
-    },
-    # The A and C siblings are retired, so the letter distinguishes nothing.
-    "bybit-mix10-1000u-balanced-v7-b": {
-        "title": "10-coin basket · Balanced · $1k",
-        "title_zh": "十币组合 · 平衡 · $1k",
-    },
+# A verdict a user should be told, appended to the public description. The
+# profile it moved the template to is stored in `pbtb.profile`.
+WARNINGS: dict[str, str] = {
+    "bybit-mix10-1000u-steady-v7":
+        "⚠️ 2026-04-25→09-04 回测(含 2026-06-06 真实崩盘)回撤 36.9%,不是低回撤配置",
 }
 
 
-def annotate(raw: dict, tid: str, original: str | None) -> dict:
+def trading(config: dict) -> dict:
+    return {k: v for k, v in config.items() if k not in OURS}
+
+
+def readable_of(raw: dict, tid: str) -> str:
+    return (raw.get(LAB_KEY) or {}).get("readable_id") or tid
+
+
+def annotate(raw: dict, readable: str) -> dict:
     meta = dict(raw.get("pbtb") or {})
     previous = raw.get(LAB_KEY) or {}
 
     notes = previous.get("notes") or meta.get("description") or ""
-    status, verdict = VERDICTS.get(tid, (None, None))
+    status, verdict = VERDICTS.get(readable, (None, None))
     if verdict and verdict not in notes:
         notes = f"{notes}\n{verdict}" if notes else verdict
 
-    if tid in MIGRATED:
-        parent = MIGRATED[tid]
-        entry = {**LINEAGE.get(parent, {}), "migrated_from": parent}
+    if readable in MIGRATED:
+        parent = MIGRATED[readable]
+        entry = {**LINEAGE.get(parent, {}), "migrated_from": IDS.get(parent, parent)}
     else:
-        entry = dict(LINEAGE.get(tid, {}))
-    block = {"original_name": original, **entry, "status": status, "notes": notes or None}
+        entry = dict(LINEAGE.get(readable, {}))
+    block = {
+        "original_name": ORIGINAL.get(readable),
+        "readable_id": previous.get("readable_id"),
+        **entry,
+        "status": status,
+        "notes": notes or None,
+    }
 
-    public = PUBLIC.get(tid)
-    if public:
-        meta["title"] = public["title"]
-        meta["title_zh"] = public["title_zh"]
-        warning = public.get("warning")
-        description = meta.get("description") or ""
-        if warning and warning not in description:
-            meta["description"] = f"{description}\n{warning}" if description else warning
+    warning = WARNINGS.get(readable)
+    description = meta.get("description") or ""
+    if warning and warning not in description:
+        meta["description"] = f"{description}\n{warning}" if description else warning
+
+    meta["style"] = style_of(raw)
+    meta["engine"] = engine_of(raw)
+    if "iter" in entry:
+        meta["generation"] = entry["iter"]
+    else:
+        meta.pop("generation", None)
 
     out = {k: v for k, v in raw.items() if k != LAB_KEY}
     out["pbtb"] = meta
     out[LAB_KEY] = {k: v for k, v in block.items() if v is not None}
+    return out
+
+
+def ordered(meta: dict) -> dict:
+    return {**{k: meta[k] for k in LEAD if k in meta},
+            **{k: v for k, v in meta.items() if k not in LEAD}}
+
+
+def curate(group: dict[str, dict]) -> dict[str, dict]:
+    """id -> the annotated body, for templates listed together."""
+    out = {tid: annotate(raw, readable_of(raw, tid)) for tid, raw in group.items()}
+    for tid, (title, title_zh) in titles({t: b["pbtb"] for t, b in out.items()}).items():
+        out[tid]["pbtb"]["title"] = title
+        out[tid]["pbtb"]["title_zh"] = title_zh
+    for body in out.values():
+        body["pbtb"] = ordered(body["pbtb"])
     return out
 
 
@@ -251,10 +283,10 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
         art["source_sha"] = sha(new)
         changed = True
     else:
-        print(f"    artifact was already stale; source_sha left for backtest_templates.py")
-    for field in ("title", "title_zh"):
-        if meta.get(field) and art.get(field) != meta[field]:
-            art[field] = meta[field]
+        print("    artifact was already stale; source_sha left for backtest_templates.py")
+    for field in ARTIFACT_FIELDS:
+        if art.get(field) != meta.get(field):
+            art[field] = meta.get(field)
             changed = True
     if changed and apply:
         write_json(path, art)
@@ -269,9 +301,8 @@ def main() -> int:
     parser.add_argument("--profile", default=None, help="AWS CLI profile")
     args = parser.parse_args()
 
-    original = {new_id: old for old, (new_id, _, _) in CATALOG.items()}
-    unplaced = [t for t in original
-                if t not in LINEAGE and t not in MIGRATED and not t.startswith("bybit-xrp-")]
+    unplaced = [r for r in IDS
+                if r not in LINEAGE and r not in MIGRATED and not r.startswith("bybit-xrp-")]
     if unplaced:
         print(f"error: no lineage for {', '.join(unplaced)}", file=sys.stderr)
         return 1
@@ -281,34 +312,35 @@ def main() -> int:
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], args.profile)
         keys = sorted(line.split()[-1] for line in listing.splitlines()
                       if line.strip().endswith(".json"))
-        print(f"{prefix} ({len(keys)}):")
+        group: dict[str, dict] = {}
+        before: dict[str, bytes] = {}
         for key in keys:
             tid = key.removesuffix(".json")
             text = aws(["s3", "cp", f"s3://{BUCKET}/{prefix}{key}", "-"], args.profile)
-            old = text.encode("utf-8")
-            raw = json.loads(text)
-            out = annotate(raw, tid, original.get(tid))
-            new = body_bytes(out)
+            before[tid] = text.encode("utf-8")
+            group[tid] = json.loads(text)
 
-            trading = lambda c: {k: v for k, v in c.items() if k not in OURS}  # noqa: E731
-            assert trading(out) == trading(raw), f"{tid}: would change what passivbot reads"
-
+        print(f"{prefix} ({len(keys)}):")
+        for tid, out in sorted(curate(group).items()):
+            assert trading(out) == trading(group[tid]), f"{tid}: would change what passivbot reads"
+            old, new = before[tid], body_bytes(out)
             block = out[LAB_KEY]
             family = block.get("genome", "—")
             if block.get("branch"):
                 family += f"/{block['branch']}"
             mark = " (current)" if new == old else ""
-            print(f"  {tid:34} {family:28} {block.get('status', '')}{mark}")
+            print(f"  {tid:34} {family:28} {out['pbtb'].get('title', '')}"
+                  f" {block.get('status', '')}{mark}")
             if new == old:
                 continue
             if prefix == PREFIX:
                 artifacts |= refresh_artifact(tid, old, new, out["pbtb"], args.apply)
             if not args.apply:
                 continue
-            tmp = REPO_ROOT / ".cache" / "annotate_templates" / key
+            tmp = REPO_ROOT / ".cache" / "annotate_templates" / f"{tid}.json"
             tmp.parent.mkdir(parents=True, exist_ok=True)
             tmp.write_bytes(new)
-            aws(["s3", "cp", str(tmp), f"s3://{BUCKET}/{prefix}{key}",
+            aws(["s3", "cp", str(tmp), f"s3://{BUCKET}/{prefix}{tid}.json",
                  "--content-type", "application/json"], args.profile)
 
     if artifacts and args.apply:

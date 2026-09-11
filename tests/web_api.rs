@@ -434,7 +434,11 @@ async fn a_template_is_described_never_dumped() {
     let listing = api.handle(get("/templates")).await;
     assert_eq!(
         body(&listing)["templates"],
-        json!([{ "name": "v7-template", "min_vip_level": 0 }])
+        json!([{
+            "name": "v7-template",
+            "title": "10-coin basket · Balanced · $1k",
+            "min_vip_level": 0
+        }])
     );
 
     let one = api.handle(get("/templates/v7-template")).await;
@@ -473,7 +477,11 @@ async fn a_template_above_the_callers_level_is_refused_but_never_hidden() {
     let listing = api.handle(get("/templates")).await;
     assert_eq!(
         body(&listing)["templates"],
-        json!([{ "name": "gated", "min_vip_level": 3 }]),
+        json!([{
+            "name": "gated",
+            "title": "10-coin basket · Balanced · $1k",
+            "min_vip_level": 3
+        }]),
         "the catalogue shows what a higher level unlocks"
     );
     let described = api.handle(get("/templates/gated")).await;
