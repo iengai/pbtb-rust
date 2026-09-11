@@ -135,6 +135,8 @@ How those variables reach the process is environment-specific and external to th
 |----------|-------------|
 | `TELOXIDE_TOKEN` | Telegram Bot API token (from SSM in prod) |
 | `RUST_LOG` | Log level (e.g., `info`, `debug`) |
+| `APP__SENTRY__DSN` | Where `ERROR` events go (`src/observability.rs`). Empty or unset: no Sentry client, logs only. Every binary reads it before `load_config`, so it is not part of `Configs`. |
+| `APP__SENTRY__ENVIRONMENT` | The Sentry environment stamped on events (`dev`). Optional. |
 | `APP__DYNAMODB__ENDPOINT_URL` | DynamoDB endpoint override (local dev) |
 | `APP__S3__ENDPOINT_URL` | S3 endpoint override (local dev) |
 | `APP__MCP__USER_ID` | The Telegram user id `mcp_stdio` acts as; must be on `APP__TELEGRAM__ALLOWED_USER_IDS`. Only the MCP binaries read either. See [docs/mcp.md](mcp.md). |

@@ -16,8 +16,7 @@ use teloxide::prelude::*;
 async fn main() -> anyhow::Result<()> {
     println!("Starting Telegram bot...");
 
-    // Initialize logger
-    env_logger::init();
+    let _telemetry = pbtb_rust::observability::Telemetry::init("telebot");
 
     // Read token from TELEGRAM_BOT_TOKEN environment variable
     let bot = Bot::from_env();

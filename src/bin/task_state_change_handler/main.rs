@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use aws_lambda_events::event::eventbridge::EventBridgeEvent;
-use lambda_runtime::{Error, LambdaEvent, run, service_fn, tracing};
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 
 use crate::config::TaskStateChangeConfig;
 use pbtb_rust::config::configs::load_config;
@@ -10,6 +10,7 @@ use pbtb_rust::domain::botconfig::BotConfigRepository;
 use pbtb_rust::domain::runtime::{BotRuntimeRepository, StartLockRepository};
 use pbtb_rust::infra::client::{create_dynamodb_client, create_ecs_client, create_s3_client};
 use pbtb_rust::infra::{DynamoBotRepository, S3BotConfigRepository};
+use pbtb_rust::observability::Telemetry;
 use pbtb_rust::usecase::{
     EcsTaskController, EngineRoutedResolver, EngineTaskDefinitions, LaunchTargetResolver,
     ReconcileStoppedTaskUseCase, RecordRunningTaskUseCase, RunTaskUseCase, TaskController,
@@ -28,7 +29,7 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    tracing::init_default_subscriber();
+    let telemetry = Arc::new(Telemetry::init("task-state-change-handler"));
 
     // 冷启动初始化：只执行一次
     let configs: TaskStateChangeConfig =
@@ -91,7 +92,12 @@ async fn main() -> Result<(), Error> {
         let state = Arc::new(state);
         move |event: LambdaEvent<EventBridgeEvent>| {
             let state = state.clone();
-            async move { event_handler::function_handler(event, state).await }
+            let telemetry = telemetry.clone();
+            async move {
+                let result = event_handler::function_handler(event, state).await;
+                telemetry.flush();
+                result
+            }
         }
     }))
     .await

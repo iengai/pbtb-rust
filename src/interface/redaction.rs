@@ -44,8 +44,13 @@ pub fn redact(action: &str, err: &DomainError) -> String {
             let ref_id = Uuid::new_v4().simple().to_string();
             let ref_short = &ref_id[..8];
             // The only place the real cause is surfaced — the full source chain,
-            // tagged with the id the user is shown, lives in the operator log.
-            tracing::error!(ref_id = ref_short, "{action} failed: {}", error_chain(err));
+            // tagged with the id the user is shown, lives in the operator log
+            // and, as a searchable tag, on the Sentry event.
+            tracing::error!(
+                tags.ref_id = ref_short,
+                "{action} failed: {}",
+                error_chain(err)
+            );
             match err.retryability() {
                 Retryability::Transient => format!(
                     "⏳ Temporarily unavailable while {action}. Please try again in a moment (ref: {ref_short})."
