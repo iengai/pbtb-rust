@@ -16,7 +16,16 @@ model and the run, so a reader knows what wrote it.
 Environment:
   LLM_BASE_URL        e.g. https://api.openai.com/v1 (no trailing slash needed)
   LLM_API_KEY         bearer for that endpoint
-  LLM_MODEL           model name the endpoint serves
+  LLM_MODEL           model name(s) the endpoint serves, comma-separated in
+                      order of preference
+  LLM_FALLBACK_BASE_URL / LLM_FALLBACK_MODEL / LLM_FALLBACK_API_KEY
+                      optional second endpoint tried after every model of the
+                      first; base URL and key default to the first endpoint's
+
+A candidate that answers 429/5xx three times, refuses to connect, or
+returns any other 4xx (unknown model, no tool support) is dropped for the
+rest of the run and the next one continues the same conversation; the
+comment header names the model that answered and the ones that failed.
   SENTRY_AUTH_TOKEN   optional; enables the sentry_issue tool
   GH_TOKEN            what `gh` authenticates with
   DIAGNOSE_RUN_URL    optional; linked in the comment header
@@ -235,30 +244,79 @@ def run_tool(name: str, raw_args: str) -> str:
 # -------------------------------------------------------------------- llm
 
 
-def chat(messages: list[dict]) -> dict:
-    base = os.environ["LLM_BASE_URL"].rstrip("/")
+class Candidate:
+    """One (endpoint, model) pair; `dead` once it failed for this run."""
+
+    def __init__(self, base: str, key: str, model: str):
+        self.base, self.key, self.model = base.rstrip("/"), key, model
+        self.dead: str | None = None
+
+    def __str__(self) -> str:
+        return self.model
+
+
+def candidates() -> list[Candidate]:
+    base, key = os.environ.get("LLM_BASE_URL", ""), os.environ.get("LLM_API_KEY", "")
+    out = [Candidate(base, key, m.strip()) for m in os.environ.get("LLM_MODEL", "").split(",") if m.strip()]
+    fb_base = os.environ.get("LLM_FALLBACK_BASE_URL") or base
+    fb_key = os.environ.get("LLM_FALLBACK_API_KEY") or key
+    out += [Candidate(fb_base, fb_key, m.strip())
+            for m in os.environ.get("LLM_FALLBACK_MODEL", "").split(",") if m.strip()]
+    return out
+
+
+CANDIDATES: list[Candidate] = []
+RETRY_BACKOFF_S = 10
+
+
+def ask(cand: Candidate, messages: list[dict]) -> dict:
+    """One candidate's answer, or an exception describing why it is unusable."""
     body = json.dumps({
-        "model": os.environ["LLM_MODEL"],
+        "model": cand.model,
         "messages": messages,
         "tools": tool_specs(),
         "tool_choice": "auto",
         "temperature": 0.2,
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"{base}/chat/completions", data=body, method="POST",
-        headers={"Authorization": f"Bearer {os.environ['LLM_API_KEY']}", "Content-Type": "application/json"},
+        f"{cand.base}/chat/completions", data=body, method="POST",
+        headers={"Authorization": f"Bearer {cand.key}", "Content-Type": "application/json"},
     )
+    last = "no attempt"
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 return json.load(resp)["choices"][0]["message"]
         except urllib.error.HTTPError as e:
-            text = e.read().decode("utf-8", errors="replace")[:500]
-            if e.code in (429, 500, 502, 503) and attempt < 2:
-                time.sleep(10 * (attempt + 1))
-                continue
-            sys.exit(f"llm {e.code}: {text}")
-    sys.exit("llm: retries exhausted")
+            last = f"{e.code}: {e.read().decode('utf-8', errors='replace')[:300]}"
+            if e.code not in (429, 500, 502, 503, 504):
+                break
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last = f"connect: {e}"
+        except (KeyError, IndexError, ValueError) as e:
+            last = f"malformed reply: {e}"
+            break
+        if attempt < 2:
+            time.sleep(RETRY_BACKOFF_S * (attempt + 1))
+    raise RuntimeError(last)
+
+
+def chat(messages: list[dict]) -> dict:
+    """The first live candidate's answer; a failing one is retired for the run."""
+    for cand in CANDIDATES:
+        if cand.dead:
+            continue
+        try:
+            return ask(cand, messages)
+        except RuntimeError as e:
+            cand.dead = str(e)
+            print(f"llm {cand.model} dropped: {cand.dead[:200]}", file=sys.stderr)
+    failures = "; ".join(f"{c.model}: {c.dead[:120]}" for c in CANDIDATES)
+    sys.exit(f"every model failed: {failures}")
+
+
+def answering_model() -> Candidate | None:
+    return next((c for c in CANDIDATES if not c.dead), None)
 
 
 def briefing() -> str:
@@ -307,12 +365,17 @@ def main() -> int:
     for key in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"):
         if not os.environ.get(key):
             sys.exit(f"{key} is not set")
+    CANDIDATES[:] = candidates()
 
     issue = json.loads(gh("issue", "view", str(a.issue), "--json", "title,body,labels"))
     answer, trail = diagnose(issue["title"], issue.get("body") or "")
 
     run_url = os.environ.get("DIAGNOSE_RUN_URL", "")
-    header = f"🤖 **Diagnosis** by `{os.environ['LLM_MODEL']}`" + (f" ([run]({run_url}))" if run_url else "")
+    model = answering_model()
+    header = f"🤖 **Diagnosis** by `{model.model if model else '?'}`" + (f" ([run]({run_url}))" if run_url else "")
+    dropped = [c for c in CANDIDATES if c.dead]
+    if dropped:
+        header += "\n\n_Fell back: " + "; ".join(f"`{c.model}` ({c.dead.split(':', 1)[0]})" for c in dropped) + "._"
     tools_used = "\n".join(f"- `{t}`" for t in trail) or "- (none)"
     comment = (f"{header}\n\n{answer}\n\n<details><summary>Tool calls ({len(trail)})</summary>\n\n"
                f"{tools_used}\n\n</details>\n\n_Read-only run: nothing was changed, started or stopped._")
