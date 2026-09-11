@@ -13,9 +13,13 @@ name: incident-diagnose
 # repository token, which raises no `issues` event by design, so it
 # dispatches this workflow by number instead.
 #
-# One-time setup: repo variables LLM_BASE_URL and LLM_MODEL, repo secrets
-# LLM_API_KEY and AWS_DIAGNOSE_ROLE_ARN (terraform output
-# gh_diagnose_role_arn); SENTRY_AUTH_TOKEN is shared with incident-intake.
+# One-time setup: repo variables LLM_BASE_URL and LLM_MODEL (comma-separated
+# models in order of preference), repo secrets LLM_API_KEY and
+# AWS_DIAGNOSE_ROLE_ARN (terraform output gh_diagnose_role_arn);
+# SENTRY_AUTH_TOKEN is shared with incident-intake. Optional second endpoint:
+# variables LLM_FALLBACK_BASE_URL, LLM_FALLBACK_MODEL and secret
+# LLM_FALLBACK_API_KEY; a model that fails is dropped for the run and the
+# next one continues the same conversation.
 
 on:
   issues:
@@ -66,6 +70,9 @@ jobs:
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_FALLBACK_BASE_URL: ${{ vars.LLM_FALLBACK_BASE_URL }}
+          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
+          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
