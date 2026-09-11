@@ -70,6 +70,9 @@ def cfg(env: str) -> dict:
         "lambdas": {
             "task-state": f"{p}-task-state-change-handler",
             "daily-pnl": f"{p}-daily-pnl-snapshot",
+            # Created only while `mcp_http_enabled` is set; in an env where it is
+            # off the name resolves to a function that does not exist.
+            "mcp-http": f"{p}-mcp-http",
         },
         "ci_log_group": f"/aws/ecs/containerinsights/{p}-cluster/performance",
     }
@@ -766,7 +769,7 @@ def main(argv=None):
     s.add_argument("--app", action="store_true", help="the application's own output (docker logs telebot) instead of journald")
     s.set_defaults(fn=cmd_telebot_logs)
 
-    s = sub.add_parser("lambda-logs", help="CloudWatch logs of a lambda (task-state | daily-pnl | full name)")
+    s = sub.add_parser("lambda-logs", help="CloudWatch logs of a lambda (task-state | daily-pnl | mcp-http | full name)")
     s.add_argument("name")
     s.add_argument("--since", default="30m")
     s.add_argument("--pattern", help='CloudWatch filter pattern, e.g. "?ERROR ?panic"')
