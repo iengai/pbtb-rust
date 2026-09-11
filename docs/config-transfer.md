@@ -156,9 +156,10 @@ capital tier is not worth offering. `scripts/retire_templates.py <id> …
 --apply` moves the object to `retired/` — out of every listing, content and
 history intact — deletes its backtest artifact and rebuilds the site index;
 `--restore` puts it back. It refuses to retire a template a bot's stored config
-names, resolving the old names those configs still carry through the rename
-catalogue first. Only drawdowns measured over the **same backtest window** may
-be compared: a run that stops at 2025-04-30 never met the 2025-10-10 crash.
+names on either side, resolving the old names those configs still carry through
+the rename catalogue first. Only drawdowns measured over the **same backtest
+window** may be compared: a run that stops at 2025-04-30 never met the 2025-10-10
+crash.
 Then re-run `annotate_templates.py --apply`: a title suffix the retired
 template forced on a sibling is dropped.
 

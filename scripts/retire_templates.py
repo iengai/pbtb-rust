@@ -49,8 +49,30 @@ def aws(args: list[str], profile: str | None) -> str:
     return subprocess.run(cmd, check=True, capture_output=True, text=False).stdout.decode("utf-8")
 
 
+def quoted_templates(body: dict) -> set[str]:
+    """Every template id a stored bot config quotes, under its current id.
+
+    The quoted templates are ``pbtb.name``, the template the bot was built
+    from, and the name in each ``pbtb.strategies`` entry, which a combined bot
+    sets to a different template per side. A config keeps the name it was
+    applied under, which may predate the current id; unresolved, the check
+    would wave through a running template.
+
+    >>> sorted(quoted_templates({"pbtb": {"name": "bybit-mix10-1000u-bold-v8"}}))
+    ['tpl-5syk2duu']
+    >>> sorted(quoted_templates({"pbtb": {"name": "tpl-bzwt9jn2"},
+    ...     "strategies": [{"name": "bybit-mix10-500u-guard-v7", "side": "short"}]}))
+    ['tpl-bzwt9jn2', 'tpl-mvgw3zk4']
+    """
+    meta = body.get("pbtb") or {}
+    names = [meta.get("name") or body.get("strategy_name") or body.get("name")]
+    strategies = meta.get("strategies") or body.get("strategies") or []
+    names += [s.get("name") for s in strategies if isinstance(s, dict)]
+    return {resolve(name) for name in names if name}
+
+
 def templates_in_use(profile: str | None) -> dict[str, str]:
-    """template id -> the bot whose stored config resolves to it."""
+    """template id -> the bot whose stored config quotes it."""
     scan = json.loads(
         aws(["dynamodb", "scan", "--table-name", TABLE, "--output", "json"], profile)
     )
@@ -66,12 +88,9 @@ def templates_in_use(profile: str | None) -> dict[str, str]:
             body = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{key}", "-"], profile))
         except subprocess.CalledProcessError:
             continue  # a bot with no config yet
-        meta = body.get("pbtb") or {}
-        name = meta.get("name") or body.get("strategy_name") or body.get("name")
-        # A config keeps the name it was applied under, which may predate the
-        # current id; unresolved, the check would wave through a running template.
-        if name:
-            in_use[resolve(name)] = item.get("name", {}).get("S", sk)
+        bot = item.get("name", {}).get("S", sk)
+        for template in quoted_templates(body):
+            in_use[template] = bot
     return in_use
 
 
