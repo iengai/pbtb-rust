@@ -7,9 +7,15 @@
 #   bash .claude/skills/verify/scripts/gate.sh            # auto: container if up, else host
 #   bash .claude/skills/verify/scripts/gate.sh --host     # host toolchain only
 #   bash .claude/skills/verify/scripts/gate.sh --container
+#   bash .claude/skills/verify/scripts/gate.sh --full     # cargo even when no Rust file changed
+#
+# The cargo gates (check, clippy, test: ten minutes, most of it the
+# DynamoDB-local suites) run only when the branch touches something cargo
+# reads; a docs-only branch cannot change their result. CI passes --full, and
+# the script itself falls back to full when it cannot tell what changed.
 set -u
-MODE=auto
-for arg in "$@"; do case "$arg" in --host) MODE=host;; --container) MODE=container;; esac; done
+MODE=auto; FULL=0
+for arg in "$@"; do case "$arg" in --host) MODE=host;; --container) MODE=container;; --full) FULL=1;; esac; done
 
 cd "$(git rev-parse --show-toplevel)" || exit 2
 FAILS=0
@@ -62,9 +68,23 @@ run_cargo() { # runs a cargo command in the chosen toolchain, returns its exit c
 
 echo "== toolchain: $MODE$([ "$CDIR" != /app ] && echo " ($CDIR, target $CTARGET)") =="
 
+# What the branch and the working tree change, against origin/main: commits,
+# unstaged and staged edits, and untracked files, since the gate runs before
+# `git add` and a new test file is exactly what cargo would compile. Without a
+# main to diff (no remote, a shallow clone) the list is unusable and the
+# decisions below fall back to running everything.
+CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null; git diff --name-only; git diff --name-only --cached
+          git ls-files --others --exclude-standard)
+git rev-parse -q --verify origin/main >/dev/null 2>&1 || FULL=1
+[ -z "$CHANGED" ] && FULL=1
+RUST_CHANGED=$(echo "$CHANGED" | grep -E '^(src/|tests/|examples/|benches/|Cargo\.|rust-toolchain\.toml|rustfmt\.toml|clippy\.toml|build\.rs|\.cargo/|\.devcontainer/)')
+
 # 1. fmt (always on the host: pure formatter, same rustfmt.toml)
 CARGO_TERM_COLOR=never cargo fmt --check >/dev/null 2>&1; gate fmt $?
 
+if [ "$FULL" -eq 0 ] && [ -z "$RUST_CHANGED" ]; then
+  echo "GATE cargo: skipped (no Rust change; CI runs it, --full runs it here)"
+else
 # 2. check incl. test targets
 OUT=$(run_cargo cargo check --workspace --all-targets 2>&1); RC=$?
 gate check-all-targets $RC; [ $RC -ne 0 ] && show "$OUT"
@@ -87,9 +107,9 @@ if [ "$MODE" = container ]; then
 else
   echo "  (host: dynamodb-local suites self-skip unless Docker or APP__DYNAMODB__ENDPOINT_URL is available)"
 fi
+fi
 
 # 5. terraform, only when touched
-CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null; git diff --name-only; git diff --name-only --cached)
 if echo "$CHANGED" | grep -q '^terraform/'; then
   terraform fmt -check -recursive terraform/ >/dev/null 2>&1; gate terraform-fmt $?
   AWS_PROFILE="${AWS_PROFILE:-dev}" terraform -chdir=terraform/envs/dev validate >/dev/null 2>&1; gate terraform-validate $?

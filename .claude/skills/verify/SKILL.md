@@ -9,7 +9,12 @@ Run `bash .claude/skills/verify/scripts/gate.sh` and read its final summary.
 It decides host vs container automatically, guards every step explicitly, and
 prints one line per gate. Pass `--host` to force the host toolchain (fast
 signal when Docker Desktop is down) or `--container` to insist on the reference
-toolchain.
+toolchain. The cargo gates run only when the branch touches something cargo
+reads (`src/`, `tests/`, `examples/`, `benches/`, `Cargo.*`, the toolchain and
+lint configs, `build.rs`, `.cargo/`, `.devcontainer/`, untracked files
+included); on a docs-only branch the line reads
+`GATE cargo: skipped` and CI, which always passes `--full`, is the run that
+proves it. Pass `--full` to run them anyway.
 
 The container mounts the main checkout at `/app`. From a worktree under
 `.claude/worktrees/<name>` the script runs cargo in
