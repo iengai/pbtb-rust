@@ -204,14 +204,6 @@ VERDICTS: dict[str, tuple[str | None, str]] = {
     ),
 }
 
-# A verdict a user should be told, appended to the public description. The
-# profile it moved the template to is stored in `pbtb.profile`.
-WARNINGS: dict[str, str] = {
-    "bybit-mix10-1000u-steady-v7":
-        "⚠️ 2026-04-25→09-04 回测(含 2026-06-06 真实崩盘)回撤 36.9%,不是低回撤配置",
-}
-
-
 def trading(config: dict) -> dict:
     return {k: v for k, v in config.items() if k not in OURS}
 
@@ -244,11 +236,6 @@ def annotate(raw: dict, readable: str) -> dict:
         "status": status,
         "notes": notes or None,
     }
-
-    warning = WARNINGS.get(readable)
-    description = meta.get("description") or ""
-    if warning and warning not in description:
-        meta["description"] = f"{description}\n{warning}" if description else warning
 
     meta["style"] = style_of(raw)
     meta["engine"] = engine_of(raw)
@@ -306,8 +293,8 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
 
 
 def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> None:
-    """Point each bot's stored config at its template's current id, titles and
-    properties. `metas` is id -> the template's `pbtb`."""
+    """Point each bot's stored config at its template's current id, titles,
+    properties and description. `metas` is id -> the template's `pbtb`."""
     print("bot configs:")
     scan = json.loads(aws(["dynamodb", "scan", "--table-name", TABLE, "--output", "json"], profile))
     for item in scan.get("Items", []):
@@ -336,6 +323,7 @@ def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> No
             "title": template.get("title"),
             "title_zh": template.get("title_zh"),
             **{field: template[field] for field in FACETS if field in template},
+            **({"description": template["description"]} if template.get("description") else {}),
             # A combined bot names a different strategy per side, so each entry
             # resolves on its own.
             "strategies": [

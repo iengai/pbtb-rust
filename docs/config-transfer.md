@@ -51,9 +51,14 @@ is the console's, `lab` is ours.
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
-- `description` (optional) — a free-text explanation, shown in the Telegram
-  **State** view (`• Description:`) and returned by the API. Written only when
-  the transfer is run with `--description`; absent configs show `—`.
+- `description` — what a user reads about the template: the Telegram confirm
+  and **State** views, and the console's template page beside the backtest
+  chart. `scripts/describe_templates.py --apply` composes it from the site
+  backtest, the config's exposure, and the character and crash-window runs it
+  holds per template, then copies it onto the bots built from the template;
+  run it after `backtest_templates.py` or after adding a template.
+  `--description` on the transfer sets one until then; absent, a view shows `—`.
+  It never reaches the published site data.
 
 Anything under `pbtb` can reach a user.
 
@@ -134,6 +139,8 @@ python scripts/transfer_config_to_s3.py --config <raw.json> \
     --universe xrp --capital 100 --risk-profile steady \
     --upload --profile dev
 python scripts/annotate_templates.py --apply --profile dev
+# once backtest_templates.py has run it and it has a PUBLIC entry, compose its description
+python scripts/describe_templates.py --apply --profile dev
 # single-direction
 python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
 ```
