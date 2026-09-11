@@ -13,6 +13,8 @@ const config = (name: string, version: string, coins: string[], short = false): 
   template_name: name,
   title: null,
   title_zh: null,
+  style: "grid",
+  generation: null,
   template_version: version,
   description: null,
   tuned_on: "bybit",
@@ -252,9 +254,9 @@ export function installMock(): void {
     listTemplates: () =>
       delay({
         templates: [
-          { name: "bybit-cap1000-iter7-winner-v810", min_vip_level: 0 },
-          { name: "bybit-cap300-iter1-winner-v712", min_vip_level: 0 },
-          { name: "bybit-cap100-iter1-winner-v810", min_vip_level: 3 },
+          { name: "tpl-bzwt9jn2", title: "10-coin basket · Balanced · $1k · BZWT", min_vip_level: 0 },
+          { name: "tpl-8ctkayqd", title: "8-coin basket · Bold · $300 · 8CTK", min_vip_level: 0 },
+          { name: "tpl-san8qrvj", title: "3-coin basket · Steady · $100", min_vip_level: 3 },
         ],
       }),
     getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null, min_vip_level: 0 }),

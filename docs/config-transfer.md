@@ -28,17 +28,26 @@ is the console's, `lab` is ours.
 
 ```json
 "pbtb": {
-  "name": "bybit-mix10-1000u-balanced-v8",
-  "title": "10-coin basket · Balanced · $1k",
-  "title_zh": "十币组合 · 平衡 · $1k",
+  "name": "tpl-bzwt9jn2",
+  "title": "10-coin basket · Balanced · $1k · BZWT",
+  "title_zh": "十币组合 · 平衡 · $1k · BZWT",
+  "universe": "mix10",
+  "capital_usdt": 1000,
+  "style": "grid",
+  "profile": "balanced",
+  "generation": 7,
+  "engine": "v8",
   "exchange": "bybit",
   "description": "…",
-  "strategies": [{ "name": "bybit-mix10-1000u-balanced-v8", "side": "long" }]
+  "strategies": [{ "name": "tpl-bzwt9jn2", "side": "long" }]
 }
 ```
 
 - `name` — the template's id, which is also its S3 key (see below).
-- `title` / `title_zh` — what a reader is shown the template as, per language.
+- `title` / `title_zh` — what a reader is shown the template as, per language,
+  composed from the naming properties.
+- `universe`, `capital_usdt`, `style`, `profile`, `generation`, `engine` — the
+  naming properties (see below).
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
@@ -82,38 +91,49 @@ Older templates carried the same fields as top-level `strategy_name` /
 `strategies` / `name` / `description`. `BotConfig::meta` still reads those, for
 the per-bot configs written before the block; no template in S3 has them.
 
-### The id, and the title
+### The id, and the names
 
-    id     bybit-<universe>-<capital>-<profile>-<engine line>[-<letter>]
-    e.g.   bybit-mix10-1000u-balanced-v8, bybit-xrp-100u-bold-v7
+    id     tpl-<8 random characters>        e.g. tpl-bzwt9jn2
 
-Every field comes from the config: the coin universe (`xrp`, `mix3`, `mix8`,
-`mix10`) and the tuned capital are the backtest's, the engine line is
-`config_version`'s major, and the profile is the tier the measured worst
-drawdown fell in when the template was published — `guard` (<10%), `steady`
-(<25%), `balanced` (<35%), `bold` (<60%), `extreme` above it. One tuning
-published on both engine lines keeps one profile, the more cautious of the two.
-A letter disambiguates templates that agree on every field, tamest first.
+The id addresses the template — it is the S3 key, the site URL, the Telegram
+callback, and what a bot's stored config and its config-switch rows quote — and
+says nothing about it, so nothing learnt about the template can make it wrong.
+It is **fixed for the life of the template**.
 
-The id addresses the template — it is the S3 key, the site URL, and what a
-bot's stored config and its config-switch history quote — so it is **fixed for
-the life of the template**, including its letter after a sibling retires. The
-titles are wording and can be rewritten in place, and that is where a stale
-sibling marker gets dropped. What must never go in either: the optimizer run
-that produced it, and any claim about what it returns.
-`scripts/rename_predefined.py` carries the mapping from the names this store
-used before, and re-running it is a no-op.
+What a reader is told lives in the naming properties, each read off the config
+or the strategy lab:
+
+| Property | Values | From |
+|---|---|---|
+| `universe` | `mix3`, `mix8`, `mix10`, `xrp` | the backtest's coins |
+| `capital_usdt` | `100` … `10000` | the backtest's starting balance |
+| `style` | `grid`, `martingale`, `ema_anchor` | v8 `live.strategy_kind`; every v7 config is the grid |
+| `profile` | `guard` (<10%), `steady` (<25%), `balanced` (<35%), `bold` (<60%), `extreme` | the tier the worst measured drawdown falls in; one tuning on both engine lines keeps the more cautious |
+| `generation` | the lab iteration | `lab.iter`, counted per capital tier; absent on a template that predates the lab |
+| `engine` | `v7`, `v8` | `config_version`'s major, else the config's shape |
+
+`title` / `title_zh` are composed from universe, profile and capital:
+`10-coin basket · Balanced · $1k`. Two templates listed together whose titles
+would read the same both take the first four characters of their id as a
+suffix (`· BZWT`), so a reader can tell them apart and find the id. Neither a
+title nor a property carries a claim about what the template returns.
+
+`scripts/template_naming.py` holds the vocabulary and the ids the store used
+before (`bybit-mix10-1000u-balanced-v8`, and the optimizer-run names before
+those), and resolves an old name a stored config or history row still quotes.
+`scripts/annotate_templates.py --apply` re-derives the properties and
+recomposes every title; run it after adding or retiring a template.
 
 Run it:
 
 ```bash
 # preview
 python scripts/transfer_config_to_s3.py --config E:/projects/passivbot/configs/xrp-cus.json
-# upload a dual-sided strategy under its id and titles
+# upload a dual-sided strategy under a new id, then recompose the titles
 python scripts/transfer_config_to_s3.py --config <raw.json> \
-    --name bybit-xrp-100u-steady-v8 \
-    --title "XRP only · Steady · \$100" --title-zh "XRP 单币 · 稳健 · \$100" \
+    --universe xrp --capital 100 --risk-profile steady \
     --upload --profile dev
+python scripts/annotate_templates.py --apply --profile dev
 # single-direction
 python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
 ```
@@ -132,6 +152,8 @@ history intact — deletes its backtest artifact and rebuilds the site index;
 names, resolving the old names those configs still carry through the rename
 catalogue first. Only drawdowns measured over the **same backtest window** may
 be compared: a run that stops at 2025-04-30 never met the 2025-10-10 crash.
+Then re-run `annotate_templates.py --apply`: a title suffix the retired
+template forced on a sibling is dropped.
 
 ## Stage 2 — per-bot adjustments (telebot, not the transfer script)
 

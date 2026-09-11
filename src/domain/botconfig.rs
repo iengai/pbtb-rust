@@ -419,6 +419,22 @@ impl BotConfig {
         self.pbtb_str("title_zh")
     }
 
+    /// The strategy family (`pbtb.style`: `grid`, `martingale`, `ema_anchor`).
+    /// `None` on a template published without it.
+    pub fn style(&self) -> Option<&str> {
+        self.pbtb_str("style")
+    }
+
+    /// The strategy lab iteration that produced the tuning (`pbtb.generation`).
+    /// Iterations are counted per capital tier, so two generations compare only
+    /// at the same capital. `None` on a template that predates the lab.
+    pub fn generation(&self) -> Option<u64> {
+        self.config_data
+            .get("pbtb")
+            .and_then(|m| m.get("generation"))
+            .and_then(|v| v.as_u64())
+    }
+
     /// Free-text strategy explanation (`pbtb.description`, or the legacy
     /// top-level `description`). `None` when absent or blank.
     pub fn description(&self) -> Option<&str> {
@@ -703,6 +719,21 @@ mod tests {
         assert_eq!(config.title(), Some("X"));
         assert_eq!(config.config_data["bot"], template.config_data["bot"]);
         assert!(template.config_data.get("lab").is_some());
+    }
+
+    #[test]
+    fn style_and_generation_come_from_pbtb() {
+        let mut config = sample_config(0);
+        assert_eq!(config.style(), None);
+        assert_eq!(config.generation(), None);
+
+        config.config_data["pbtb"] = json!({
+            "name": "tpl-k7qf3mwd",
+            "style": "grid",
+            "generation": 7
+        });
+        assert_eq!(config.style(), Some("grid"));
+        assert_eq!(config.generation(), Some(7));
     }
 
     #[test]

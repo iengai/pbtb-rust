@@ -105,9 +105,10 @@ pub(crate) fn template_confirm_keyboard(template_name: &str) -> InlineKeyboardMa
     ]])
 }
 
-/// Inline keyboard for the template list: one button per template
-/// (`select_template:<name>`). A template above `vip_level` is shown locked
-/// with the level it asks for; it stays tappable so the refusal can say why.
+/// Inline keyboard for the template list: one button per template, labelled by
+/// its title (by its id when it has none) and carrying the id
+/// (`select_template:<id>`). A template above `vip_level` is shown locked with
+/// the level it asks for; it stays tappable so the refusal can say why.
 pub(crate) fn template_list_keyboard(
     templates: &[TemplateListing],
     vip_level: u8,
@@ -116,10 +117,11 @@ pub(crate) fn template_list_keyboard(
 
     for template in templates {
         let template_name = &template.name;
+        let label = template.title.as_deref().unwrap_or(template_name);
         let button_text = if entitlement::meets(vip_level, template.min_vip_level) {
-            format!("📄 {template_name}")
+            format!("📄 {label}")
         } else {
-            format!("🔒 {template_name} (VIP {})", template.min_vip_level)
+            format!("🔒 {label} (VIP {})", template.min_vip_level)
         };
 
         let callback_data = format!("select_template:{template_name}");

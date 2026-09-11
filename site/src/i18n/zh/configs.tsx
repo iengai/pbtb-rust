@@ -3,6 +3,8 @@ import { configs as en } from "../en/configs";
 export const configs: typeof en = {
   liquidatedBadge: "回测中爆仓",
   wipedOut: "已爆仓",
+  style: { grid: "网格", martingale: "马丁格尔", ema_anchor: "EMA 锚定" },
+  generation: (n) => `第 ${n} 代`,
 
   list: {
     title: "配置",
@@ -26,6 +28,8 @@ export const configs: typeof en = {
     setupTitle: "设置",
     sides: "方向",
     coins: "币种",
+    style: "策略基调",
+    generation: "进化代数",
     engine: "引擎",
     engineValue: (version) => `passivbot ${version} · 可在 py 或 rs 上运行`,
     metricsTitle: "回测指标",

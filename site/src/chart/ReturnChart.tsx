@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useLoad } from "../api/hooks";
+import { templateTitle } from "../components/ui";
+import { staticData } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import {
   type ChartLabels,
@@ -89,7 +92,18 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   const labels = useChartLabels();
   const box = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
-  const svg = win.kind === "ok" ? chartSVG(win.view, win.switches, labels) : "";
+  const { lang } = useLang();
+  // A switch row quotes the template's id; the marker names it by its title,
+  // and an id the catalogue no longer lists (a retired template) as itself.
+  const catalog = useLoad(() => staticData.templates(), "templates:titles");
+  const switches = useMemo(() => {
+    if (win.kind !== "ok") return [];
+    return win.switches.map((s) => {
+      const tpl = catalog.data?.find((row) => row.name === s.template_name);
+      return tpl ? { ...s, template_name: templateTitle(tpl, lang) } : s;
+    });
+  }, [win, catalog.data, lang]);
+  const svg = win.kind === "ok" ? chartSVG(win.view, switches, labels) : "";
 
   useEffect(() => {
     if (win.kind !== "ok" || !box.current || !tip.current) return;

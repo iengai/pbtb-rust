@@ -6,13 +6,17 @@ A raw passivbot optimizer/strategy config (e.g. the files under
 predefined strategies. The ONLY thing our platform adds on top of the stock
 passivbot schema is one top-level `pbtb` object:
 
-  * `name` (string) — the template's id, and its S3 key. Fixed for the life of
-    the template: config-switch history rows and a bot's stored config quote it.
-    The grammar is `bybit-<universe>-<capital>-<profile>-<engine line>`, e.g.
-    `bybit-mix10-1000u-balanced-v8` (see scripts/rename_predefined.py).
-  * `title` / `title_zh` (string) — what a reader is shown the template as, in
-    each language the console renders. Wording, not identity: rewrite either in
-    place without moving the object.
+  * `name` (string) — the template's id, and its S3 key: `tpl-` and eight
+    random characters, generated unless --name reuses an existing one. Fixed
+    for the life of the template: config-switch history rows and a bot's stored
+    config quote it.
+  * `universe`, `capital_usdt`, `style`, `profile`, `generation`, `engine` —
+    the naming properties (scripts/template_naming.py). `style` and `engine`
+    are read off the config; the rest come from the flags.
+  * `title` / `title_zh` (string) — what a reader is shown the template as,
+    composed from universe, profile and capital unless --title is given. The
+    suffix that tells two identical titles apart is added by
+    scripts/annotate_templates.py, which sees the whole catalogue.
   * `exchange` (string) — whose market data the strategy was tuned on.
   * `strategies` (array of {name, side}) — every side this strategy drives. A
     single-direction strategy lists one entry; a dual-sided one lists both
@@ -36,9 +40,9 @@ Usage:
   # Preview what would be written (no upload):
   python scripts/transfer_config_to_s3.py --config E:/projects/passivbot/configs/xrp-cus.json
 
-  # Dual-sided strategy (default), upload to predefined/<id>.json:
-  python scripts/transfer_config_to_s3.py --config <raw.json> --name bybit-xrp-100u-steady-v8 \
-      --title "XRP only · Steady · $100" --title-zh "XRP 单币 · 稳健 · $100" --upload --profile dev
+  # Dual-sided strategy (default), upload to predefined/<new id>.json:
+  python scripts/transfer_config_to_s3.py --config <raw.json> \
+      --universe xrp --capital 100 --risk-profile steady --upload --profile dev
 
   # Single-direction strategy:
   python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
@@ -46,7 +50,7 @@ Usage:
   # With a strategy explanation:
   python scripts/transfer_config_to_s3.py --config <raw.json> --description "XRP grid, low leverage" --upload --profile dev
 
-The id defaults to the input file's stem; override with --name.
+A new id is generated; --name overwrites an existing template instead.
 """
 
 import argparse
@@ -55,6 +59,8 @@ import os
 import subprocess
 import sys
 import tempfile
+
+from template_naming import FACETS, base_titles, engine_of, new_id, style_of
 
 DEFAULT_BUCKET = "scalable-cluster-dev-bot-configs"
 DEFAULT_PREFIX = "predefined/"
@@ -70,6 +76,7 @@ def transform(
     title_zh: str | None = None,
     exchange: str | None = None,
     lab: dict | None = None,
+    facets: dict | None = None,
 ) -> dict:
     """Return a copy of `raw` with our `pbtb` block (and `lab`, if given) injected.
 
@@ -84,11 +91,17 @@ def transform(
         if side not in VALID_SIDES:
             raise ValueError(f"invalid side {side!r}; expected one of {VALID_SIDES}")
 
+    named = {k: v for k, v in (facets or {}).items() if v is not None}
+    named.setdefault("style", style_of(raw))
+    named.setdefault("engine", engine_of(raw))
+    composed = base_titles(named) or (None, None)
+
     out = dict(raw)
     out["pbtb"] = {
         "name": name,
-        "title": title or name,
-        "title_zh": title_zh or title or name,
+        "title": title or composed[0] or name,
+        "title_zh": title_zh or composed[1] or title or name,
+        **{k: named[k] for k in FACETS if k in named},
         "exchange": exchange
         or next(iter((raw.get("backtest") or {}).get("exchanges") or []), None),
         "description": description,
@@ -106,11 +119,15 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", required=True, help="path to the raw passivbot config json")
     parser.add_argument("--name", default=None,
-                        help="template id, and its S3 key (default: input file stem)")
-    parser.add_argument("--title", default=None,
-                        help="what a reader is shown the template as (default: the id)")
+                        help="an existing template id to overwrite (default: a new tpl- id)")
+    parser.add_argument("--universe", default=None, help="coin basket: mix3, mix8, mix10, xrp")
+    parser.add_argument("--capital", type=int, default=None, help="balance tuned at, in USDT")
+    parser.add_argument("--risk-profile", dest="risk_profile", default=None,
+                        help="guard, steady, balanced, bold or extreme")
+    parser.add_argument("--generation", type=int, default=None, help="the lab iteration")
+    parser.add_argument("--title", default=None, help="override the composed title")
     parser.add_argument("--title-zh", dest="title_zh", default=None,
-                        help="the same in Chinese (default: --title)")
+                        help="override the composed Chinese title")
     parser.add_argument("--exchange", default=None,
                         help="market data the strategy was tuned on (default: the backtest's)")
     parser.add_argument("--sides", default="long,short",
@@ -128,7 +145,7 @@ def main() -> int:
                         help="also write the transformed config to this local path")
     args = parser.parse_args()
 
-    name = args.name or os.path.splitext(os.path.basename(args.config))[0]
+    name = args.name or new_id()
     sides = [s.strip() for s in args.sides.split(",") if s.strip()]
 
     with open(args.config, "r", encoding="utf-8") as fh:
@@ -140,8 +157,11 @@ def main() -> int:
             lab = json.load(fh)
 
     try:
+        facets = {"universe": args.universe, "capital_usdt": args.capital,
+                  "profile": args.risk_profile, "generation": args.generation}
         result = transform(
-            raw, name, sides, args.description, args.title, args.title_zh, args.exchange, lab
+            raw, name, sides, args.description, args.title, args.title_zh, args.exchange, lab,
+            facets,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -154,6 +174,7 @@ def main() -> int:
     meta = result["pbtb"]
     print(f"id          = {meta['name']}")
     print(f"title       = {meta['title']}  /  {meta['title_zh']}")
+    print(f"properties  = {json.dumps({k: meta[k] for k in FACETS if k in meta}, ensure_ascii=False)}")
     print(f"strategies  = {json.dumps(meta['strategies'], ensure_ascii=False)}")
     print(f"description = {meta.get('description') or '—'}")
     print(f"target      = {target}")

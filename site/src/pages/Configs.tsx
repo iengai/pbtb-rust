@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLoad } from "../api/hooks";
-import { Badge, Chips, ErrorBanner, Loading, Sparkline, engineLabel, templateTitle } from "../components/ui";
+import {
+  Badge,
+  Chips,
+  ErrorBanner,
+  Loading,
+  Sparkline,
+  TemplateTags,
+  engineLabel,
+  templateTitle,
+} from "../components/ui";
 import { staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { fmtGain, fmtMetric, wipedOut } from "./metrics";
@@ -65,6 +74,7 @@ function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
       <div className="head">
         <div className="name">{templateTitle(tpl, lang)}</div>
         {wiped && <Badge>{t.configs.liquidatedBadge}</Badge>}
+        <TemplateTags tpl={tpl} />
         <Badge>{engineLabel(tpl.engine)}</Badge>
       </div>
       <div className="mid">

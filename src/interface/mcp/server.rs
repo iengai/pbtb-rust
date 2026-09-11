@@ -344,9 +344,9 @@ impl BotTools {
         }))
     }
 
-    /// The configuration templates a bot can be switched to, each with the
-    /// VIP level it asks for (`apply_template` refuses one above the
-    /// caller's).
+    /// The configuration templates a bot can be switched to, each with its
+    /// title and the VIP level it asks for (`apply_template` refuses one above
+    /// the caller's).
     #[tool(annotations(read_only_hint = true))]
     pub async fn list_templates(&self) -> Result<CallToolResult, McpError> {
         self.principal(SCOPE_READ)?;
@@ -358,7 +358,7 @@ impl BotTools {
             .map_err(|e| failed("listing templates", e))?;
         let templates: Vec<Value> = templates
             .iter()
-            .map(|t| json!({ "name": t.name, "min_vip_level": t.min_vip_level }))
+            .map(crate::interface::describe::listing)
             .collect();
         Self::ok(json!({ "templates": templates }))
     }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, isRetryConflict } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
-import type { BotDetail as Detail } from "../api/types";
+import type { BotDetail as Detail, TemplateListing } from "../api/types";
 import { staticData } from "../data/static";
 import { ChartCaption, RangeSelector, ReturnChart, useRangeLabel } from "../chart/ReturnChart";
 import {
@@ -382,8 +382,8 @@ function TemplateDialog({
   onDone: (msg: string) => void;
 }) {
   const list = useLoad(() => api.listTemplates(), "templates");
-  // The API lists template ids; the titles live with the published backtests,
-  // so an id the catalogue does not carry still shows, as itself.
+  // The API lists each template's id and English title; the Chinese title
+  // lives with the published backtests.
   const catalog = useLoad(() => staticData.templates(), "templates:titles");
   const [name, setName] = useState("");
   const [confirm, setConfirm] = useState(false);
@@ -391,9 +391,9 @@ function TemplateDialog({
   const t = useT();
   const { lang } = useLang();
   const current = bot.config?.template_name ?? null;
-  const label = (id: string) => {
-    const tpl = catalog.data?.find((row) => row.name === id);
-    return tpl ? templateTitle(tpl, lang) : id;
+  const label = (listed: TemplateListing) => {
+    const tpl = catalog.data?.find((row) => row.name === listed.name);
+    return tpl ? templateTitle(tpl, lang) : listed.title || listed.name;
   };
   return (
     <Modal title={t.bots.detail.changeConfig} onClose={onClose}>
@@ -404,7 +404,7 @@ function TemplateDialog({
           <option value="">{list.data ? t.bots.templateModal.choose : t.common.loading}</option>
           {list.data?.templates.map((tpl) => (
             <option key={tpl.name} value={tpl.name}>
-              {label(tpl.name)}
+              {label(tpl)}
               {tpl.name === current ? t.bots.templateModal.currentSuffix : ""}
               {tpl.min_vip_level > 0 ? t.bots.templateModal.levelSuffix(tpl.min_vip_level) : ""}
             </option>

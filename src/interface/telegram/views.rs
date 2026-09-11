@@ -106,6 +106,14 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
         .engine_version()
         .map(|e| format!("🧠 Engine: passivbot {e} line\n"))
         .unwrap_or_default();
+    // The template's strategy family and the lab iteration that produced it;
+    // a template published without either reads without the line.
+    let family = match (preview.style(), preview.generation()) {
+        (Some(style), Some(generation)) => format!("🧬 Style: {style} · generation {generation}\n"),
+        (Some(style), None) => format!("🧬 Style: {style}\n"),
+        (None, Some(generation)) => format!("🧬 Generation: {generation}\n"),
+        (None, None) => String::new(),
+    };
 
     let exposure = match preview.risk_level() {
         Ok(r) => format!("   • Long: {:.2}\n   • Short: {:.2}", r.long, r.short),
@@ -131,7 +139,7 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     format!(
         "📄 Apply this config?\n\n\
         • Template: {template}\n\
-        {data_source}{engine}🤖 Strategy: {strategies}\n\
+        {data_source}{engine}{family}🤖 Strategy: {strategies}\n\
         📝 Description: {description}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
         {exposure}\n\n\
@@ -158,11 +166,8 @@ mod tests {
     #[test]
     fn a_template_label_carries_the_title_and_the_id() {
         assert_eq!(
-            format_template_label(
-                "bybit-mix10-1000u-balanced-v8",
-                Some("10-coin basket · Balanced · $1k")
-            ),
-            "10-coin basket · Balanced · $1k (bybit-mix10-1000u-balanced-v8)"
+            format_template_label("tpl-bzwt9jn2", Some("10-coin basket · Balanced · $1k")),
+            "10-coin basket · Balanced · $1k (tpl-bzwt9jn2)"
         );
     }
 

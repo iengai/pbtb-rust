@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 from backtest_templates import write_index
-from rename_predefined import CATALOG
+from template_naming import resolve
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
@@ -47,21 +47,6 @@ def aws(args: list[str], profile: str | None) -> str:
     if profile:
         cmd += ["--profile", profile]
     return subprocess.run(cmd, check=True, capture_output=True, text=False).stdout.decode("utf-8")
-
-
-def to_id(name: str) -> str:
-    """The id a stored config's template name resolves to.
-
-    A bot's config keeps the template name it was applied under, so a config
-    applied before the rename still names the old one — and one bot's name
-    (`cap300-iter1-winner-v712`) lost its `bybit-` prefix somewhere before
-    that. Both have to reach the current id, or the in-use check below waves
-    through a template a bot is running.
-    """
-    for candidate in (name, f"bybit-{name}"):
-        if candidate in CATALOG:
-            return CATALOG[candidate][0]
-    return name
 
 
 def templates_in_use(profile: str | None) -> dict[str, str]:
@@ -83,8 +68,10 @@ def templates_in_use(profile: str | None) -> dict[str, str]:
             continue  # a bot with no config yet
         meta = body.get("pbtb") or {}
         name = meta.get("name") or body.get("strategy_name") or body.get("name")
+        # A config keeps the name it was applied under, which may predate the
+        # current id; unresolved, the check would wave through a running template.
         if name:
-            in_use[to_id(name)] = item.get("name", {}).get("S", sk)
+            in_use[resolve(name)] = item.get("name", {}).get("S", sk)
     return in_use
 
 
@@ -124,6 +111,8 @@ def main() -> int:
     if args.apply and not args.restore:
         write_index()
         print(f"  index.json rebuilt from {len(list(SITE_DIR.glob('*.json'))) - 1} artifacts")
+    if args.apply:
+        print("  re-run annotate_templates.py --apply: the title suffixes follow the catalogue")
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")
     return 0

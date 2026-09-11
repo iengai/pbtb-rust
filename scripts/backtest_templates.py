@@ -106,7 +106,7 @@ class Template:
         self.raw = path.read_bytes()
         self.source_sha = hashlib.sha256(self.raw).hexdigest()
         self.config = json.loads(self.raw.decode("utf-8"))
-        self.engine = detect_engine(self.name, self.config)
+        self.engine = detect_engine(self.config)
 
     @property
     def backtest(self) -> dict:
@@ -156,17 +156,15 @@ class Template:
         return top if isinstance(top, list) else None
 
 
-def detect_engine(name: str, config: dict) -> str:
-    """The engine line to backtest a template on: its ``config_version``'s
-    major, or — on one carrying none — the ``-v7``/``-v8`` field of its id,
-    past the letter that disambiguates siblings."""
+def detect_engine(config: dict) -> str:
+    """The engine line a config runs on: its ``config_version``'s major, or — on
+    one carrying none — its shape, since v8 nests each side's exposure under
+    ``risk``. The launcher routes a bot by the same rule."""
     version = str(config.get("config_version") or "")
     if version:
         return "v8" if version.startswith("v8") else "v7"
-    fields = name.split("-")
-    if len(fields[-1]) == 1:
-        fields.pop()
-    return "v8" if fields[-1] == "v8" else "v7"
+    long = (config.get("bot") or {}).get("long") or {}
+    return "v8" if isinstance(long.get("risk"), dict) else "v7"
 
 
 def sync_templates(templates_dir: Path, profile: str) -> None:
@@ -339,6 +337,9 @@ def build_artifact(template: Template, result_dir: Path) -> dict:
         # addresses it. Absent on a template published before titles.
         "title": template.pbtb.get("title"),
         "title_zh": template.pbtb.get("title_zh"),
+        # Naming properties a card shows as tags beside the title.
+        "style": template.pbtb.get("style"),
+        "generation": template.pbtb.get("generation"),
         "engine": ENGINE_VERSION[template.engine],
         "exchange": template.exchange,
         "coins": template.coins,
@@ -364,7 +365,8 @@ def write_json(path: Path, data) -> None:
 def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
-        "name", "title", "title_zh", "engine", "exchange", "coins", "start", "end", "metrics",
+        "name", "title", "title_zh", "style", "generation", "engine", "exchange", "coins",
+        "start", "end", "metrics",
     )
     rows = []
     for path in sorted(OUTPUT_DIR.glob("*.json")):

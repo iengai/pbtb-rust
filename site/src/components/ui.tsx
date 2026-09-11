@@ -207,10 +207,10 @@ export function runtimeLabel(rt: string): string {
   return rt === "rs" ? "rs · pb-runner" : "py · passivbot";
 }
 
-// What to call a template on screen. A template is addressed by its id — the
-// S3 key, in the URL, fixed for its life — and read by its title, which is
-// per-language data on the template itself. One published before titles has
-// only its id to go by.
+// What to call a template on screen. A template is addressed by its id — an
+// opaque `tpl-…` string, the S3 key and the URL — and read by its title, which
+// is per-language data on the template itself. One published without a title
+// has only its id to go by.
 export function templateTitle(
   tpl: { name?: string; title?: string | null; title_zh?: string | null },
   lang: Lang,
@@ -223,4 +223,17 @@ export function templateTitle(
 export function engineLabel(version: string | null | undefined): string {
   if (!version) return "—";
   return version.startsWith("v") ? version : `v${version}`;
+}
+
+// A template's strategy family and lab generation, as badges beside its title.
+// A template published without either shows neither.
+export function TemplateTags({ tpl }: { tpl: { style?: string | null; generation?: number | null } }) {
+  const t = useT();
+  const styles: Record<string, string> = t.configs.style;
+  return (
+    <>
+      {tpl.style && <Badge>{styles[tpl.style] ?? tpl.style}</Badge>}
+      {tpl.generation != null && <Badge>{t.configs.generation(tpl.generation)}</Badge>}
+    </>
+  );
 }

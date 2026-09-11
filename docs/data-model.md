@@ -120,10 +120,10 @@ A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `
 ```
 Bucket: {project}-{env}-bot-configs
 ├── predefined/              # Configuration templates, keyed by id
-│   ├── bybit-mix10-1000u-balanced-v8.json
-│   └── bybit-xrp-100u-bold-v7.json
+│   ├── tpl-bzwt9jn2.json
+│   └── tpl-sappt9w2.json
 ├── retired/                 # Same objects, out of every listing
-│   └── bybit-mix10-700u-bold-v7-b.json
+│   └── tpl-wuy2q2df.json
 └── {user_id}/              # User-specific data
     └── {bot_id}/
         ├── {bot_id}.json   # Bot configuration
@@ -131,10 +131,12 @@ Bucket: {project}-{env}-bot-configs
 ```
 
 - `predefined/` — reusable configuration templates. The key is the template's
-  id, `bybit-<universe>-<capital>-<profile>-<engine line>`, fixed for its life
-  (see [config-transfer.md](config-transfer.md)). The template's own metadata
-  sits under its top-level `pbtb` object: `title` / `title_zh`, what a reader is
-  shown it as; `exchange`, `description`, `strategies`; and `min_vip_level`, the
+  id, an opaque `tpl-<8 characters>` fixed for its life (see
+  [config-transfer.md](config-transfer.md)). The template's own metadata sits
+  under its top-level `pbtb` object: `title` / `title_zh`, what a reader is
+  shown it as; the naming properties they are composed from (`universe`,
+  `capital_usdt`, `style`, `profile`, `generation`, `engine`); `exchange`,
+  `description`, `strategies`; and `min_vip_level`, the
   lowest account level that may apply it (absent = open to all). An operator
   edits the object to change the gate, no deploy needed. Beside it, `lab` is
   the strategy lab's record of the tuning (run, seeds, genome, verdicts); no

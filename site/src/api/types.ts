@@ -19,6 +19,8 @@ export type ConfigDescription = {
   template_name: string;
   title: string | null;
   title_zh: string | null;
+  style: string | null;
+  generation: number | null;
   template_version: string | null;
   description: string | null;
   tuned_on: string | null;
@@ -48,7 +50,7 @@ export type Me = {
 };
 
 /** A template as the chooser lists it: `min_vip_level` is the lowest level that may apply it. */
-export type TemplateListing = { name: string; min_vip_level: number };
+export type TemplateListing = { name: string; title: string | null; min_vip_level: number };
 
 export type TemplateDescription = {
   name: string;
