@@ -20,8 +20,8 @@ fine" for every line — fewer certain findings beat a wall of noise.
 
 ## The standard
 
-The authoritative rule lives in **AGENTS.md → `Code Style & Conventions` (the comments
-rule)**. When this file and AGENTS.md disagree, AGENTS.md wins. In short: a comment
+The authoritative rule is the comments invariant in **AGENTS.md** and
+**docs/conventions.md → `Comments`**. When this file and those disagree, they win. In short: a comment
 documents **what the code is** and the **non-obvious why**, for a reader who never saw the
 diff. Anything whose only value is the edit context does not belong in the source — it
 belongs in the commit message.
@@ -32,7 +32,8 @@ Review comments this branch introduced or modified. Do NOT audit the repo's lega
 comments — an untouched pre-existing comment is out of scope even if it's bad.
 
 ```bash
-git diff main...HEAD
+git fetch origin main -q
+git diff origin/main...HEAD
 ```
 
 Judge only `+` lines that are comments (`//`, `///`, `#`, docstrings, `<!-- -->`) or a

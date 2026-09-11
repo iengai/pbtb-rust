@@ -1,6 +1,6 @@
 ---
 name: pbtb-ship
-description: Get a change from the working tree onto main: branch naming, the verify gate, rebasing a stale or conflicting PR, push / PR / merge with the right GitHub account. Use on commit, push, open or update a PR, merge, a CONFLICTING PR, and before running git push, gh pr create or gh pr merge yourself.
+description: Get a change onto main: branch naming, the verify gate, the review passes, rebasing a stale PR, push / PR / merge with the right GitHub account. Use on commit, push, review, open or update a PR, merge, a CONFLICTING PR, and before running git push, gh pr create or gh pr merge yourself.
 ---
 
 # pbtb ship
@@ -41,6 +41,28 @@ or `tests/common/`: the DynamoDB fixture has a testcontainers branch that only
 CI exercises, and PR #49 was green locally while 13 tests failed there. Never
 push a red gate "to fix in CI".
 
+## Review before the PR
+
+The gate proves the tree builds and the tests pass; the passes in `REVIEW.md`
+look for what the gate cannot decide. Run them once the gate is green and the
+commits are in their final shape, and again after a push that changes more
+than the review asked for.
+
+1. Dispatch the `pr-reviewer` agent (bugs, security, compliance; it reads
+   `REVIEW.md` itself). Beside it, `comment-reviewer` when the diff adds or
+   changes comments and `architecture-reviewer` when it touches `src/`. All
+   three are read-only and independent: run them in parallel.
+2. Fix every 🔴 Important finding before the PR exists, or say in the PR why
+   it is not one. 🟡 Nits are yours to take or leave. A 🟣 Pre-existing bug
+   becomes an Intent issue (`gh issue create --body-file`, the template's
+   fields), not part of this PR.
+3. The PR body's **Review** section carries each reviewer's tally line and
+   what was done with the findings; a finding you overruled is named there, so
+   the PR stays the audit record.
+4. A class of mistake the review has corrected twice goes into the knowledge
+   layer it belongs to (docs/conventions.md § Knowledge placement), not only
+   into the fix.
+
 ## Rebasing a stale PR
 
 1. `git fetch origin main -q && git rebase origin/main`.
@@ -60,8 +82,8 @@ push a red gate "to fix in CI".
 ## PR
 
 - `gh pr create --base main --head <branch> --title "<type>: …" --body "$(cat <<'EOF' … EOF)"`
-  with sections **Why / What / Verification / Rollout** (rollout only if it
-  changes deployed shape — say the order and the window, see pbtb-deploy).
+  with sections **Why / What / Verification / Review / Rollout** (rollout only
+  if it changes deployed shape — say the order and the window, see pbtb-deploy).
 - GitHub recomputes mergeability asynchronously after a force-push; `CONFLICTING`
   right after pushing is stale — poll `gh pr view --json mergeable` until it
   settles rather than trusting the first answer.

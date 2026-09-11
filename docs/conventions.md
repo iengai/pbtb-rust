@@ -67,6 +67,10 @@ Every repository port returns `Result<_, DomainError>` — `BotRepository` (incl
 
 Run `cargo fmt && cargo clippy` before committing.
 
+### Review before a PR
+
+`REVIEW.md` at the repo root is the review policy: three passes (bugs, security, compliance), what is Important and what is a Nit, what to skip, the evidence a finding needs. The `pbtb-ship` skill runs the passes through the reviewer agents before the PR is opened, and the PR's Review section carries the tally; findings never approve or block on their own.
+
 ### Branch Naming
 
 Use `<type>/<kebab-summary>`, where `<type>` is the same set as commit types
@@ -113,11 +117,11 @@ Knowledge is filed by *how it reaches an agent's context*, not by topic. Each fa
 | Always loaded | `AGENTS.md` (every agent) and `.claude/CLAUDE.md` (imports it; Claude Code harness notes only) | Every session | An irreversible or trading-impacting invariant, or a mistake made twice in this repo | A hook or the code structure enforces it: shrink to one pointer |
 | Pulled per task | `docs/*.md` | The "Working on… → Read" table in `AGENTS.md` | Needed for one kind of task; one leaf per task kind, self-contained | The code moved: update in the same PR or delete |
 | Triggered by situation | `.claude/skills/<name>/` (`SKILL.md` + `references/`) | The skill's `description` matches | A procedure that must run the same way every time; an operational trap that has already cost time | The skill stops triggering, or drifts from what the code does |
-| Isolated | `.claude/agents/` | Explicit dispatch | A review or investigation that would flood the main context | — |
+| Isolated | `.claude/agents/`, and `REVIEW.md` at the root (the review policy the reviewer agents and Claude Code Review load) | Explicit dispatch | A review or investigation that would flood the main context | — |
 | Zero context | `.claude/hooks/` (`guard-shell.py` refuses an unscoped `terraform apply`, any destroy, and `aws ecs run-task`/`stop-task`; `rustfmt-on-edit.sh`), `gate.sh` | Tool calls and the verify gate | Any rule a script can decide | — |
 | Records | PR descriptions (decisions), GitHub issues (open items) | Never automatically | Plans, post-mortems, status | Closed when done; no plan files in the tree |
 
-Budgets, checked by the verify gate: `AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, each skill `description` ≤ 300 bytes. A budget is met by demoting a fact to the next layer, never by raising the budget.
+Budgets, checked by the verify gate: `AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, `REVIEW.md` ≤ 4 KB, each skill `description` ≤ 300 bytes. A budget is met by demoting a fact to the next layer, never by raising the budget.
 
 - A skill `description` says *when* to use the skill, not what it knows; the body's first paragraph says what the skill knows that the reader does not.
 - The always-loaded layer admits a fact on its second occurrence; the other layers on the first, when it cost more than half an hour or touched production.

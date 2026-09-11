@@ -22,8 +22,9 @@ findings beat a wall of noise.
 Review the diff of the current branch against main, and read around it:
 
 ```bash
-git diff main...HEAD --stat
-git diff main...HEAD
+git fetch origin main -q
+git diff origin/main...HEAD --stat
+git diff origin/main...HEAD
 ```
 
 A grep hit or a changed line is a *lead*. Open the touched files and their imports to judge
@@ -32,12 +33,13 @@ passed an explicit path or range, review that instead of the diff.
 
 ## The layering contract (this project)
 
-The authoritative definition of these rules lives in **AGENTS.md → `Architecture Detail`
-and the layering-related items under `Code Style & Conventions`** (domain has no external
-deps, `DomainError` over `Result<_, String>`, business rules on the entity, leverage
-derivation). When this file and AGENTS.md disagree, **AGENTS.md wins** — the summary below
-is a working reference, not a second source of truth. Stay scoped to layering: AGENTS.md
-also covers testing, commits, security, and style, and **none of those are yours** to flag.
+The authoritative definition of these rules lives in **docs/architecture.md** (layers,
+composition root, desired vs observed state) and **docs/conventions.md → `Code Style &
+Conventions`** (domain has no external deps, `DomainError` over `Result<_, String>`,
+business rules on the entity, leverage derivation). When this file and those disagree,
+**the docs win** — the summary below is a working reference, not a second source of truth.
+Stay scoped to layering: the docs also cover testing, commits, security, and style, and
+**none of those are yours** to flag.
 
 Dependencies point inward only:
 
@@ -70,7 +72,7 @@ Domain code that "knows" it is persisted in DynamoDB or driven by Telegram.
 **3. Business-logic placement (the DDD core).** Rules that belong on an entity/value object
 leaking into a usecase or handler:
 - The leverage rule (`leverage = max(long, short) + 1`) re-implemented anywhere outside
-  `BotConfig::apply_risk_level`. AGENTS.md forbids this explicitly — any duplication is a finding.
+  `BotConfig::apply_risk_level`. docs/conventions.md forbids this explicitly — any duplication is a finding.
 - Invariants checked ad-hoc in a usecase instead of enforced on construction
   (`RiskLevel::new` / `Leverage::new` return `Result`, so every instance is already in range).
 - **Anemic domain**: entities that are bare getter/setter bags while a usecase mutates their

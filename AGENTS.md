@@ -29,7 +29,7 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 | **Something is broken / an error ref / a bot not running / CI red** | skill `pbtb-triage` (`.claude/skills/pbtb-triage/`) — component map + symptom playbooks; evidence via `python scripts/ops/pbtb_ops.py` |
 | Verifying a change before commit/PR/merge | skill `verify` (`bash .claude/skills/verify/scripts/gate.sh`) |
 | Rolling a change out, adding a passivbot engine line | skill `pbtb-deploy` (order + coupling rules) |
-| Branch / rebase / PR / merge mechanics, accounts | skill `pbtb-ship` |
+| Review passes (`REVIEW.md`), branch / rebase / PR / merge, accounts | skill `pbtb-ship` |
 
 ## Critical invariants (do not violate)
 
@@ -54,7 +54,7 @@ These are irreversible or trading-impacting; they are inline here on purpose, no
 
 ## Working agreements
 
-- Run the `verify` skill gate (`bash .claude/skills/verify/scripts/gate.sh`) before committing; it covers fmt, check, clippy `-D warnings`, tests, terraform/workflow checks and the knowledge budgets, each with an explicit exit guard.
+- Run the `verify` skill gate (`bash .claude/skills/verify/scripts/gate.sh`) before committing; it covers fmt, check, clippy `-D warnings`, tests, terraform/workflow checks and the knowledge budgets.
 - Operational questions (what is deployed, is a bot healthy, why did X fail) go through `scripts/ops/pbtb_ops.py` (`deploy-audit`, `bot-status`, `telebot-logs`, `lambda-logs`) so answers are reproducible.
 - Branch `<type>/<kebab-summary>`; commit `<type>: <summary>` (lowercase imperative, ≤72 chars). Types: feat/fix/refactor/test/chore/docs. Details in [docs/conventions.md](docs/conventions.md).
 - Keep changes minimal and targeted; ask before long or destructive commands; update or add tests when behavior changes.

@@ -6,6 +6,10 @@
 
 Paste the `GATE …` lines from `bash .claude/skills/verify/scripts/gate.sh`.
 
+## Review
+
+The tally line from each reviewer run (`pr-reviewer`; `comment-reviewer` / `architecture-reviewer` when the diff called for them) and what was done with the findings. Policy: `REVIEW.md`.
+
 ## Rollout
 
 Only if the deployed shape changes: the order and the window (see the `pbtb-deploy` skill).
