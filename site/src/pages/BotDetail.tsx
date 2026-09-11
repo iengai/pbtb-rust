@@ -11,6 +11,7 @@ import {
   DEFAULT_RANGE,
   RANGES,
   fmtSignedPct,
+  fmtUsdt,
   selectWindow,
 } from "../chart/returnCurve";
 import { Play, Stop, Trash } from "../components/icons";
@@ -142,11 +143,16 @@ export function BotDetail() {
             </div>
           </div>
 
-          <div className="tiles">
+          <div className="tiles" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             <Tile
               k={t.bots.detail.returnTile(rangeK)}
               v={ok ? fmtSignedPct(ok.stats.ret) : "—"}
               tone={ok ? (ok.stats.ret >= 0 ? "up" : "down") : undefined}
+            />
+            <Tile
+              k={t.bots.detail.netPnlTile(rangeK)}
+              v={fmtUsdt(ok?.stats.pnl)}
+              tone={ok?.stats.pnl != null ? (ok.stats.pnl >= 0 ? "up" : "down") : undefined}
             />
             <Tile
               k={t.bots.detail.maxDrawdownTile(rangeK)}

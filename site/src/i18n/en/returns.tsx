@@ -2,7 +2,7 @@
 // empty states, tooltip rows and axis ticks.
 export const returns = {
   title: "Return Curves",
-  lead: "Time-weighted return of your bots, collected daily from Bybit. Normalized — no account size shown.",
+  lead: "Time-weighted return and realized PnL of your bots, collected daily from Bybit. Balances stay off the page.",
   noBots: "You have no bots yet.",
   noData: "No return data for this bot yet — the daily collector publishes a series once it has traded.",
   botLabel: "Bot",
@@ -12,6 +12,8 @@ export const returns = {
     return: (range: string) => `${range} return`,
     peak: "Peak",
     days: "Days",
+    pnl: (range: string) => `${range} net PnL`,
+    totalPnl: "Net PnL, all time",
   },
   // The window a curve covers, named for what it measures.
   range: {
@@ -25,6 +27,7 @@ export const returns = {
   chart: {
     aria: "return curve",
     returnRow: "Return",
+    pnlRow: "Day's net PnL",
     switchTitle: (template: string, date: string) => `→ ${template} · ${date}`,
     axisDate: (month: string, day: number) => `${month} ${day}`,
     caption: (c: { exchange: string; days: number; resetAt: string | null; updatedAt: string }) =>

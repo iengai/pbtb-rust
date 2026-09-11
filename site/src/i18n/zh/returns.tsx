@@ -2,7 +2,7 @@ import { returns as en } from "../en/returns";
 
 export const returns: typeof en = {
   title: "收益曲线",
-  lead: "你的机器人的时间加权收益率，每日从 Bybit 采集。已归一化，不展示账户规模。",
+  lead: "你的机器人的时间加权收益率和已实现净利，每日从 Bybit 采集。不展示账户余额。",
   noBots: "你还没有机器人。",
   noData: "这个机器人还没有收益数据——它有交易后，每日采集器会生成曲线。",
   botLabel: "机器人",
@@ -12,6 +12,8 @@ export const returns: typeof en = {
     return: (range) => `收益率 · ${range}`,
     peak: "峰值",
     days: "天数",
+    pnl: (range) => `净利 · ${range}`,
+    totalPnl: "累计净利",
   },
   range: {
     sinceRefunding: "自重新注资起",
@@ -24,6 +26,7 @@ export const returns: typeof en = {
   chart: {
     aria: "收益曲线",
     returnRow: "收益率",
+    pnlRow: "当日净利",
     switchTitle: (template, date) => `切换配置：${template} · ${date}`,
     axisDate: (month, day) => `${month}${day}日`,
     caption: (c) =>
