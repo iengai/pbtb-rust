@@ -37,7 +37,12 @@ so a template can still be found in the lab's NOTES.md and STRATEGIES.md.
 Each run also re-derives what the config and the lineage decide (``style``,
 ``engine``, ``generation``) and recomposes every title from the naming
 properties across the templates listed together, so a suffix appears or goes
-as templates are added and retired. Re-run it after either.
+as templates are added and retired. Each bot's stored config, which copied
+its template's titles and properties when it was applied, is restamped onto
+the current ones. Re-run it after either.
+
+A template added after the tables below were written carries its lineage in
+its own ``lab`` block (``transfer_config_to_s3.py --lab``), and keeps it.
 
 Nothing passivbot reads is touched. The backtest artifacts' ``source_sha``
 follows the rewritten bytes where it matched the old ones, so the backtests
@@ -59,8 +64,8 @@ import sys
 from pathlib import Path
 
 from backtest_templates import write_index, write_json
-from rename_predefined import BUCKET, CATALOG, PREFIX, RETIRED_PREFIX, aws, body_bytes
-from template_naming import FACETS, IDS, engine_of, style_of, titles
+from rename_predefined import BUCKET, CATALOG, PREFIX, RETIRED_PREFIX, TABLE, aws, body_bytes
+from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
@@ -68,6 +73,8 @@ LAB_KEY = "lab"
 OURS = ("pbtb", LAB_KEY)
 LEAD = ("name", "title", "title_zh", *FACETS)
 ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation")
+# What annotate writes into `lab` itself, beside the lineage.
+LAB_OWN = ("original_name", "readable_id", "status", "notes")
 
 GENOME = "6501db3f96"
 ORIGINAL = {readable: old for old, (readable, _, _) in CATALOG.items()}
@@ -218,15 +225,18 @@ def annotate(raw: dict, readable: str) -> dict:
     previous = raw.get(LAB_KEY) or {}
 
     notes = previous.get("notes") or meta.get("description") or ""
-    status, verdict = VERDICTS.get(readable, (None, None))
+    status, verdict = VERDICTS.get(readable, (previous.get("status"), None))
     if verdict and verdict not in notes:
         notes = f"{notes}\n{verdict}" if notes else verdict
 
+    frozen = readable in MIGRATED or readable in LINEAGE
     if readable in MIGRATED:
         parent = MIGRATED[readable]
         entry = {**LINEAGE.get(parent, {}), "migrated_from": IDS.get(parent, parent)}
+    elif frozen:
+        entry = dict(LINEAGE[readable])
     else:
-        entry = dict(LINEAGE.get(readable, {}))
+        entry = {k: v for k, v in previous.items() if k not in LAB_OWN}
     block = {
         "original_name": ORIGINAL.get(readable),
         "readable_id": previous.get("readable_id"),
@@ -242,9 +252,11 @@ def annotate(raw: dict, readable: str) -> dict:
 
     meta["style"] = style_of(raw)
     meta["engine"] = engine_of(raw)
+    # Without a recorded iteration, a frozen template has no generation; any
+    # other keeps the one it was uploaded with.
     if "iter" in entry:
         meta["generation"] = entry["iter"]
-    else:
+    elif frozen:
         meta.pop("generation", None)
 
     out = {k: v for k, v in raw.items() if k != LAB_KEY}
@@ -293,6 +305,60 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
     return changed
 
 
+def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> None:
+    """Point each bot's stored config at its template's current id, titles and
+    properties. `metas` is id -> the template's `pbtb`."""
+    print("bot configs:")
+    scan = json.loads(aws(["dynamodb", "scan", "--table-name", TABLE, "--output", "json"], profile))
+    for item in scan.get("Items", []):
+        pk = item.get("pk", {}).get("S", "")
+        sk = item.get("sk", {}).get("S", "")
+        if not pk.startswith("user_id#") or "#" in sk:
+            continue  # only bot rows, whose sk is the bare bot_id
+        key = f"{pk.removeprefix('user_id#')}/{sk}/{sk}.json"
+        bot_name = item.get("name", {}).get("S", sk)
+        try:
+            raw = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{key}", "-"], profile))
+        except subprocess.CalledProcessError:
+            print(f"  {bot_name:18} no config")
+            continue
+        meta = raw.get("pbtb") or {}
+        stored = meta.get("name") or raw.get("strategy_name") or raw.get("name")
+        template = metas.get(resolve(stored)) if stored else None
+        if not template:
+            print(f"  {bot_name:18} {stored} (no such template; skipped)")
+            continue
+        new_id = template["name"]
+        entries = meta.get("strategies") or [{"side": "long"}]
+        restamped = {
+            **meta,
+            "name": new_id,
+            "title": template.get("title"),
+            "title_zh": template.get("title_zh"),
+            **{field: template[field] for field in FACETS if field in template},
+            # A combined bot names a different strategy per side, so each entry
+            # resolves on its own.
+            "strategies": [
+                {"name": resolve(e["name"]) if e.get("name") else new_id,
+                 "side": e.get("side", "long")}
+                for e in entries
+            ],
+        }
+        out = {**raw, "pbtb": restamped}
+        if out == raw:
+            print(f"  {bot_name:18} {new_id} (current)")
+            continue
+        assert trading(out) == trading(raw), f"{bot_name}: would change what passivbot reads"
+        print(f"  {bot_name:18} {stored} -> {new_id}  {template.get('title')}")
+        if not apply:
+            continue
+        tmp = REPO_ROOT / ".cache" / "annotate_templates" / f"bot-{sk}.json"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_bytes(body_bytes(out))
+        aws(["s3", "cp", str(tmp), f"s3://{BUCKET}/{key}", "--content-type", "application/json"],
+            profile)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -308,6 +374,7 @@ def main() -> int:
         return 1
 
     artifacts = False
+    metas: dict[str, dict] = {}
     for prefix in (PREFIX, RETIRED_PREFIX):
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], args.profile)
         keys = sorted(line.split()[-1] for line in listing.splitlines()
@@ -323,6 +390,7 @@ def main() -> int:
         print(f"{prefix} ({len(keys)}):")
         for tid, out in sorted(curate(group).items()):
             assert trading(out) == trading(group[tid]), f"{tid}: would change what passivbot reads"
+            metas[tid] = out["pbtb"]
             old, new = before[tid], body_bytes(out)
             block = out[LAB_KEY]
             family = block.get("genome", "—")
@@ -346,6 +414,7 @@ def main() -> int:
     if artifacts and args.apply:
         write_index()
         print("site/templates: artifacts refreshed, index rebuilt")
+    restamp_bots(metas, args.profile, args.apply)
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")
     return 0

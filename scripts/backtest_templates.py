@@ -163,8 +163,9 @@ def detect_engine(config: dict) -> str:
     version = str(config.get("config_version") or "")
     if version:
         return "v8" if version.startswith("v8") else "v7"
-    long = (config.get("bot") or {}).get("long") or {}
-    return "v8" if isinstance(long.get("risk"), dict) else "v7"
+    bot = config.get("bot") or {}
+    nested = any(isinstance((bot.get(side) or {}).get("risk"), dict) for side in ("long", "short"))
+    return "v8" if nested else "v7"
 
 
 def sync_templates(templates_dir: Path, profile: str) -> None:

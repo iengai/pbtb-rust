@@ -67,6 +67,13 @@ DEFAULT_PREFIX = "predefined/"
 VALID_SIDES = ("long", "short")
 
 
+def existing_template(target: str, profile: str | None) -> dict:
+    """The object at `target`, or {} when there is none."""
+    cmd = ["aws", "s3", "cp", target, "-"] + (["--profile", profile] if profile else [])
+    result = subprocess.run(cmd, capture_output=True)
+    return json.loads(result.stdout.decode("utf-8")) if result.returncode == 0 else {}
+
+
 def transform(
     raw: dict,
     name: str,
@@ -147,6 +154,11 @@ def main() -> int:
 
     name = args.name or new_id()
     sides = [s.strip() for s in args.sides.split(",") if s.strip()]
+    # Overwriting keeps what the flags leave unsaid: the naming properties, the
+    # level gate, the description, the lab record.
+    existing = (existing_template(f"s3://{args.bucket}/{args.prefix}{name}.json", args.profile)
+                if args.name else {})
+    before = existing.get("pbtb") or {}
 
     with open(args.config, "r", encoding="utf-8") as fh:
         raw = json.load(fh)
@@ -157,12 +169,14 @@ def main() -> int:
             lab = json.load(fh)
 
     try:
-        facets = {"universe": args.universe, "capital_usdt": args.capital,
-                  "profile": args.risk_profile, "generation": args.generation}
+        flags = {"universe": args.universe, "capital_usdt": args.capital,
+                 "profile": args.risk_profile, "generation": args.generation}
+        facets = {k: v if v is not None else before.get(k) for k, v in flags.items()}
         result = transform(
-            raw, name, sides, args.description, args.title, args.title_zh, args.exchange, lab,
-            facets,
+            raw, name, sides, args.description or before.get("description"), args.title,
+            args.title_zh, args.exchange, lab if lab is not None else existing.get("lab"), facets,
         )
+        result["pbtb"] = {**before, **result["pbtb"]}
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
