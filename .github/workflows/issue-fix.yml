@@ -84,6 +84,11 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Restores the cache verify's run on main saved; nothing built
+          # here is worth keeping, and this job's ref is main.
+          shared-key: gate
+          save-if: "false"
 
       - run: sudo apt-get update && sudo apt-get install -y nasm
 

@@ -1,7 +1,8 @@
 name: verify
 
-# The project verification gate, run on every PR by something the author does
-# not control. Until this existed a red gate could merge: no workflow had a
+# The project verification gate: runs on every PR by something the author does
+# not control, and on every push to main, which primes the build cache the PR
+# runs read. Until this existed a red gate could merge: no workflow had a
 # `pull_request` trigger, so nothing checked a branch before it reached main.
 #
 # It runs the same script as the local gate (`.claude/skills/verify/scripts/gate.sh`)
@@ -10,12 +11,18 @@ name: verify
 
 on:
   pull_request:
+  # A run on main is what fills the build cache every PR reads: a PR run
+  # can only read caches from its own ref and from the base branch, so
+  # without this each PR compiles the workspace from nothing (about six of
+  # the gate's seven minutes).
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push supersedes the run in flight for the same PR.
+# A new push supersedes the run in flight for the same ref (a PR, or main).
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
@@ -38,6 +45,13 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # One key for every job that runs the gate, so issue-fix's `fix`
+          # job restores this cache too.
+          shared-key: gate
+          # Only main writes: a cache per PR ref is 800 MB no other run can
+          # read, and a few dozen of them put the store past its 10 GB limit.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # aws-lc-sys builds assembly from source on x86_64.
       - run: sudo apt-get update && sudo apt-get install -y nasm
