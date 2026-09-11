@@ -46,6 +46,12 @@ variable "environment_variables" {
   default = {}
 }
 
+variable "log_retention_days" {
+  type        = number
+  default     = 30
+  description = "Retention of the function's /aws/lambda log group; without it the group keeps everything forever."
+}
+
 variable "code_s3_bucket" {
   type        = string
   default     = ""

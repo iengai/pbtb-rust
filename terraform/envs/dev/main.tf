@@ -202,6 +202,9 @@ module "lambda_task_state_change_handler" {
     # config must come from env. Point at the real regional table.
     APP__DYNAMODB__REGION     = var.region
     APP__DYNAMODB__TABLE_NAME = module.dynamodb.bots_table_name
+
+    APP__SENTRY__DSN         = var.sentry_dsn
+    APP__SENTRY__ENVIRONMENT = var.env
   }
 
   ecs_region             = var.region

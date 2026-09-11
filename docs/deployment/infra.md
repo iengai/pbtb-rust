@@ -43,6 +43,15 @@ Two distinct profiles are in play, and both resolve to the same `dev` account:
   both the backend and the provider point at the dev account. The `dev` profile
   must exist in your AWS config for either to work.
 
+## Values that stay out of git
+
+`terraform/envs/dev/secrets.auto.tfvars` is gitignored and loaded automatically
+by every plan/apply from that directory. It holds `sentry_dsn` (the Sentry
+project's write-only key, see `variables.tf`). A fresh checkout without the
+file plans an empty DSN, which is valid and simply leaves the binaries logging
+only, so a missing file shows up as `APP__SENTRY__DSN` changing to `""` in the
+plan rather than as an error: read the plan before applying.
+
 ## Basic flow
 
 ```bash

@@ -30,7 +30,11 @@ module "lambda_daily_pnl_snapshot" {
   common_tags = var.common_tags
   region      = var.region
 
-  environment_variables = { ENV = var.env }
+  environment_variables = {
+    ENV                      = var.env
+    APP__SENTRY__DSN         = var.sentry_dsn
+    APP__SENTRY__ENVIRONMENT = var.env
+  }
 
   lambda_code_bucket  = module.lambda_code_bucket.bucket_name
   dynamodb_table_name = module.dynamodb.bots_table_name

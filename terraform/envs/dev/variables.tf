@@ -223,6 +223,18 @@ variable "link_client_id" {
   EOT
 }
 
+variable "sentry_dsn" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = <<-EOT
+    Where the binaries send ERROR events (APP__SENTRY__DSN). Empty leaves every
+    binary logging only. Lives in the gitignored secrets.auto.tfvars: the key
+    is not a credential, but anyone holding it can spend the project's event
+    quota (the key is rate-limited on the Sentry side for that reason).
+  EOT
+}
+
 variable "web_origins" {
   type        = list(string)
   default     = []
