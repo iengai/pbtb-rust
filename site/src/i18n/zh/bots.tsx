@@ -50,6 +50,7 @@ export const bots: typeof en = {
     runBot: "启动机器人",
     returnTile: (window) => `收益率 · ${window}`,
     maxDrawdownTile: (window) => `最大回撤 · ${window}`,
+    netPnlTile: (window) => `净利 · ${window}`,
     leverage: "杠杆",
     configSwitches: "切换配置次数",
     cumulativeReturn: "累计收益率",

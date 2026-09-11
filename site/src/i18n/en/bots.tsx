@@ -53,6 +53,7 @@ export const bots = {
     runBot: "Run bot",
     returnTile: (window: string) => `Return · ${window}`,
     maxDrawdownTile: (window: string) => `Max drawdown · ${window}`,
+    netPnlTile: (window: string) => `Net PnL · ${window}`,
     leverage: "Leverage",
     configSwitches: "Config switches",
     cumulativeReturn: "Cumulative return",

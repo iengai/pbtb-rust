@@ -70,6 +70,7 @@ function useChartLabels(): ChartLabels {
     return {
       ariaLabel: t.returns.chart.aria,
       returnRow: t.returns.chart.returnRow,
+      pnlRow: t.returns.chart.pnlRow,
       switchTitle: t.returns.chart.switchTitle,
       axisDate: (sec: number) => {
         const d = new Date(sec * 1000);

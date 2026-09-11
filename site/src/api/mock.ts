@@ -34,9 +34,20 @@ function fakeSeries(b: BotDetail): BotReturnSeries {
   const start = now() - 86400 * days;
   const points: BotReturnSeries["points"] = [];
   let index = 100;
+  let cum = 0;
+  const stake = 1000;
   for (let i = 0; i <= days; i++) {
-    index *= 1 + rand() * 0.02 + 0.0015;
-    points.push({ ts: start + 86400 * i, index, return_pct: (index / 100 - 1) * 100 });
+    const dr = rand() * 0.02 + 0.0015;
+    index *= 1 + dr;
+    const realized = i === 0 ? 0 : stake * dr;
+    cum += realized;
+    points.push({
+      ts: start + 86400 * i,
+      index,
+      return_pct: (index / 100 - 1) * 100,
+      realized_usdt: realized,
+      cum_realized_usdt: cum,
+    });
   }
   return {
     id: b.bot_id,
@@ -44,6 +55,7 @@ function fakeSeries(b: BotDetail): BotReturnSeries {
     exchange: b.exchange,
     generated_at: now(),
     current_return_pct: points[points.length - 1]!.return_pct,
+    total_realized_usdt: cum,
     points,
     config_switches: b.config ? [{ ts: b.config.updated_at, template_name: b.config.template_name }] : [],
     capital_resets: [],

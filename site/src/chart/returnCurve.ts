@@ -1,11 +1,18 @@
 // The per-bot return series written by the daily_pnl_snapshot Lambda, and the
 // windowing, re-basing and SVG drawing that turn it into the return chart.
 // A series (a BotReturnSeries) reaches the page through `GET
-// /api/v1/bots/{id}/returns`, for the bot's owner. It is normalized — a
-// time-weighted return index and cumulative return %, no absolute balances.
-// No chart library.
+// /api/v1/bots/{id}/returns`, for the bot's owner. It carries a time-weighted
+// return index (cumulative return %, deposit-neutral) and the realized PnL in
+// USDT per day; never a balance. The money fields are optional because a
+// series written before they existed has none. No chart library.
 
-export type DailyPoint = { ts: number; index: number; return_pct?: number };
+export type DailyPoint = {
+  ts: number;
+  index: number;
+  return_pct?: number;
+  realized_usdt?: number;
+  cum_realized_usdt?: number;
+};
 export type SwitchMarker = { ts: number; template_name: string };
 export type BotReturnSeries = {
   id?: string;
@@ -13,15 +20,21 @@ export type BotReturnSeries = {
   exchange?: string;
   generated_at?: number;
   current_return_pct?: number;
+  total_realized_usdt?: number;
   points?: DailyPoint[];
   config_switches?: SwitchMarker[];
   capital_resets?: number[];
 };
-export type ViewPoint = { ts: number; return_pct: number };
+export type ViewPoint = { ts: number; return_pct: number; realized_usdt?: number };
 
 export const fmtPct = (v: number): string => (Number.isFinite(v) ? `${v.toFixed(2)}%` : "—");
 export const fmtSignedPct = (v: number): string =>
   Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)}%` : "—";
+// Money is signed and rounded to cents; a missing figure is a dash, not a zero.
+export const fmtUsdt = (v: number | null | undefined): string =>
+  v != null && Number.isFinite(v)
+    ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`
+    : "—";
 export const fmtDate = (sec: number): string => new Date(sec * 1000).toISOString().slice(0, 10);
 
 // An account can decay to an index of (effectively) zero — a real liquidation.
@@ -52,6 +65,12 @@ export type WindowStats = {
   peak: number;
   maxDrawdown: number;
   days: number;
+  /** Realized PnL earned inside the window, in USDT; null when the series
+   *  predates the money fields. Summed over the days after the window's
+   *  first point, the same days `ret` measures. */
+  pnl: number | null;
+  /** Realized PnL over the bot's whole recorded history, in USDT. */
+  totalPnl: number | null;
 };
 
 // The provenance line under the chart, as fields: which exchange, how many
@@ -124,9 +143,18 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     return { kind: "empty", reason: "wipedOut", label };
   }
 
-  const view: ViewPoint[] = win.map((p) => ({ ts: p.ts, return_pct: (p.index / base - 1) * 100 }));
+  const view: ViewPoint[] = win.map((p) => ({
+    ts: p.ts,
+    return_pct: (p.index / base - 1) * 100,
+    realized_usdt: p.realized_usdt,
+  }));
 
   const last = view[view.length - 1]!;
+  const earned = view.slice(1);
+  const pnl = earned.every((p) => p.realized_usdt != null)
+    ? earned.reduce((sum, p) => sum + p.realized_usdt!, 0)
+    : null;
+  const totalPnl = s.total_realized_usdt ?? null;
   const peak = view.reduce((m, p) => Math.max(m, p.return_pct), -Infinity);
   // Worst peak-to-trough fall of the re-based index inside the window.
   let runMax = -Infinity;
@@ -158,7 +186,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     view,
     switches,
     reset: reset ?? null,
-    stats: { label, ret: last.return_pct, peak, maxDrawdown, days: view.length },
+    stats: { label, ret: last.return_pct, peak, maxDrawdown, days: view.length, pnl, totalPnl },
     caption,
   };
 }
@@ -230,6 +258,8 @@ export type ChartLabels = {
   ariaLabel: string;
   /** Row name for the hovered return value in the tooltip. */
   returnRow: string;
+  /** Row name for the hovered day's realized PnL, shown when the point has one. */
+  pnlRow: string;
   /** Native `<title>` on a config-switch marker; the date is ISO. */
   switchTitle: (template: string, date: string) => string;
   /** One x-axis tick: the year is implied by the window, so day and month only. */
@@ -328,7 +358,10 @@ export function wireHover(
     show(true);
     tip.innerHTML =
       `<div class="d">${fmtDate(p.ts)}</div>` +
-      `<div class="row"><span>${escapeXml(labels.returnRow)}</span><b>${fmtPct(p.return_pct)}</b></div>`;
+      `<div class="row"><span>${escapeXml(labels.returnRow)}</span><b>${fmtPct(p.return_pct)}</b></div>` +
+      (p.realized_usdt != null
+        ? `<div class="row"><span>${escapeXml(labels.pnlRow)}</span><b>${fmtUsdt(p.realized_usdt)}</b></div>`
+        : "");
     tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 150) + "px";
     tip.style.top = e.clientY + 14 + "px";
   };
