@@ -20,11 +20,19 @@ same command later passed; any change only after a green gate.
 
 `publish` runs no model code: from the result it comments on the issue
 (give-up, with the diff) or applies the patch on a branch, commits, pushes
-`fix/issue-N`, opens the PR with the body above and `closes #N`, and
-dispatches the verify workflow (the pull_request run a PR opened by the
-repository token gets waits for a maintainer's approval, when it appears at
-all). At a merge tier it arms auto-merge on the PR, and only when the
-ruleset on main requires the `gate` check; deploys stay with a person.
+`fix/issue-N` and opens the PR with the body above and `closes #N`. At a
+merge tier it arms auto-merge on the PR, and only when the ruleset on main
+requires the `gate` check; deploys stay with a person.
+
+Whose token publishes decides how far that goes (env PUBLISH_AS, "person"
+or "bot"). With a member's token the PR is theirs: its pull_request run
+executes, and the merge auto-merge performs closes the issue, deletes the
+branch and raises the push run on main. With the repository token the PR's
+own verify run waits for a maintainer's approval (the bot counts as an
+outside contributor), so publish dispatches the workflow on the branch for
+a readable result, auto-merge waits for that approval, and the merge it
+then performs closes nothing and deletes no branch; the comment says what
+is left for a person.
 
 The issue's "How far the agent may go" field is the authority: a body that
 does not carry a PR-granting tier ends the run with a comment, however it
@@ -365,7 +373,7 @@ def quiet(text: str) -> str:
 
 def commit_subject(answer: str, title: str) -> str:
     lines = [l.strip("` ") for l in section(answer, "Commit subject").strip("` \n").splitlines() if l.strip("` ")]
-    line = lines[0] if lines else ""
+    line = quiet(lines[0]) if lines else ""
     if re.fullmatch(r"(feat|fix|refactor|test|chore|docs): [^\n]+", line) and len(line) <= 72:
         return line
     slug = re.sub(r"^(intent|incident): ", "", title.lower())
@@ -398,6 +406,15 @@ def resolve_tier(issue: int, body: str) -> tuple[str, str]:
             note = f"The issue asks for *{tier}*, but its author is outside the repository ({assoc}); held at *{HELD_TIER[tier]}*."
             tier = HELD_TIER[tier]
     return tier, note
+
+
+def armed_note(as_person: bool, issue: int, branch: str) -> str:
+    """What auto-merge will and will not do, by whose token armed it."""
+    if as_person:
+        return f"Auto-merge is armed: it merges when `gate` passes, closes #{issue} and deletes `{branch}`."
+    return (f"Auto-merge is armed, but it waits on the PR's own verify run, which a maintainer has to approve "
+            f"(the run's page → *Approve and run*); the merge is then the repository token's, which closes no issue, "
+            f"deletes no branch and raises no push run on `main`: close #{issue} and delete `{branch}` by hand afterwards.")
 
 
 def gate_is_required() -> bool | None:
@@ -638,11 +655,15 @@ def publish(a: argparse.Namespace) -> int:
                 f"approve pull requests* under Settings → Actions → General and re-run the failed job.")
             return 1
         number = int(url.rstrip("/").rsplit("/", 1)[-1])
-    # The pull_request run a PR opened by the repository token gets sits in
-    # "awaiting approval" (the bot counts as an outside contributor), so the
-    # verify workflow is dispatched on the branch as well.
-    dispatched = subprocess.run(["gh", "workflow", "run", "verify.yml", "--ref", branch], capture_output=True).returncode == 0
-    ci = "the verify workflow was dispatched on it" if dispatched else "dispatching the verify workflow FAILED; run it by hand"
+    as_person = os.environ.get("PUBLISH_AS") == "person"
+    if as_person:
+        ci = "its own verify run executes, no approval needed"
+    else:
+        # The PR's own pull_request run waits for a maintainer's approval,
+        # so the workflow is dispatched on the branch for a result a person
+        # can read without approving anything.
+        dispatched = subprocess.run(["gh", "workflow", "run", "verify.yml", "--ref", branch], capture_output=True).returncode == 0
+        ci = "the verify workflow was dispatched on it" if dispatched else "dispatching the verify workflow FAILED; run it by hand"
     tier = result.get("tier", "")
     if not tier_allows_merge(tier):
         rest = "Review and merge are yours."
@@ -657,8 +678,7 @@ def publish(a: argparse.Namespace) -> int:
                                  text=True, encoding="utf-8", errors="replace")
             state = json.loads(d.gh("pr", "view", str(number), "--json", "autoMergeRequest")).get("autoMergeRequest")
             if state:
-                rest = ("Auto-merge is armed: it merges when `gate` passes. A merge by the repository token may "
-                        "raise no push run on `main`; check that the build / publish workflows ran, or dispatch them.")
+                rest = armed_note(as_person, a.issue, branch)
             else:
                 rest = ("Arming auto-merge FAILED (is *Allow auto-merge* on under Settings → General?); "
                         f"merge by hand once `gate` is green.\n\n```\n{arm.stderr.strip()[:500]}\n```")

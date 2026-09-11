@@ -29,18 +29,26 @@ name: issue-fix
 # and above can label, so the label is the authorization, whoever wrote the
 # issue) and its "How far the agent may go" field grants a PR (the field,
 # not the label, is what fix_issue.py checks), or by dispatch with an issue
-# number. The pull_request run of the verify workflow on a PR the
-# repository token opens waits for a maintainer's approval (the bot counts
-# as an outside contributor), so fix_issue.py also dispatches it on the
-# branch; that run is the one to read.
+# number.
 #
 # Setup shared with incident-diagnose: variables LLM_BASE_URL, LLM_MODEL
-# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY. One repository setting
-# of its own: "Allow GitHub Actions to create and approve pull requests"
-# (Settings → Actions → General), without which the token can push the
-# branch but `gh pr create` is refused; for the merge tiers also "Allow
-# auto-merge" and "Automatically delete head branches" (Settings →
+# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY. For the merge tiers
+# "Allow auto-merge" and "Automatically delete head branches" (Settings →
 # General → Pull Requests) and the ruleset on main requiring `gate`.
+#
+# Whose token `publish` holds decides how far a merge tier goes. Secret
+# FIX_PUBLISH_TOKEN, a fine-grained token of a member scoped to this
+# repository (Contents, Pull requests, Issues: read and write; Metadata),
+# makes the PR that member's: its pull_request run executes, and a merge
+# auto-merge performs closes the issue, deletes the branch and raises the
+# push run on main. Without it the repository token publishes, which needs
+# "Allow GitHub Actions to create and approve pull requests" (Settings →
+# Actions → General); the PR's own verify run then waits for a
+# maintainer's approval (the bot counts as an outside contributor), so
+# fix_issue.py also dispatches verify on the branch for a readable result,
+# auto-merge waits for that approval, and the merge it performs closes no
+# issue and deletes no branch (GitHub runs nothing on the repository
+# token's own actions); the PR comment says what is left for a person.
 
 on:
   issues:
@@ -156,7 +164,8 @@ jobs:
 
       - name: Publish
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.FIX_PUBLISH_TOKEN || github.token }}
+          PUBLISH_AS: ${{ secrets.FIX_PUBLISH_TOKEN && 'person' || 'bot' }}
           GH_REPO: ${{ github.repository }}
           FIX_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python3 scripts/ops/fix_issue.py publish --issue "$ISSUE" --in "$RUNNER_TEMP/fix"
