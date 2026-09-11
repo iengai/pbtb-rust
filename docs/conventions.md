@@ -114,7 +114,7 @@ Knowledge is filed by *how it reaches an agent's context*, not by topic. Each fa
 | Pulled per task | `docs/*.md` | The "Working on… → Read" table in `AGENTS.md` | Needed for one kind of task; one leaf per task kind, self-contained | The code moved: update in the same PR or delete |
 | Triggered by situation | `.claude/skills/<name>/` (`SKILL.md` + `references/`) | The skill's `description` matches | A procedure that must run the same way every time; an operational trap that has already cost time | The skill stops triggering, or drifts from what the code does |
 | Isolated | `.claude/agents/` | Explicit dispatch | A review or investigation that would flood the main context | — |
-| Zero context | `.claude/hooks/`, `gate.sh` | Tool calls and the verify gate | Any rule a script can decide | — |
+| Zero context | `.claude/hooks/` (`guard-shell.py` refuses an unscoped `terraform apply`, any destroy, and `aws ecs run-task`/`stop-task`; `rustfmt-on-edit.sh`), `gate.sh` | Tool calls and the verify gate | Any rule a script can decide | — |
 | Records | PR descriptions (decisions), GitHub issues (open items) | Never automatically | Plans, post-mortems, status | Closed when done; no plan files in the tree |
 
 Budgets, checked by the verify gate: `AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` ≤ 1.5 KB, each skill `description` ≤ 300 bytes. A budget is met by demoting a fact to the next layer, never by raising the budget.
