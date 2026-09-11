@@ -1,0 +1,81 @@
+name: incident-diagnose
+
+# Post a read-only diagnosis on an Incident issue. scripts/ops/diagnose_issue.py
+# drives an OpenAI-compatible chat model with this repo's pbtb-triage skill
+# as its briefing and a fixed set of read-only tools (the checkout, git log,
+# pbtb_ops.py read subcommands, the Sentry issue). The AWS side is bounded
+# by the gh-diagnose role in terraform/envs/dev/diagnose-ci.tf: describe and
+# read-log calls only, bot rows without their key attributes, no SSM.
+#
+# Two ways in. A person opening or labelling an issue `incident` runs it
+# when they have write access to the repo (an outsider's issue does not
+# start it). The incident-intake workflow files its issues with the
+# repository token, which raises no `issues` event by design, so it
+# dispatches this workflow by number instead.
+#
+# One-time setup: repo variables LLM_BASE_URL and LLM_MODEL, repo secrets
+# LLM_API_KEY and AWS_DIAGNOSE_ROLE_ARN (terraform output
+# gh_diagnose_role_arn); SENTRY_AUTH_TOKEN is shared with incident-intake.
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: The issue to diagnose
+        type: number
+        required: true
+      dry_run:
+        description: Print the comment in the log instead of posting it
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  diagnose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (contains(github.event.issue.labels.*.name, 'incident') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+    runs-on: ubuntu-latest
+    # One diagnosis per issue at a time; a second trigger waits its turn.
+    concurrency:
+      group: incident-diagnose-${{ github.event.inputs.issue_number || github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git log is one of the model's tools
+
+      - name: Configure AWS credentials (OIDC, read-only role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DIAGNOSE_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Diagnose
+        env:
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DIAGNOSE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # pbtb_ops.py addresses AWS through a named profile on a workstation;
+          # here the OIDC credentials are in the environment and no profile exists.
+          PBTB_AWS_PROFILE: ""
+        run: |
+          set -euo pipefail
+          issue="${{ github.event.inputs.issue_number || github.event.issue.number }}"
+          args=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args="--dry-run"; fi
+          python3 scripts/ops/diagnose_issue.py --issue "$issue" $args

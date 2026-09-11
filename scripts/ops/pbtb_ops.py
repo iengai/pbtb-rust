@@ -83,8 +83,12 @@ def aws(args: list[str], profile: str, region: str, *, raw: bool = False):
     # PYTHONUTF8: the AWS CLI is itself Python; on this cp932 console it dies with
     # UnicodeEncodeError halfway through emitting a log that contains box-drawing
     # characters, which is what "corrupt JSON from get-log-events" really was.
-    env = dict(os.environ, AWS_PROFILE=profile, AWS_DEFAULT_REGION=region,
+    env = dict(os.environ, AWS_DEFAULT_REGION=region,
                AWS_PAGER="", MSYS_NO_PATHCONV="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    # An empty profile (PBTB_AWS_PROFILE="") means "whatever the environment
+    # holds": in CI the OIDC step exports keys and no named profile exists.
+    if profile:
+        env["AWS_PROFILE"] = profile
     cmd = [AWS, *args]
     if not raw:
         cmd += ["--output", "json"]
@@ -182,7 +186,14 @@ def table(rows: list[list[str]], header: list[str]) -> str:
 
 def cmd_bot_status(a):
     c = cfg(a.env)
-    items = aws(["dynamodb", "scan", "--table-name", c["table"]], a.profile, a.region)["Items"]
+    # Exactly the attributes this command reads, and never api_key /
+    # secret_key: the incident-diagnose CI role allows a scan only with this
+    # projection (terraform/envs/dev/diagnose-ci.tf), so widening it here
+    # widens IAM too. `name` and `status` are DynamoDB reserved words.
+    items = aws(["dynamodb", "scan", "--table-name", c["table"],
+                 "--projection-expression", "pk, sk, #n, enabled, applied_at, #s, task_id",
+                 "--expression-attribute-names", '{"#n": "name", "#s": "status"}'],
+                a.profile, a.region)["Items"]
     bots, runtimes, switches = {}, {}, {}
     for it in items:
         pk, sk = dyn_val(it, "pk") or "", dyn_val(it, "sk") or ""
@@ -347,17 +358,26 @@ def cmd_deploy_audit(a):
         findings.append(f"telebot image :latest is {behind} commit(s) behind main "
                         f"(telebot-build only runs on src/Cargo/Dockerfile changes; may be expected)")
     nat = nat_instance(c, a)
+    host_probe_err = None
     if nat:
         # Labelled lines: robust to blank lines and to any one command failing.
-        out = ssm(nat, [
-            "echo CREATED=$(docker inspect --format '{{.Created}}' telebot 2>/dev/null)",
-            "echo DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' $(docker inspect --format '{{.Image}}' telebot 2>/dev/null) 2>/dev/null)",
-            "echo TABLE=$(grep -E '^APP__ECS__TD_PASSIVBOT_BY_ENGINE=' /etc/telebot/telebot.env 2>/dev/null | cut -d= -f2-)",
-        ], a)
+        try:
+            out = ssm(nat, [
+                "echo CREATED=$(docker inspect --format '{{.Created}}' telebot 2>/dev/null)",
+                "echo DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' $(docker inspect --format '{{.Image}}' telebot 2>/dev/null) 2>/dev/null)",
+                "echo TABLE=$(grep -E '^APP__ECS__TD_PASSIVBOT_BY_ENGINE=' /etc/telebot/telebot.env 2>/dev/null | cut -d= -f2-)",
+            ], a)
+        except RuntimeError as e:
+            # A principal without ssm:SendCommand (the diagnose CI role) still
+            # gets every other section; the host is reported as unprobed, not down.
+            host_probe_err, out = str(e), ""
         kv = dict(l.split("=", 1) for l in (out or "").splitlines() if "=" in l)
         created, repo_digest, host_table = kv.get("CREATED", ""), kv.get("DIGEST", ""), kv.get("TABLE") or None
         host_digest = repo_digest.split("@")[-1] if "@" in repo_digest else None
-        if not created:
+        if host_probe_err:
+            print(f"NAT host container: not probed ({host_probe_err})")
+            findings.append("telebot host not probed from here (no SSM access); check telebot via Sentry or from a workstation")
+        elif not created:
             print("NAT host container: NOT RUNNING")
             findings.append("telebot container is not running on the NAT host")
         else:
