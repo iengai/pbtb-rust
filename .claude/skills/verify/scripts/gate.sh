@@ -128,7 +128,12 @@ PY
   gate workflow-yaml $RC
 fi
 
-# 8. knowledge budgets (docs/conventions.md § Knowledge placement): the files
+# 8. the shell guard's cases: a hook that silently stopped matching would
+# let the commands it exists to refuse through, so its table runs every time.
+OUT=$(python .claude/hooks/guard-shell.py --self-test 2>&1); RC=$?
+gate hook-guard-shell $RC; [ $RC -ne 0 ] && show "$OUT" "^FAIL"
+
+# 9. knowledge budgets (docs/conventions.md § Knowledge placement): the files
 # every session loads and every skill description have a byte ceiling, and a
 # change to the row layout or the infra is a prompt to re-read the leaf that
 # describes it.
