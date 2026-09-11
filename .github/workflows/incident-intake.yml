@@ -22,6 +22,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write # dispatches incident-diagnose for each issue it files
 
 # Two overlapping runs would both see the same Sentry issue as unfiled.
 concurrency:

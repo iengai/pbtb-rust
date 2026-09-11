@@ -17,6 +17,8 @@ Environment:
   SENTRY_ORG          default pbtb
   SENTRY_PROJECT      default pbtb-rust
   GH_TOKEN            what `gh` authenticates with; in Actions, github.token
+  DIAGNOSE_WORKFLOW   workflow file to dispatch per filed issue (default
+                      incident-diagnose.yml; empty disables)
 
 Stdlib only: the workflow runs it on a bare runner with no install step.
 """
@@ -192,6 +194,20 @@ Diagnose only; report here
 """
 
 
+def dispatch_diagnosis(number: str) -> None:
+    """An issue created with the repository token raises no `issues` event,
+    so the diagnosis is started by hand; a failure here leaves the issue
+    filed and is only reported."""
+    workflow = os.environ.get("DIAGNOSE_WORKFLOW", "incident-diagnose.yml")
+    if not workflow or not number.isdigit():
+        return
+    try:
+        gh("workflow", "run", workflow, "-f", f"issue_number={number}")
+        print(f"dispatched {workflow} for #{number}", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"could not dispatch {workflow} for #{number}: {e.stderr.strip()[:200]}", file=sys.stderr)
+
+
 def file_new(dry_run: bool) -> int:
     issues = unresolved_issues()
     known = filed_sentry_ids()
@@ -212,7 +228,9 @@ def file_new(dry_run: bool) -> int:
         args = ["issue", "create", "--title", title, "--body", body]
         for label in LABELS:
             args += ["--label", label]
-        print(f"filed {issue.get('shortId')} -> {gh(*args).strip()}", file=sys.stderr)
+        url = gh(*args).strip()
+        print(f"filed {issue.get('shortId')} -> {url}", file=sys.stderr)
+        dispatch_diagnosis(url.rsplit("/", 1)[-1])
     if len(new) > MAX_NEW_PER_RUN:
         print(f"{len(new) - MAX_NEW_PER_RUN} more left for the next run", file=sys.stderr)
     return 0
