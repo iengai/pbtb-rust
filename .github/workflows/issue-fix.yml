@@ -17,19 +17,24 @@ name: issue-fix
 # runs the model's commands without even those, and hands over a patch and
 # a result file as an artifact; `publish` holds the write token, runs no
 # model code, and turns the result into a comment or a branch + PR. The
-# model's process drops the token and the model keys from its environment
-# before the loop, so a hostile test in `fix` finds a public repo and the
-# runner, nothing that outlives the run.
+# model keys reach the model's process through a file it deletes on reading
+# and the token leaves its environment before the loop, so a hostile test
+# in `fix` finds a public repo and the runner, nothing that outlives the run.
 #
 # Starts when the `agent:fix` label lands on an issue (only triage access
 # and above can label, so the label is the authorization, whoever wrote the
 # issue) and its "How far the agent may go" field grants a PR (the field,
 # not the label, is what fix_issue.py checks), or by dispatch with an issue
-# number. The verify workflow does not run on a PR the repository token
-# opens, so fix_issue.py dispatches it on the branch.
+# number. The pull_request run of the verify workflow on a PR the
+# repository token opens waits for a maintainer's approval (the bot counts
+# as an outside contributor), so fix_issue.py also dispatches it on the
+# branch; that run is the one to read.
 #
 # Setup shared with incident-diagnose: variables LLM_BASE_URL, LLM_MODEL
-# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY.
+# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY. One repository setting
+# of its own: "Allow GitHub Actions to create and approve pull requests"
+# (Settings → Actions → General), without which the token can push the
+# branch but `gh pr create` is refused.
 
 on:
   issues:
@@ -82,14 +87,26 @@ jobs:
       # starts.
       - run: docker info > /dev/null
 
+      # The keys reach the model's process through a file it deletes on
+      # reading, not through its environment: /proc/<pid>/environ shows a
+      # child the environment its parent started with, and the model's tests
+      # are that child.
+      - name: Stage the model keys
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n%s\n' "$LLM_API_KEY" "$LLM_FALLBACK_API_KEY" > "$RUNNER_TEMP/llm-keys"
+
       - name: Fix
         env:
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_FALLBACK_BASE_URL: ${{ vars.LLM_FALLBACK_BASE_URL }}
           LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
-          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
+          LLM_KEYS_FILE: ${{ runner.temp }}/llm-keys
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |

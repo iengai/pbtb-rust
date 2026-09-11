@@ -1,5 +1,7 @@
 ## Why
 
+If this started from an issue: `closes #<n>` (the merge closes it; `refs #<n>` when it only touches one).
+
 ## What
 
 ## Verification
