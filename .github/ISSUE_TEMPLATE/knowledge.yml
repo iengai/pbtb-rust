@@ -1,0 +1,40 @@
+name: Knowledge drift
+description: A doc, skill, or invariant says one thing and reality says another. Fixed by moving the fact to its one home.
+title: "knowledge: "
+labels: ["knowledge"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The rules are in docs/conventions.md § Knowledge placement: one home per fact, filed by how it reaches an agent's context, byte budgets on the always-loaded files. This issue closes with a docs PR, never with a note left here.
+  - type: textarea
+    id: says
+    attributes:
+      label: What is written, and where
+      description: Path and the quoted sentence.
+    validations:
+      required: true
+  - type: textarea
+    id: truth
+    attributes:
+      label: What is actually true
+      description: With the evidence — a command and its output, a commit, a line of code.
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Where the corrected fact belongs
+      options:
+        - AGENTS.md (irreversible / trading-impacting, or a mistake made twice)
+        - a docs/ leaf (needed for one kind of task)
+        - a skill (a procedure or an operational trap)
+        - a hook or gate.sh (a script can decide it)
+        - nowhere — delete the stale text
+    validations:
+      required: true
+  - type: input
+    id: cost
+    attributes:
+      label: What the drift cost
+      description: Time lost or what broke. Decides whether it earns the always-loaded layer.

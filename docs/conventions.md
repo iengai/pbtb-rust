@@ -123,6 +123,14 @@ Budgets, checked by the verify gate: `AGENTS.md` â‰¤ 6 KB, `.claude/CLAUDE.md` â
 - The always-loaded layer admits a fact on its second occurrence; the other layers on the first, when it cost more than half an hour or touched production.
 - A PR that changes behaviour updates the leaf, skill, or invariant that described the old behaviour (the PR template asks).
 
+### Issues
+
+An issue is the interface between human judgment and agent execution: one change's intent, its lifecycle, and the accept-or-reject decision. It is not a place knowledge lives; what is learned while closing it goes to a layer above.
+
+- One template per kind of work, in `.github/ISSUE_TEMPLATE/`: **Intent** (a change: problem, outcome, *done when*, out of scope, invariants touched, how far the agent may go), **Incident** (a symptom, verbatim; the agent starts with `pbtb-triage` and delivers a diagnosis before a patch), **Rollout** (what, window, rollback, done when), **Knowledge drift** (what is written, what is true, which layer gets the fact). Blank issues are off.
+- Every template carries a *done when* an agent can run and an autonomy tier (open a PR / merge when green / merge and deploy). Trading actions are never delegated through an issue.
+- An agent starts from `gh issue view <n>`, restates *done when* in its PR, and closes with `closes #<n>`. Findings an agent makes on its own (a red not in its diff, a `deploy-audit` finding, a stale doc) go in through the same templates via `gh issue create --body-file`, so a human triages them like anything else.
+
 ## Do Not
 
 - Do not commit `.env` files or secrets

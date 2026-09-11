@@ -1,0 +1,71 @@
+name: Incident
+description: Something misbehaves — a ref id, a bot not running, a red pipeline, a stale page. An agent starts with the pbtb-triage skill.
+title: "incident: "
+labels: ["incident"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Paste what you saw, verbatim. The agent's first move is the `pbtb-triage` skill (component map, then evidence through `pbtb_ops.py`), and its first deliverable is a diagnosis in this thread, not a patch. A fix reproduces the failure as a test before touching code. Live trading actions (`RunTask` / `StopTask`) stay with a human.
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: The exact text, the `ref:` id, the log line, the screenshot. Unedited.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where
+      options:
+        - telebot (Telegram)
+        - a passivbot bot (ECS task)
+        - restart lambda (task_state_change_handler)
+        - collector lambda (daily-pnl-snapshot)
+        - MCP / web API
+        - web console (site)
+        - CI (GitHub Actions / CodeBuild)
+        - terraform / NAT
+        - not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Trading affected (a bot down, double task, wrong config live)
+        - A user is blocked
+        - Wrong data shown, nothing at risk
+        - Cosmetic / noise
+    validations:
+      required: true
+  - type: input
+    id: when
+    attributes:
+      label: When
+      description: First seen (with timezone) and whether it is still happening.
+    validations:
+      required: true
+  - type: input
+    id: ids
+    attributes:
+      label: Bot id / user id / task id
+      description: Whatever names the affected thing. No API keys.
+  - type: textarea
+    id: changed
+    attributes:
+      label: What changed recently
+      description: A deploy, a merged PR, a config switch, a terraform apply — or "nothing I know of".
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: How far the agent may go
+      options:
+        - Diagnose only; report here
+        - Diagnose and open a PR with the fix (failing test first)
+        - Diagnose, fix, merge when green, and deploy to dev
+      default: 0
+    validations:
+      required: true
