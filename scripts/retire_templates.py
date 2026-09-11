@@ -85,17 +85,19 @@ def main() -> int:
     parser.add_argument("--restore", action="store_true", help="move back into the catalogue")
     args = parser.parse_args()
 
+    # A template named by an id it had before is acted on under its current one.
+    ids = [resolve(i) for i in args.ids]
     src, dst = (RETIRED, LIVE) if args.restore else (LIVE, RETIRED)
 
     if not args.restore:
         in_use = templates_in_use(args.profile)
-        blocked = [(i, in_use[i]) for i in args.ids if i in in_use]
+        blocked = [(i, in_use[i]) for i in ids if i in in_use]
         if blocked:
             for template, bot in blocked:
                 print(f"error: {template} is the stored config of {bot!r}", file=sys.stderr)
             return 1
 
-    for template in args.ids:
+    for template in ids:
         print(f"  {src}{template}.json -> {dst}{template}.json")
         if not args.apply:
             continue

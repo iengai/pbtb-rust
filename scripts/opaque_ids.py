@@ -40,10 +40,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from annotate_templates import LAB_KEY, curate, trading
+from annotate_templates import LAB_KEY, curate, restamp_bots, trading
 from backtest_templates import write_index, write_json
 from rename_predefined import BUCKET, PREFIX, RETIRED_PREFIX, TABLE, aws, body_bytes
-from template_naming import FACETS, IDS, resolve, suffix
+from template_naming import IDS, resolve, suffix
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
@@ -145,58 +145,6 @@ def migrate_templates(profile: str | None, apply: bool) -> tuple[dict[str, dict]
             if stem != new_id:
                 aws(["s3", "rm", f"s3://{BUCKET}/{prefix}{stem}.json"], profile)
     return metas, artifacts
-
-
-def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> None:
-    print("bot configs:")
-    scan = json.loads(aws(["dynamodb", "scan", "--table-name", TABLE, "--output", "json"], profile))
-    for item in scan.get("Items", []):
-        pk = item.get("pk", {}).get("S", "")
-        sk = item.get("sk", {}).get("S", "")
-        if not pk.startswith("user_id#") or "#" in sk:
-            continue  # only bot rows, whose sk is the bare bot_id
-        key = f"{pk.removeprefix('user_id#')}/{sk}/{sk}.json"
-        bot_name = item.get("name", {}).get("S", sk)
-        try:
-            raw = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{key}", "-"], profile))
-        except subprocess.CalledProcessError:
-            print(f"  {bot_name:18} no config")
-            continue
-        meta = raw.get("pbtb") or {}
-        stored = meta.get("name") or raw.get("strategy_name") or raw.get("name")
-        template = metas.get(resolve(stored)) if stored else None
-        if not template:
-            print(f"  {bot_name:18} {stored} (no such template; skipped)")
-            continue
-        new_id = template["name"]
-        entries = meta.get("strategies") or [{"side": "long"}]
-        restamped = {
-            **meta,
-            "name": new_id,
-            "title": template.get("title"),
-            "title_zh": template.get("title_zh"),
-            **{field: template[field] for field in FACETS if field in template},
-            # A combined bot names a different strategy per side, so each entry
-            # resolves on its own.
-            "strategies": [
-                {"name": resolve(e["name"]) if e.get("name") else new_id,
-                 "side": e.get("side", "long")}
-                for e in entries
-            ],
-        }
-        out = {**raw, "pbtb": restamped}
-        if out == raw:
-            print(f"  {bot_name:18} {new_id} (current)")
-            continue
-        assert trading(out) == trading(raw), f"{bot_name}: would change what passivbot reads"
-        print(f"  {bot_name:18} {stored} -> {new_id}  {template.get('title')}")
-        if not apply:
-            continue
-        tmp = CACHE / f"bot-{sk}.json"
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_bytes(body_bytes(out))
-        aws(["s3", "cp", str(tmp), f"s3://{BUCKET}/{key}", "--content-type", "application/json"],
-            profile)
 
 
 def restamp_switches(profile: str | None, apply: bool) -> None:
