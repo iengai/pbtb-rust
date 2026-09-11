@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Where a fact belongs (not an issue)
+    url: https://github.com/iengai/pbtb-rust/blob/main/docs/conventions.md#knowledge-placement
+    about: An issue is one change's intent and lifecycle. Anything learned while doing it goes to AGENTS.md, a docs leaf, a skill, or a hook — never stays in the issue.

@@ -1,0 +1,48 @@
+name: Rollout
+description: Ship merged changes or change infra. An agent follows the pbtb-deploy skill; the window and the rollback are decided here first.
+title: "rollout: "
+labels: ["rollout"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The agent runs `pbtb_ops.py deploy-audit` before and after, follows the order in the `pbtb-deploy` skill, and quotes both audits here. A blanket `terraform apply` is never on the table; anything that rebuilds the NAT waits for the window below.
+  - type: textarea
+    id: what
+    attributes:
+      label: What to roll out
+      description: PR numbers, or the component and the version / tag.
+    validations:
+      required: true
+  - type: checkboxes
+    id: touches
+    attributes:
+      label: This rollout touches
+      options:
+        - label: terraform (scoped `-target` only)
+        - label: the NAT host (`user_data` / AMI — trading must be quiesced first)
+        - label: passivbot task definitions or an engine line
+        - label: an env variable a binary reads (telebot-deploy must follow the apply)
+        - label: a workflow, Dockerfile, or IAM
+        - label: only a binary (telebot / lambda / collector) with no shape change
+  - type: input
+    id: window
+    attributes:
+      label: Window
+      description: When it may run. Required if the NAT is touched; "any time" otherwise.
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback
+      description: The previous tag / revision and the single command that restores it. The agent rehearses reading this before it applies anything.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Beyond `deploy-audit` with no findings — which probe proves the change is live (`smoke-lambda`, `bot-status`, a Telegram press, a page).
+    validations:
+      required: true

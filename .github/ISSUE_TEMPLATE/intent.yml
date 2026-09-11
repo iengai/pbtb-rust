@@ -1,0 +1,63 @@
+name: Intent
+description: A change I want. Written in my own words; an agent starts plan mode from it.
+title: "intent: "
+labels: ["intent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Say what is wanted and why, not how. The agent reads this with `gh issue view`, plans against the code, and restates the **Done when** check in its PR. Missing "done when" means the agent will ask before writing code.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today, who is affected, what it costs.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What better looks like, from the user's or operator's side.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: A check the agent can run without asking — a test name, a command and its expected output, a probe (`pbtb_ops.py …`), a screenshot to match.
+      placeholder: "`cargo test --test web_api me_` passes with the new field; `pbtb_ops.py bot-status all` shows the column"
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What the agent must leave alone even if it looks related.
+  - type: checkboxes
+    id: near
+    attributes:
+      label: Invariants this change comes near
+      description: Tick what the change touches. Each one is a stop-and-think in AGENTS.md.
+      options:
+        - label: Terraform / the NAT host (a `user_data` or AMI change rebuilds the sole trading egress)
+        - label: A launch path (must claim the DynamoDB start lock before `RunTask`)
+        - label: Tenant rows or `user_id` derivation, or anything that could log `api_key` / `secret_key`
+        - label: A row shape in the bots table (readers before writers; see docs/data-model.md)
+        - label: The env a deployed binary reads (coupled telebot / lambda rollout order)
+  - type: dropdown
+    id: autonomy
+    attributes:
+      label: How far the agent may go
+      options:
+        - Open a PR; I review and merge
+        - Merge when the verify gate and CI are green
+        - Merge and deploy to dev (per the pbtb-deploy skill; never trading actions)
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: questions
+    attributes:
+      label: Open questions
+      description: What I have not decided. The agent answers what the code settles and asks the rest in the PR.
