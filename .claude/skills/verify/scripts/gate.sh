@@ -117,7 +117,8 @@ if echo "$CHANGED" | grep -q '^terraform/'; then
 fi
 
 # 6. the web console, only when it exists (site/package.json) — lint (tsc +
-# eslint) and the production build, which is what pages-publish runs.
+# eslint), the vitest unit tests, and the production build, which is what
+# pages-publish runs.
 if [ -f site/package.json ]; then
   if [ ! -d site/node_modules ]; then
     OUT=$(cd site && npm ci 2>&1); RC=$?
@@ -126,6 +127,8 @@ if [ -f site/package.json ]; then
   if [ -d site/node_modules ]; then
     OUT=$(cd site && npm run lint 2>&1); RC=$?
     gate site-lint $RC; [ $RC -ne 0 ] && show "$OUT" "error|✖"
+    OUT=$(cd site && npm test 2>&1); RC=$?
+    gate site-test $RC; [ $RC -ne 0 ] && show "$OUT" "FAIL|Error|×"
     OUT=$(cd site && npm run build 2>&1); RC=$?
     gate site-build $RC; [ $RC -ne 0 ] && show "$OUT" "error|Error"
   fi

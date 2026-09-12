@@ -59,7 +59,8 @@ export const bots = {
     cumulativeReturn: "Cumulative return",
     noReturnData: "No return data for this bot yet.",
     noReturnDataHint: "The daily collector publishes a series once the bot has traded.",
-    switchDot: "Orange dot: config switch.",
+    switchDot:
+      "Orange dot: config switch. The band behind the curve is that config's active period; hover to highlight it, click its name to open the config.",
     configuration: "Configuration",
     template: "Template",
     tunedOn: "Tuned on",

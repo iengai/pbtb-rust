@@ -1,10 +1,12 @@
 // The per-bot return series written by the daily_pnl_snapshot Lambda, and the
 // windowing, re-basing and SVG drawing that turn it into the return chart.
 // A series (a BotReturnSeries) reaches the page through `GET
-// /api/v1/bots/{id}/returns`, for the bot's owner. It carries a time-weighted
-// return index (cumulative return %, deposit-neutral) and the realized PnL in
-// USDT per day; never a balance. The money fields are optional because a
-// series written before they existed has none. No chart library.
+// /api/v1/bots/{id}/returns`, for the bot's owner, or as the public
+// `data/bots/{id}.json` of a showcase bot. It carries a time-weighted return
+// index (cumulative return %, deposit-neutral) and, for the owner, the
+// realized PnL in USDT per day; never a balance. The money fields are optional
+// because a series written before they existed has none and the public one
+// never does. No chart library.
 
 export type DailyPoint = {
   ts: number;
@@ -26,6 +28,12 @@ export type BotReturnSeries = {
   capital_resets?: number[];
 };
 export type ViewPoint = { ts: number; return_pct: number; realized_usdt?: number };
+
+// The stretch of a window one config was active for. The first period may
+// have opened before the window did (`startsInside` false): the config was
+// already running when the view begins, so its band starts at the view's edge
+// and no switch dot marks it.
+export type Period = { start: number; end: number; template_name: string; startsInside: boolean };
 
 export const fmtPct = (v: number): string => (Number.isFinite(v) ? `${v.toFixed(2)}%` : "—");
 export const fmtSignedPct = (v: number): string =>
@@ -88,6 +96,7 @@ export type ChartWindow =
       kind: "ok";
       view: ViewPoint[];
       switches: SwitchMarker[];
+      periods: Period[];
       reset: number | null;
       stats: WindowStats;
       caption: WindowCaption | null;
@@ -95,6 +104,19 @@ export type ChartWindow =
   | { kind: "empty"; reason: "noData" }
   | { kind: "empty"; reason: "resetAfterWindow"; resetAt: number }
   | { kind: "empty"; reason: "wipedOut"; label: RangeLabel };
+
+// Worst peak-to-trough fall of a re-based curve, in percent (≤ 0).
+export function maxDrawdownOf(view: ViewPoint[]): number {
+  let runMax = -Infinity;
+  let worst = 0;
+  for (const p of view) {
+    const idx = 1 + p.return_pct / 100;
+    if (idx > runMax) runMax = idx;
+    const dd = (idx / runMax - 1) * 100;
+    if (dd < worst) worst = dd;
+  }
+  return worst;
+}
 
 // The selected look-back window of a series, re-based to its first point (0%
 // at the window start), so every preset reads as "return over this period" —
@@ -156,15 +178,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     : null;
   const totalPnl = s.total_realized_usdt ?? null;
   const peak = view.reduce((m, p) => Math.max(m, p.return_pct), -Infinity);
-  // Worst peak-to-trough fall of the re-based index inside the window.
-  let runMax = -Infinity;
-  let maxDrawdown = 0;
-  for (const p of view) {
-    const idx = 1 + p.return_pct / 100;
-    if (idx > runMax) runMax = idx;
-    const dd = (idx / runMax - 1) * 100;
-    if (dd < maxDrawdown) maxDrawdown = dd;
-  }
+  const maxDrawdown = maxDrawdownOf(view);
 
   // Without a collection timestamp there is nothing honest to say about how
   // fresh the curve is, so the caption is left out entirely.
@@ -177,27 +191,50 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
       }
     : null;
 
-  const switches = (s.config_switches || []).filter(
-    (c) => c.ts >= view[0]!.ts && c.ts <= last.ts,
-  );
+  const first = view[0]!.ts;
+  const sorted = (s.config_switches || []).slice().sort((a, b) => a.ts - b.ts);
+  const switches = sorted.filter((c) => c.ts >= first && c.ts <= last.ts);
+
+  // The config already running when the view opens, then every switch inside
+  // it; each period runs to the next head or to the view's end.
+  const active = sorted.filter((c) => c.ts <= first).pop();
+  const heads = [
+    ...(active ? [{ ts: first, template_name: active.template_name, startsInside: false }] : []),
+    ...sorted
+      .filter((c) => c.ts > first && c.ts <= last.ts)
+      .map((c) => ({ ts: c.ts, template_name: c.template_name, startsInside: true })),
+  ];
+  const periods: Period[] = heads.map((h, i) => ({
+    start: h.ts,
+    end: heads[i + 1]?.ts ?? last.ts,
+    template_name: h.template_name,
+    startsInside: h.startsInside,
+  }));
 
   return {
     kind: "ok",
     view,
     switches,
+    periods,
     reset: reset ?? null,
     stats: { label, ret: last.return_pct, peak, maxDrawdown, days: view.length, pnl, totalPnl },
     caption,
   };
 }
 
-// --- SVG line chart (cumulative return %, config-switch markers) ---
+// --- SVG line chart (cumulative return %, config periods and switch markers) ---
 
+// The top margin holds the period labels, so it is taller than the bottom
+// one's axis ticks need.
 const W = 900,
   H = 300,
-  M = { l: 56, r: 12, t: 14, b: 30 };
+  M = { l: 56, r: 12, t: 30, b: 30 };
 const PW = W - M.l - M.r,
   PH = H - M.t - M.b;
+
+// A band narrower than this gets no label: the name would be a few clipped
+// glyphs, and the tooltip names the config anyway.
+const LABEL_MIN_PX = 40;
 
 type Scales = {
   x: (t: number) => number;
@@ -260,13 +297,26 @@ export type ChartLabels = {
   returnRow: string;
   /** Row name for the hovered day's realized PnL, shown when the point has one. */
   pnlRow: string;
+  /** Row name for the config active on the hovered day, shown when one is known. */
+  configRow: string;
   /** Native `<title>` on a config-switch marker; the date is ISO. */
   switchTitle: (template: string, date: string) => string;
+  /** Native `<title>` on a config period's band and label; the dates are ISO. */
+  periodTitle: (template: string, from: string, to: string) => string;
   /** One x-axis tick: the year is implied by the window, so day and month only. */
   axisDate: (sec: number) => string;
 };
 
-export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[], labels: ChartLabels): string {
+// A period as drawn: named for the reader, and linking to the config's page
+// when it has one (a retired or private template has none).
+export type DrawnPeriod = Period & { label: string; href: string | null };
+
+export function chartSVG(
+  pts: ViewPoint[],
+  switches: SwitchMarker[],
+  periods: DrawnPeriod[],
+  labels: ChartLabels,
+): string {
   const sc = scales(pts);
   const up = pts[pts.length - 1]!.return_pct >= 0;
 
@@ -292,6 +342,29 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[], labels: Cha
     xlab += `<text x="${sc.x(t).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === COLS ? "end" : "middle"}" fill="var(--muted)" font-size="11">${escapeXml(labels.axisDate(t))}</text>`;
   }
 
+  // Config periods: a band behind the curve per period, its name in the top
+  // margin clipped a few px short of the band's edge so neighbours read
+  // apart. The clip-path ids carry a per-drawing nonce because several charts
+  // can share one document.
+  const uid = Math.random().toString(36).slice(2, 8);
+  let bands = "";
+  periods.forEach((p, i) => {
+    const x0 = sc.x(Math.max(p.start, sc.t0));
+    const x1 = sc.x(Math.min(p.end, sc.t1));
+    const w = x1 - x0;
+    if (w < 1) return;
+    const title = escapeXml(labels.periodTitle(p.label, fmtDate(p.start), fmtDate(p.end)));
+    let label = "";
+    if (w >= LABEL_MIN_PX) {
+      const clip = `pb-${uid}-${i}`;
+      const text = `<text x="${(x0 + 4).toFixed(1)}" y="${M.t - 9}" clip-path="url(#${clip})" font-size="11" font-weight="600" fill="var(--switch)">${escapeXml(p.label)}</text>`;
+      label =
+        `<clipPath id="${clip}"><rect x="${x0.toFixed(1)}" y="0" width="${(w - 6).toFixed(1)}" height="${M.t}"/></clipPath>` +
+        (p.href ? `<a data-href="${escapeXml(p.href)}">${text}</a>` : text);
+    }
+    bands += `<g class="period" data-i="${i}"><title>${title}</title><rect x="${x0.toFixed(1)}" y="${M.t}" width="${w.toFixed(1)}" height="${PH}"/>${label}</g>`;
+  });
+
   // Config-switch markers: a dot sitting ON the return curve at each switch,
   // with a native hover tooltip naming the config it switched to.
   let sw = "";
@@ -310,20 +383,22 @@ export function chartSVG(pts: ViewPoint[], switches: SwitchMarker[], labels: Cha
   const line = `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeXml(labels.ariaLabel)}">
-    ${grid}${baseline}${xlab}${area}${sw}${line}
+    ${grid}${bands}${baseline}${xlab}${area}${sw}${line}
     <line data-part="cursor" x1="0" y1="${M.t}" x2="0" y2="${M.t + PH}" stroke="var(--accent)" stroke-width="1" opacity="0"/>
     <circle data-part="dot" r="3.5" fill="${color}" opacity="0"/>
     <rect data-part="hit" x="${M.l}" y="${M.t}" width="${PW}" height="${PH}" fill="transparent"/>
   </svg>`;
 }
 
-// Hover: a cursor line + dot snapped to the nearest daily point, and a fixed
-// tooltip beside the pointer. Returns the teardown.
+// Hover: a cursor line + dot snapped to the nearest daily point, the band of
+// the config active on that day lit, and a fixed tooltip beside the pointer.
+// Returns the teardown.
 export function wireHover(
   container: HTMLElement,
   tip: HTMLElement,
   pts: ViewPoint[],
   labels: ChartLabels,
+  periods: DrawnPeriod[] = [],
 ): () => void {
   const svg = container.querySelector("svg");
   const hit = container.querySelector<SVGElement>('[data-part="hit"]');
@@ -331,6 +406,19 @@ export function wireHover(
   const dot = container.querySelector<SVGElement>('[data-part="dot"]');
   if (!svg || !hit || !cursor || !dot) return () => {};
   const sc = scales(pts);
+  const bands = Array.from(container.querySelectorAll<SVGElement>(".period"));
+
+  // The period a day belongs to; at a switch instant the later one wins.
+  const periodAt = (ts: number): number => {
+    for (let i = periods.length - 1; i >= 0; i--) {
+      const p = periods[i]!;
+      if (ts >= p.start && ts <= p.end) return i;
+    }
+    return -1;
+  };
+  const light = (i: number) => {
+    for (const b of bands) b.classList.toggle("on", b.getAttribute("data-i") === String(i));
+  };
 
   const show = (on: boolean) => {
     for (const el of [cursor, dot]) el.setAttribute("opacity", on ? "1" : "0");
@@ -355,24 +443,32 @@ export function wireHover(
     cursor.setAttribute("x2", String(px));
     dot.setAttribute("cx", String(px));
     dot.setAttribute("cy", String(sc.y(p.return_pct)));
+    const pi = periodAt(p.ts);
+    light(pi);
     show(true);
     tip.innerHTML =
       `<div class="d">${fmtDate(p.ts)}</div>` +
       `<div class="row"><span>${escapeXml(labels.returnRow)}</span><b>${fmtPct(p.return_pct)}</b></div>` +
       (p.realized_usdt != null
         ? `<div class="row"><span>${escapeXml(labels.pnlRow)}</span><b>${fmtUsdt(p.realized_usdt)}</b></div>`
+        : "") +
+      (pi >= 0
+        ? `<div class="row"><span>${escapeXml(labels.configRow)}</span><b>${escapeXml(periods[pi]!.label)}</b></div>`
         : "");
     tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 150) + "px";
     tip.style.top = e.clientY + 14 + "px";
   };
-  const leave = () => show(false);
+  const leave = () => {
+    light(-1);
+    show(false);
+  };
 
   hit.addEventListener("mousemove", move);
   hit.addEventListener("mouseleave", leave);
   return () => {
     hit.removeEventListener("mousemove", move);
     hit.removeEventListener("mouseleave", leave);
-    show(false);
+    leave();
   };
 }
 
@@ -407,5 +503,5 @@ export function sparklinePoints(
 }
 
 export function escapeXml(s: unknown): string {
-  return String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!);
+  return String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!);
 }

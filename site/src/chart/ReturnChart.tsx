@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLoad } from "../api/hooks";
 import { templateTitle } from "../components/ui";
 import { staticData } from "../data/static";
@@ -6,6 +7,7 @@ import { useLang, useT } from "../i18n/locale";
 import {
   type ChartLabels,
   type ChartWindow,
+  type DrawnPeriod,
   type RangeLabel,
   RANGES,
   type WindowCaption,
@@ -74,7 +76,9 @@ function useChartLabels(): ChartLabels {
       ariaLabel: t.returns.chart.aria,
       returnRow: t.returns.chart.returnRow,
       pnlRow: t.returns.chart.pnlRow,
+      configRow: t.returns.chart.configRow,
       switchTitle: t.returns.chart.switchTitle,
+      periodTitle: t.returns.chart.periodTitle,
       axisDate: (sec: number) => {
         const d = new Date(sec * 1000);
         return t.returns.chart.axisDate(month.format(d), d.getUTCDate());
@@ -90,11 +94,13 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   const t = useT();
   const rangeLabel = useRangeLabel();
   const labels = useChartLabels();
+  const navigate = useNavigate();
   const box = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const { lang } = useLang();
-  // A switch row quotes the template's id; the marker names it by its title,
-  // and an id the catalogue no longer lists (a retired template) as itself.
+  // A switch row quotes the template's id; the marker and the band name it by
+  // its title, and an id the catalogue no longer lists (a retired template)
+  // as itself, with no page to link to.
   const catalog = useLoad(() => staticData.templates(), "templates:titles");
   const switches = useMemo(() => {
     if (win.kind !== "ok") return [];
@@ -103,12 +109,32 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
       return tpl ? { ...s, template_name: templateTitle(tpl, lang) } : s;
     });
   }, [win, catalog.data, lang]);
-  const svg = win.kind === "ok" ? chartSVG(win.view, switches, labels) : "";
+  const periods = useMemo<DrawnPeriod[]>(() => {
+    if (win.kind !== "ok") return [];
+    return win.periods.map((p) => {
+      const tpl = catalog.data?.find((row) => row.name === p.template_name);
+      return {
+        ...p,
+        label: tpl ? templateTitle(tpl, lang) : p.template_name,
+        href: tpl ? `/configs/${encodeURIComponent(tpl.name)}` : null,
+      };
+    });
+  }, [win, catalog.data, lang]);
+  const svg = win.kind === "ok" ? chartSVG(win.view, switches, periods, labels) : "";
 
   useEffect(() => {
     if (win.kind !== "ok" || !box.current || !tip.current) return;
-    return wireHover(box.current, tip.current, win.view, labels);
-  }, [win, svg, labels]);
+    return wireHover(box.current, tip.current, win.view, labels, periods);
+  }, [win, svg, labels, periods]);
+
+  // The band labels are markup, not router links; a click on one is routed
+  // here so the page changes without a reload.
+  const onClick = (e: MouseEvent<HTMLDivElement>) => {
+    const href = (e.target as Element).closest("a[data-href]")?.getAttribute("data-href");
+    if (!href) return;
+    e.preventDefault();
+    navigate(href);
+  };
 
   if (win.kind === "empty") {
     const e = t.returns.chart.empty;
@@ -132,7 +158,7 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   }
   return (
     <>
-      <div ref={box} className="chart" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div ref={box} className="chart" onClick={onClick} dangerouslySetInnerHTML={{ __html: svg }} />
       <div ref={tip} className="tip" />
     </>
   );

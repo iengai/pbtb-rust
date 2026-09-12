@@ -139,6 +139,7 @@ h1.lg { font-size: 22px; }
 .table .th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .table .tr { align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text); }
 .table a.tr:hover { background: var(--panel); }
+.table.showcase .th, .table.showcase .tr { grid-template-columns: 1.6fr 1fr 1fr 1.2fr 40px; }
 .metric-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
 
@@ -200,6 +201,14 @@ h1.lg { font-size: 22px; }
 .range:hover { color: var(--text); }
 .range.on { background: var(--accent); color: #fff; }
 .chart svg { width: 100%; height: auto; display: block; }
+/* Config periods: a band per period behind the curve, lit while the cursor
+   is inside it or the pointer is on its label. */
+.chart .period rect { fill: var(--switch); opacity: .08; transition: opacity .12s; }
+.chart .period.on rect, .chart .period:hover rect { opacity: .22; }
+.chart .period a { cursor: pointer; }
+.chart .period a:hover text, .chart .period.on a text { text-decoration: underline; }
+.run { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border); }
+.run .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 14px; margin-bottom: 6px; }
 .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }

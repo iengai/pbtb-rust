@@ -28,7 +28,9 @@ export const returns = {
     aria: "return curve",
     returnRow: "Return",
     pnlRow: "Day's net PnL",
+    configRow: "Config",
     switchTitle: (template: string, date: string) => `→ ${template} · ${date}`,
+    periodTitle: (template: string, from: string, to: string) => `${template} · ${from} → ${to}`,
     axisDate: (month: string, day: number) => `${month} ${day}`,
     caption: (c: { exchange: string; days: number; resetAt: string | null; updatedAt: string }) =>
       [
