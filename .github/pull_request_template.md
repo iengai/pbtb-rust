@@ -10,7 +10,7 @@ Paste the `GATE …` lines from `bash .claude/skills/verify/scripts/gate.sh`.
 
 ## Review
 
-The tally line from each reviewer run (`pr-reviewer`; `comment-reviewer` / `architecture-reviewer` when the diff called for them) and what was done with the findings. Policy: `REVIEW.md`.
+The tally line from each reviewer run (`pr-reviewer`; `comment-reviewer` / `architecture-reviewer` when the diff called for them), then one line per finding in `REVIEW.md`'s shape with `taken` or `overruled` at the end. Policy: `REVIEW.md`.
 
 ## Rollout
 
@@ -19,3 +19,4 @@ Only if the deployed shape changes: the order and the window (see the `pbtb-depl
 ## Knowledge
 
 - [ ] `AGENTS.md`, the `docs/` leaf for this area, and any skill this change makes stale are updated, or nothing described the old behaviour.
+- `[cat:<slug>] Lesson: <what would have made this PR shorter or safer, one line>` — or `none`.

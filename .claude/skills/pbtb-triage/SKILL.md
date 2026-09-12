@@ -40,8 +40,13 @@ both so you spend your time on the actual cause.
    worked: put the old env key back so the old lambda binary loads (minutes),
    fix the build (an hour), then let `terraform apply` drop the key again.
    Do not let a mitigation silently become the fix.
-6. **Record what was non-obvious** in memory and, if it changes how a component
-   is operated, in the component map or RUNBOOK — in the same session.
+6. **Record what was non-obvious**: when the incident issue closes, one line in
+   the matching section of [references/symptom-playbooks.md](references/symptom-playbooks.md)
+   (a new section when no symptom matches) saying what to check first next
+   time, as a command — `gh issue view <n> --comments`, take "Trigger vs cause"
+   from the 🤖 Diagnosis, write the check. The narrative stays on the issue;
+   the closing comment links the PR that added the line, or says `nothing new`.
+   A change to how a component is operated goes to the component map or RUNBOOK.
 
 ## Symptom router
 
@@ -52,6 +57,7 @@ both so you spend your time on the actual cause.
 | A bot is not running / keeps restarting / "Run" does nothing | [playbook: bot-not-running](references/symptom-playbooks.md#bot-not-running) |
 | A bot stopped (OOM) and was not restarted | [playbook: no-auto-restart](references/symptom-playbooks.md#no-auto-restart) |
 | GitHub Actions or CodeBuild is red | [playbook: ci-red](references/symptom-playbooks.md#ci-red) |
+| A deployed binary or env is behind what main says | [playbook: deployed-behind-main](references/symptom-playbooks.md#deployed-behind-main) |
 | A return curve is stale, or the console shows wrong data | [playbook: site-stale](references/symptom-playbooks.md#site-stale) |
 | A bot launched on the wrong passivbot engine, or was refused | [playbook: engine-routing](references/symptom-playbooks.md#engine-routing) |
 | An issue labelled `source:agent` whose Symptom links a Sentry permalink | [component map: Error intake](references/component-map.md#error-intake-sentry), then the row for its `component` tag |

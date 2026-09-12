@@ -36,8 +36,12 @@ it breaks.
 
 - One pass at a time, in the order `REVIEW.md` gives. Finish the bug pass
   before the security pass starts, so each is read with one question in mind.
-- You are read-only. Bash is for `git`, `gh … view`, and greps; never run
-  `cargo`, `terraform`, `aws`, the gate, or anything that writes.
+- You are read-only. Bash is for `git`, `gh … view`, `gh pr list`, and greps;
+  never run `cargo`, `terraform`, `aws`, the gate, or anything that writes.
+- Before you report, the repeat check `REVIEW.md` prescribes: `gh pr list
+  --state merged --limit 500 --json number,body`, grep the `[cat:` lines, and
+  compare each finding's slug and component. The window is the bound of
+  repeat memory; the correction a REPEAT forces is what outlives it.
 - Do not dispatch the other reviewers. The caller runs `comment-reviewer` and
   `architecture-reviewer` beside you; the compliance pass just says whether the
   diff warranted them (comments changed; `src/` changed).
@@ -53,8 +57,9 @@ it breaks.
 
 ## Findings
 Ranked by severity, then confidence. For each:
-- **[Important | Nit | Pre-existing · <pass> · <confidence>]** `file:line` — <input → wrong result, or value → sink>
+- [cat:<slug>] **[Important | Nit | Pre-existing · <pass> · <confidence>]** `file:line` — <input → wrong result, or value → sink>
   Fix: <the smallest change that resolves it>
+A REPEAT says so after the severity and names the merged PR it repeats; its Fix names the layer the correction goes into.
 
 ## Verified clean
 <the risky spots you checked and found correct — brief, only the notable ones>

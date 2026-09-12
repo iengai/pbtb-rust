@@ -31,6 +31,19 @@ description: Get a change onto main: branch naming, the verify gate, the review 
 - One logical change per commit; a rollout that touches domain, wiring, and
   infra is three commits (`feat(domain)`, `feat`, `infra`) so each is reviewable.
 
+## Design review, for a change to what agents load
+
+An Intent that ticks an invariant box, or whose change adds or edits a file
+agents load (`AGENTS.md`, a skill, an agent definition, a hook, `REVIEW.md`,
+the CI scripts), gets its design reviewed before the branch exists. Post the
+design as a comment on the Intent, then dispatch a `general-purpose` subagent
+on it with six questions: conflicts with the repo's rules (one home per fact,
+budgets, comments as-is); does each mechanism close its loop, and what happens
+when nobody does the human step; failure modes; a simpler alternative; fit with
+the flow above; is *Done when* runnable. Its tally and what changed go in the
+same thread; the owner's go is the next comment; the PR's **Why** links the
+thread.
+
 ## The gate is not optional
 
 Run the project `verify` skill (`bash .claude/skills/verify/scripts/gate.sh`)
@@ -63,9 +76,11 @@ than the review asked for.
 3. The PR body's **Review** section carries each reviewer's tally line and
    what was done with the findings; a finding you overruled is named there, so
    the PR stays the audit record.
-4. A class of mistake the review has corrected twice goes into the knowledge
-   layer it belongs to (docs/conventions.md § Knowledge placement), not only
-   into the fix.
+4. A finding the reviewer marked REPEAT carries its correction into the layer
+   it names, in this PR; `REVIEW.md` owns that rule.
+5. The PR's **Knowledge** section ends with one `Lesson` line: what would have
+   made this PR shorter or safer, with the slug it belongs to, or `none`. It
+   is a candidate, not a doc edit; a slug seen again is what promotes it.
 
 ## The merge-when-green tier
 

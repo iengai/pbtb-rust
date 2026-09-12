@@ -190,6 +190,12 @@ applies.
 ### Commit subject
 One line: `<type>: <summary>` (lowercase imperative, at most 72 characters).
 
+### Lesson
+One line, `[cat:<slug>] Lesson: <what would have made this run shorter or
+safer>`, the slug from REVIEW.md's passes (`agent-habit` for a habit of
+yours), or "none". A candidate for the people who maintain this harness, not
+a doc edit.
+
 ### Open questions
 What you could not settle, or "none".
 """
@@ -333,6 +339,20 @@ def tier_allows_pr(body: str) -> bool:
 
 def tier_allows_merge(tier: str) -> bool:
     return tier in MERGE_TIERS
+
+
+# What agents load, and the rules they are held to: a change there is read by
+# a person before it merges, whatever tier the issue granted.
+LOADED_BY_AGENTS = (".claude/*", "docs/*")
+
+
+def held_for(tier: str, staged: list[str]) -> tuple[str, str]:
+    """The tier a patch is published at, and why, when it touches what agents load."""
+    hit = sorted(f for f in staged if any(fnmatch.fnmatch(f, p) for p in LOADED_BY_AGENTS))
+    if tier in HELD_TIER and hit:
+        return HELD_TIER[tier], (f"The issue grants *{tier}*, but the change touches what agents load "
+                                 f"({', '.join(hit[:3])}{', …' if len(hit) > 3 else ''}); held at *{HELD_TIER[tier]}*.")
+    return tier, ""
 
 
 def resolve_tier(issue: int, body: str) -> tuple[str, str]:
@@ -491,6 +511,12 @@ def give_up_comment(result: dict) -> str:
             f"<details><summary>Diff</summary>\n\n```diff\n{result.get('diff', '')}\n```\n\n</details>")
 
 
+def lesson_line(answer: str) -> str:
+    """The answer's Lesson in the PR template's shape: `[cat:<slug>] Lesson: …`, or `Lesson: none`."""
+    text = quiet(section(answer, "Lesson")).strip() or "none"
+    return text if text.startswith("[cat:") else f"Lesson: {text}"
+
+
 def pr_body(result: dict) -> str:
     n, answer = result["issue"], quiet(result.get("answer", ""))
     return (
@@ -503,7 +529,8 @@ def pr_body(result: dict) -> str:
         f"## Verification\n\n```\n{result['gate_lines']}\n```\n\n{quiet(result['evidence'])}\n\n{section(answer, 'Test') or '(not stated)'}\n\n"
         f"## Review\n\n{quiet(result['review'])}\n\n"
         f"## Knowledge\n\n- [ ] `AGENTS.md`, the `docs/` leaf for this area, and any skill this change makes stale are updated, "
-        f"or nothing described the old behaviour. (Left for the reviewer: the agent cannot edit `AGENTS.md`.)\n\n"
+        f"or nothing described the old behaviour. (Left for the reviewer: the agent cannot edit `AGENTS.md`.)\n"
+        f"- {lesson_line(answer)}\n\n"
         f"## Open questions\n\n{section(answer, 'Open questions') or 'none'}\n\n{trail_md(result)}\n\ncloses #{n}\n"
     )
 
@@ -549,6 +576,9 @@ def publish(a: argparse.Namespace) -> int:
     staged = [f for f in git("diff", "--cached", "--name-only", "-z").split("\0") if f]
     if not staged or any(denied(f) for f in staged) or sorted(staged) != sorted(result["changed"]):
         sys.exit(f"the patch does not match the result: {staged} vs {result['changed']}")
+    held, note = held_for(result["tier"], staged)
+    if note:
+        result["tier"], result["tier_note"] = held, (result["tier_note"] + " " + note).strip()
     subject, body = result["subject"], pr_body(result)
     if a.dry_run:
         print(f"\n--- would commit `{subject}` on {branch} and open a PR ---\n{body}")
