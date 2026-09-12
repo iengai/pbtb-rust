@@ -43,11 +43,13 @@ it never runs a trading action. Re-run by hand:
 `gh workflow run incident-diagnose.yml -f issue_number=<n>`.
 
 The `issue-fix` workflow (`scripts/ops/fix_issue.py`) is the next tier:
-labelling an issue `agent:fix` whose autonomy field grants a PR makes the
-same model write a failing test, fix it, run the gate and open
+labelling an issue `agent:fix` whose autonomy field grants a PR runs Claude
+Code headless (DeepSeek's `deepseek-flash` behind its Anthropic-compatible
+endpoint) to write a failing test, fix it, run the gate and open
 `fix/issue-<n>` as a PR with `closes #<n>`; it has no AWS credentials, the model
-runs in a job with a read-only token, and it cannot touch workflows,
-terraform, hooks, `.git`, `.cargo` or the scripts behind these workflows. A run that
+runs in a job with a read-only token, and the script's hook keeps it from
+workflows, terraform, hooks, `.git`, `.cargo` and the scripts behind these
+workflows. The job's "Harness trail" step prints the commands the hook saw. A run that
 ends without a PR says why in a comment on the issue (no red test seen,
 gate red, human-owned path) and shows red in Actions. Re-run:
 `gh workflow run issue-fix.yml -f issue_number=<n>` (`-f dry_run=true`

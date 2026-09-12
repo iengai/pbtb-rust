@@ -1,11 +1,15 @@
 name: issue-fix
 
 # Open a fix PR for one issue at its "open a PR" tier. scripts/ops/fix_issue.py
-# drives an OpenAI-compatible chat model on a clean checkout of main with
-# write tools bounded to the checkout (a deny list keeps workflows,
-# terraform, hooks, the scripts behind these workflows, .git, .cargo, build
-# scripts, dependency manifests, AGENTS.md and REVIEW.md human-owned) and a
-# whitelist of cargo / gate commands. A change under src/ or tests/ becomes
+# runs Claude Code headless on a clean checkout of main, so the model works
+# with this repository's own harness (CLAUDE.md, AGENTS.md, the skills,
+# agents and hooks under .claude/), against whatever model the Anthropic-
+# compatible endpoint serves: DeepSeek's, `deepseek-flash` by default. The
+# script's own hook bounds the tools: Bash runs only whitelisted cargo /
+# gate / test-runner commands, and edits to human-owned paths are refused
+# (workflows, terraform, hooks, the scripts behind these workflows, .git,
+# .cargo, build scripts, dependency manifests, AGENTS.md and REVIEW.md);
+# web, subagent and task tools are off. A change under src/ or tests/ becomes
 # a PR only after a `cargo test` was seen failing and the same command then
 # passing, and any change only after the same gate CI runs is green. The PR
 # body carries the gate lines, the red→green evidence and a REVIEW.md pass by
@@ -20,10 +24,12 @@ name: issue-fix
 # a result file as an artifact; `publish` holds the write token, runs no
 # model code, and turns the result into a comment or a branch + PR; it
 # takes nothing that decides a merge from the artifact (the tier is read
-# from the issue again, the paths re-checked, the check is CI's). The
-# model keys reach the model's process through a file it deletes on reading
-# and the token leaves its environment before the loop, so a hostile test
-# in `fix` finds a public repo and the runner, nothing that outlives the run.
+# from the issue again, the paths re-checked, the check is CI's). The token
+# leaves the environment before the harness starts; the model key stays in
+# it, since Claude Code reads it there, and a command the model runs is
+# that process's child. So a hostile test in `fix` finds a public repo, the
+# runner and the model key: nothing that outlives the run beyond what the
+# key can spend, and the key is one a person rotates.
 #
 # Starts when the `agent:fix` label lands on an issue (only triage access
 # and above can label, so the label is the authorization, whoever wrote the
@@ -31,8 +37,11 @@ name: issue-fix
 # not the label, is what fix_issue.py checks), or by dispatch with an issue
 # number.
 #
-# Setup shared with incident-diagnose: variables LLM_BASE_URL, LLM_MODEL
-# (and the LLM_FALLBACK_* pair), secret LLM_API_KEY. For the merge tiers
+# Setup shared with incident-diagnose: secret LLM_API_KEY (the DeepSeek
+# key, handed to Claude Code as ANTHROPIC_API_KEY) and variable LLM_MODEL
+# (a comma-separated preference list there; the first entry is the model
+# here, deepseek-flash when unset). For another Anthropic-compatible
+# endpoint, variable LLM_ANTHROPIC_BASE_URL. For the merge tiers
 # "Allow auto-merge" and "Automatically delete head branches" (Settings →
 # General → Pull Requests) and the ruleset on main requiring `gate`.
 #
@@ -82,7 +91,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # git log is one of the model's tools; the gate diffs against main
-          ref: main
+          # A fix is made on main. A dry run is made on the ref it was
+          # dispatched on, which is how a change to this workflow or the
+          # script is tried before it is merged.
+          ref: ${{ inputs.dry_run && github.ref || 'main' }}
           persist-credentials: false
 
       # The toolchain steps mirror verify.yml so the gate the model runs is
@@ -106,26 +118,19 @@ jobs:
       # starts.
       - run: docker info > /dev/null
 
-      # The keys reach the model's process through a file it deletes on
-      # reading, not through its environment: /proc/<pid>/environ shows a
-      # child the environment its parent started with, and the model's tests
-      # are that child.
-      - name: Stage the model keys
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
-        run: |
-          set -euo pipefail
-          umask 077
-          printf '%s\n%s\n' "$LLM_API_KEY" "$LLM_FALLBACK_API_KEY" > "$RUNNER_TEMP/llm-keys"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The harness. Pinned to a version so a release does not change what a
+      # fix run can do between one issue and the next.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.263
 
       - name: Fix
         env:
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-          LLM_FALLBACK_BASE_URL: ${{ vars.LLM_FALLBACK_BASE_URL }}
-          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
-          LLM_KEYS_FILE: ${{ runner.temp }}/llm-keys
+          ANTHROPIC_BASE_URL: ${{ vars.LLM_ANTHROPIC_BASE_URL || 'https://api.deepseek.com/anthropic' }}
+          ANTHROPIC_API_KEY: ${{ secrets.LLM_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.LLM_MODEL || 'deepseek-flash' }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
@@ -133,6 +138,18 @@ jobs:
           args=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args="--dry-run"; fi
           python3 scripts/ops/fix_issue.py run --issue "$ISSUE" --out "$RUNNER_TEMP/fix" $args
+
+      # What the harness did, for a run that needs reading: every command the
+      # hook saw with its exit code (the outputs, key blanked, are in the
+      # artifact) and the settings it ran under.
+      - name: Harness trail
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/fix/runs.jsonl"
+          [ -f "$f" ] && { jq -r '"\(.rc // "-")\t\(.cmd[0:200] | gsub("\n"; " "))"' "$f" || true; }
+          f="$RUNNER_TEMP/fix/claude-settings.json"
+          [ -f "$f" ] && cat "$f"
+          true
 
       - uses: actions/upload-artifact@v4
         with:
