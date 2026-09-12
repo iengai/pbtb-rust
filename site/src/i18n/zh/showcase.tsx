@@ -12,7 +12,6 @@ export const showcase: typeof en = {
   col: { bot: "机器人", trend: "近 30 天", current: "收益率" },
   currentReturn: "当前收益率",
   updated: (date) => `更新于 ${date} UTC`,
-  bands: "橙色圆点表示切换配置。曲线后的色带是该配置的生效期间；悬停高亮，点击名称打开配置。",
   runs: {
     title: "实盘运行",
     lead: (min, max) => `公开机器人使用该配置连续运行至少 ${min} 天的每一段，从起点重新起算；超过 ${max} 段时只显示最近的 ${max} 段。`,

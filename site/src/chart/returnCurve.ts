@@ -311,11 +311,14 @@ export type ChartLabels = {
 // when it has one (a retired or private template has none).
 export type DrawnPeriod = Period & { label: string; href: string | null };
 
+// `idPrefix` makes this drawing's element ids unique in the document; it
+// must be stable across renders, or React replaces the subtree every time.
 export function chartSVG(
   pts: ViewPoint[],
   switches: SwitchMarker[],
   periods: DrawnPeriod[],
   labels: ChartLabels,
+  idPrefix: string,
 ): string {
   const sc = scales(pts);
   const up = pts[pts.length - 1]!.return_pct >= 0;
@@ -344,9 +347,8 @@ export function chartSVG(
 
   // Config periods: a band behind the curve per period, its name in the top
   // margin clipped a few px short of the band's edge so neighbours read
-  // apart. The clip-path ids carry a per-drawing nonce because several charts
+  // apart. The clip-path ids carry the caller's prefix because several charts
   // can share one document.
-  const uid = Math.random().toString(36).slice(2, 8);
   let bands = "";
   periods.forEach((p, i) => {
     const x0 = sc.x(Math.max(p.start, sc.t0));
@@ -356,7 +358,7 @@ export function chartSVG(
     const title = escapeXml(labels.periodTitle(p.label, fmtDate(p.start), fmtDate(p.end)));
     let label = "";
     if (w >= LABEL_MIN_PX) {
-      const clip = `pb-${uid}-${i}`;
+      const clip = `pb-${idPrefix}-${i}`;
       const text = `<text x="${(x0 + 4).toFixed(1)}" y="${M.t - 9}" clip-path="url(#${clip})" font-size="11" font-weight="600" fill="var(--switch)">${escapeXml(p.label)}</text>`;
       label =
         `<clipPath id="${clip}"><rect x="${x0.toFixed(1)}" y="0" width="${(w - 6).toFixed(1)}" height="${M.t}"/></clipPath>` +

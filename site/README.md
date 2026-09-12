@@ -120,7 +120,8 @@ is: five minutes, `aud` fixed to this API, `bots:read`/`bots:write`, and a
 refresh token that rotates — and an XSS on this origin could call the API as
 the user with or without a readable token. The bundle carries no third-party
 script, and the three `innerHTML` sites are the charts, which interpolate
-numbers and `escapeXml` the one label that comes from data.
+numbers and `escapeXml` every string that comes from data (labels, titles, the
+`data-href` attribute).
 
 `/configs`, `/configs/:name`, `/p` and `/p/bots/:id` render without a token (static
 data). Every other page requires one; `/bots/:id` polls the API every 15 s. Return curves

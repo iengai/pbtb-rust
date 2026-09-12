@@ -12,7 +12,6 @@ export const showcase = {
   col: { bot: "Bot", trend: "Last 30 days", current: "Return" },
   currentReturn: "Current return",
   updated: (date: string) => `updated ${date} UTC`,
-  bands: "Orange dot: config switch. The band behind the curve is the config's active period; hover to highlight it, click its name to open the config.",
   runs: {
     title: "Live runs",
     lead: (min: number, max: number) =>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type MouseEvent } from "react";
+import { useEffect, useId, useMemo, useRef, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLoad } from "../api/hooks";
 import { templateTitle } from "../components/ui";
@@ -98,10 +98,17 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   const box = useRef<HTMLDivElement>(null);
   const tip = useRef<HTMLDivElement>(null);
   const { lang } = useLang();
+  // React's id has colons, which a CSS `url(#…)` reference does not take.
+  const idPrefix = useId().replace(/[^A-Za-z0-9]/g, "");
   // A switch row quotes the template's id; the marker and the band name it by
   // its title, and an id the catalogue no longer lists (a retired template)
-  // as itself, with no page to link to.
-  const catalog = useLoad(() => staticData.templates(), "templates:titles");
+  // as itself, with no page to link to. A window with nothing to name (a
+  // single run's chart) skips the catalogue.
+  const named = win.kind === "ok" && win.switches.length + win.periods.length > 0;
+  const catalog = useLoad(
+    () => (named ? staticData.templates() : Promise.resolve(null)),
+    named ? "templates:titles" : "templates:unused",
+  );
   const switches = useMemo(() => {
     if (win.kind !== "ok") return [];
     return win.switches.map((s) => {
@@ -120,7 +127,7 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
       };
     });
   }, [win, catalog.data, lang]);
-  const svg = win.kind === "ok" ? chartSVG(win.view, switches, periods, labels) : "";
+  const svg = win.kind === "ok" ? chartSVG(win.view, switches, periods, labels, idPrefix) : "";
 
   useEffect(() => {
     if (win.kind !== "ok" || !box.current || !tip.current) return;
