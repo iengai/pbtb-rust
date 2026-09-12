@@ -16,6 +16,40 @@ pub const MAX_VIP_LEVEL: u8 = 9;
 /// The level a fresh account starts at.
 pub const DEFAULT_VIP_LEVEL: u8 = 0;
 
+/// What an account may do beyond its own tenant. `Operator` is the person who
+/// runs this deployment: the account whose bots may be put on the public
+/// showcase page. The API's authorization is the WorkOS org role of the same
+/// name (docs/workos.md); this is what a surface that holds no token, the
+/// Telegram bot, reads, and it is set by the operator's own hand
+/// (`pbtb_ops.py set-role`), never from a client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Role {
+    #[default]
+    Member,
+    Operator,
+}
+
+impl Role {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Member => "member",
+            Role::Operator => "operator",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "member" => Some(Role::Member),
+            "operator" => Some(Role::Operator),
+            _ => None,
+        }
+    }
+
+    pub fn is_operator(&self) -> bool {
+        *self == Role::Operator
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserStatus {
     Active,
@@ -46,6 +80,7 @@ pub struct User {
     pub id: String,
     pub vip_level: u8,
     pub status: UserStatus,
+    pub role: Role,
     /// The address the primary identity signed up with, kept for the operator
     /// to recognise an account by. Never used for authentication.
     pub email: Option<String>,
@@ -60,6 +95,7 @@ impl User {
             id,
             vip_level: DEFAULT_VIP_LEVEL,
             status: UserStatus::Active,
+            role: Role::Member,
             email,
             created_at: now,
             updated_at: now,
@@ -104,6 +140,9 @@ pub trait UserRepository: Send + Sync {
     /// Set the level. `false` when there is no such account.
     async fn set_vip_level(&self, user_id: &str, level: u8, now: i64) -> Result<bool, DomainError>;
 
+    /// Set the role. `false` when there is no such account.
+    async fn set_role(&self, user_id: &str, role: Role, now: i64) -> Result<bool, DomainError>;
+
     /// Set the status. `false` when there is no such account.
     async fn set_status(
         &self,
@@ -122,8 +161,18 @@ mod tests {
         let user = User::new("u-1".to_string(), None, 7);
         assert_eq!(user.vip_level, 0);
         assert!(user.is_active());
+        assert_eq!(user.role, Role::Member);
         assert_eq!(user.created_at, 7);
         assert_eq!(user.updated_at, 7);
+    }
+
+    #[test]
+    fn a_role_round_trips_through_its_name_and_an_unknown_one_is_none() {
+        for role in [Role::Member, Role::Operator] {
+            assert_eq!(Role::parse(role.as_str()), Some(role));
+        }
+        assert_eq!(Role::parse("admin"), None);
+        assert!(Role::Operator.is_operator() && !Role::Member.is_operator());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::domain::identity::{
 use crate::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
-use crate::domain::user::{User, UserRepository, UserStatus};
+use crate::domain::user::{Role, User, UserRepository, UserStatus};
 use crate::infra::aws_error::sdk_err;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
@@ -81,6 +81,9 @@ pub struct BotItem {
     /// `py` | `rs`. Absent on rows written before the attribute existed, which
     /// read back as `py` — the image every bot ran on until then.
     pub runtime: Option<String>,
+    /// Absent on a private bot. Read as stored: a value that no longer passes
+    /// `Bot::validate_public_url` is the operator's to fix, not a corrupt row.
+    pub public_url: Option<String>,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -109,6 +112,10 @@ impl BotItem {
                 Some(v) => Some(v.as_s().ok()?.to_string()),
                 None => None,
             },
+            public_url: item
+                .get("public_url")
+                .and_then(|v| v.as_s().ok())
+                .map(String::from),
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
@@ -134,6 +141,9 @@ impl BotItem {
         map.insert("enabled".to_string(), AttributeValue::Bool(self.enabled));
         if let Some(runtime) = &self.runtime {
             map.insert("runtime".to_string(), AttributeValue::S(runtime.clone()));
+        }
+        if let Some(url) = &self.public_url {
+            map.insert("public_url".to_string(), AttributeValue::S(url.clone()));
         }
         map.insert(
             "created_at".to_string(),
@@ -162,6 +172,7 @@ impl BotItem {
             secret_key: self.secret_key.clone(),
             enabled: self.enabled,
             runtime,
+            public_url: self.public_url.clone(),
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -177,6 +188,7 @@ impl BotItem {
             secret_key: bot.secret_key.clone(),
             enabled: bot.enabled,
             runtime: Some(bot.runtime.as_str().to_string()),
+            public_url: bot.public_url.clone(),
             created_at: bot.created_at,
             updated_at: bot.updated_at,
         }
@@ -1256,10 +1268,21 @@ fn parse_user_row(
         .ok_or_else(|| {
             DomainError::CorruptRecord(format!("user row for {user_id} has an unknown status"))
         })?;
+    // Absent on every row written before the attribute existed and on every
+    // member. An unknown value reads as member and is logged: a bad role must
+    // not lock the account out the way a bad status would.
+    let role = match item.get("role").and_then(|v| v.as_s().ok()) {
+        None => Role::Member,
+        Some(s) => Role::parse(s).unwrap_or_else(|| {
+            tracing::warn!(user_id, role = %s, "unknown role on the account row; read as member");
+            Role::Member
+        }),
+    };
     Ok(User {
         id: user_id.to_string(),
         vip_level,
         status,
+        role,
         email: item
             .get("email")
             .and_then(|v| v.as_s().ok())
@@ -1310,6 +1333,9 @@ impl UserRepository for DynamoBotRepository {
         if let Some(email) = &user.email {
             request = request.item("email", AttributeValue::S(email.clone()));
         }
+        if user.role != Role::Member {
+            request = request.item("role", AttributeValue::S(user.role.as_str().to_string()));
+        }
 
         match request.send().await {
             Ok(_) => Ok(true),
@@ -1327,6 +1353,16 @@ impl UserRepository for DynamoBotRepository {
             user_id,
             "vip_level",
             AttributeValue::N(level.to_string()),
+            now,
+        )
+        .await
+    }
+
+    async fn set_role(&self, user_id: &str, role: Role, now: i64) -> Result<bool, DomainError> {
+        self.update_user_field(
+            user_id,
+            "role",
+            AttributeValue::S(role.as_str().to_string()),
             now,
         )
         .await

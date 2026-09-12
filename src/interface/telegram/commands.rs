@@ -9,7 +9,7 @@ use super::{
     states::{BotContext, DialogueState},
 };
 use crate::domain::engine::Runtime;
-use crate::usecase::{SetRuntimeOutcome, TelegramSender};
+use crate::usecase::{SetPublicUrlOutcome, SetRuntimeOutcome, TelegramSender};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -27,6 +27,12 @@ pub enum Command {
     /// dialogue as plain text.
     #[command(description = "show or set a bot's runtime: /runtime <bot_id> [py|rs]")]
     Runtime(String),
+    /// `/public <bot_id> <url>` gives the bot its Bybit copy-trading link,
+    /// which marks it for the public showcase page; `/public <bot_id> off`
+    /// clears the mark; `/public <bot_id>` shows it. Setting is the
+    /// operator's account only.
+    #[command(description = "show or set a bot's public link: /public <bot_id> [<bybit url>|off]")]
+    Public(String),
     /// Releases the caller's Telegram id from their account, so another can be
     /// bound from the web. The account itself is untouched.
     #[command(description = "unbind this Telegram account from your account")]
@@ -124,6 +130,12 @@ async fn dispatch_command(
             Command::Runtime(args) => {
                 let user_id = sender.user_id.clone();
                 let text = runtime_command(&deps, &user_id, &args).await;
+                bot.send_message(msg.chat.id, text)
+                    .reply_markup(keyboards::main_menu_keyboard())
+                    .await?;
+            }
+            Command::Public(args) => {
+                let text = public_command(&deps, &sender, &args).await;
                 bot.send_message(msg.chat.id, text)
                     .reply_markup(keyboards::main_menu_keyboard())
                     .await?;
@@ -228,5 +240,59 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
         ),
         Ok(SetRuntimeOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
         Err(e) => redact("setting the runtime", &e),
+    }
+}
+
+const PUBLIC_USAGE: &str = "Usage: /public <bot_id> [<url>|off]\n\n\
+    • <url> — the bot's Bybit copy-trading page (https://…bybit.com/…); marks the bot \
+    for the public showcase page\n\
+    • off — clears the mark\n\n\
+    The bot must be one of yours (see /list). Setting the link is for the operator's account.";
+
+/// `/public` handler body. The bot is looked up under the caller's own account,
+/// so a user can only ever read or change their own bots; the use case refuses
+/// a change from any account but the operator's.
+async fn public_command(deps: &Deps, sender: &TelegramSender, args: &str) -> String {
+    let mut words = args.split_whitespace();
+    let Some(bot_id) = words.next() else {
+        return PUBLIC_USAGE.to_string();
+    };
+    let value = words.next();
+    if words.next().is_some() {
+        return PUBLIC_USAGE.to_string();
+    }
+
+    let Some(value) = value else {
+        return match super::find_own_bot(deps, &sender.user_id, bot_id).await {
+            Ok(Some(b)) => match b.public_url {
+                Some(url) => format!("🌐 Bot {bot_id} is public: {url}"),
+                None => format!("🌐 Bot {bot_id} is private."),
+            },
+            Ok(None) => format!("❌ Bot {bot_id} not found."),
+            Err(e) => redact("fetching bots", &e),
+        };
+    };
+    let public_url = (!value.eq_ignore_ascii_case("off")).then(|| value.to_string());
+
+    match deps
+        .set_bot_public_url_usecase
+        .execute(sender.role, &sender.user_id, bot_id, public_url)
+        .await
+    {
+        Ok(SetPublicUrlOutcome::Unchanged {
+            public_url: Some(url),
+        }) => format!("🌐 Bot {bot_id} is already public: {url}"),
+        Ok(SetPublicUrlOutcome::Unchanged { public_url: None }) => {
+            format!("🌐 Bot {bot_id} is already private.")
+        }
+        Ok(SetPublicUrlOutcome::Updated {
+            public_url: Some(url),
+            ..
+        }) => format!("🌐 Bot {bot_id} is now marked public: {url}"),
+        Ok(SetPublicUrlOutcome::Updated {
+            public_url: None, ..
+        }) => format!("🌐 Bot {bot_id} is now private."),
+        Ok(SetPublicUrlOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
+        Err(e) => redact("setting the public link", &e),
     }
 }

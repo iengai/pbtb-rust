@@ -39,6 +39,14 @@ pub enum DomainError {
     /// The template asks for a higher level than the account has.
     #[error("this config needs VIP {required}; your account is VIP {current}")]
     InsufficientLevel { required: u8, current: u8 },
+    /// A bot's public link is rendered on a page anyone can open, so only an
+    /// https page on bybit.com is accepted (`Bot::validate_public_url`); the
+    /// constraint is echoed so the user can fix the value.
+    #[error("a public link must be an https URL on bybit.com, got {0:?}")]
+    InvalidPublicUrl(String),
+    /// The action belongs to the operator's account (`Role::Operator`).
+    #[error("this command is for the operator's account")]
+    OperatorOnly,
     /// A persisted row was read successfully but does not parse into a domain
     /// value (e.g. an unknown exchange, an unparseable timestamp). It is a fault,
     /// not an absence: collapsing it into `Ok(None)` would let a corrupt live bot

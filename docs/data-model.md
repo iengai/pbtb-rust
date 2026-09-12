@@ -9,7 +9,7 @@ One table holds the tenant's rows under a shared partition key `pk = "user_id#<u
 ```
 Bot row      pk = "user_id#<user_id>", sk = "<bot_id>"
              Attributes: name, exchange, api_key, secret_key, enabled,
-                         runtime, created_at, updated_at
+                         runtime, public_url, created_at, updated_at
              (enabled = desired state; there is no status attribute)
 
 Runtime row  pk = "user_id#<user_id>", sk = "ecs_task_metadata#<bot_id>"
@@ -30,6 +30,7 @@ The bot's configured identity and desired state.
 | `secret_key` | Exchange API secret |
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
 | `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run) |
+| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; present only on a bot the operator's account has put on the public showcase page (`/public <bot_id> <url>`; `/public <bot_id> off` removes it). Read as stored |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 
@@ -55,8 +56,16 @@ tenant's `user_id#`), so the bot readers never meet it.
 ```
 Account row  pk = "user#<user_id>", sk = "profile"
              Attributes: vip_level (0..9), status (active | suspended),
-                         email, created_at, updated_at
+                         role (operator | member; absent = member), email,
+                         created_at, updated_at
 ```
+
+`role` marks the operator's account: the person running this deployment,
+the one account whose bots may be put on the public showcase page. Every
+other row is absent or, after a demotion, `member`; an unknown value reads as
+`member` (logged, not a corrupt row). Set with `set-role` and by nothing else; the API's own
+authorization is the WorkOS org role of the same name (docs/workos.md),
+granted separately.
 
 `user_id` is opaque and minted here (32 hex chars for new accounts); it is
 neither a Telegram id nor an identity provider's subject, so a change of
@@ -87,7 +96,7 @@ identity pointing at it. Such a row is inert — nothing resolves to it and it
 holds no data — and is tolerated rather than cleaned up.
 
 Operator commands for these rows: `python scripts/ops/pbtb_ops.py user-show |
-user-create | set-vip | user-status`.
+user-create | set-vip | set-role | user-status`.
 
 ### Row shapes and the readers
 

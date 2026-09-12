@@ -110,6 +110,7 @@ impl SignupUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::user::Role;
     use crate::domain::user::UserStatus;
     use async_trait::async_trait;
     use std::collections::HashMap;
@@ -185,6 +186,9 @@ mod tests {
             Ok(true)
         }
         async fn set_vip_level(&self, _: &str, _: u8, _: i64) -> Result<bool, DomainError> {
+            Ok(false)
+        }
+        async fn set_role(&self, _: &str, _: Role, _: i64) -> Result<bool, DomainError> {
             Ok(false)
         }
         async fn set_status(&self, _: &str, _: UserStatus, _: i64) -> Result<bool, DomainError> {

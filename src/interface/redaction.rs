@@ -36,10 +36,11 @@ pub fn redact(action: &str, err: &DomainError) -> String {
         | DomainError::LeverageOutOfRange { .. }
         | DomainError::MissingConfigPath(_)
         | DomainError::InvalidConfig(_)
-        | DomainError::InvalidBotName(_) => format!("⚠️ {err}"),
-        DomainError::QuotaExceeded { .. } | DomainError::InsufficientLevel { .. } => {
-            format!("🔒 {err}")
-        }
+        | DomainError::InvalidBotName(_)
+        | DomainError::InvalidPublicUrl(_) => format!("⚠️ {err}"),
+        DomainError::QuotaExceeded { .. }
+        | DomainError::InsufficientLevel { .. }
+        | DomainError::OperatorOnly => format!("🔒 {err}"),
         DomainError::CorruptRecord(_) | DomainError::Repository { .. } => {
             let ref_id = Uuid::new_v4().simple().to_string();
             let ref_short = &ref_id[..8];
@@ -107,6 +108,17 @@ mod tests {
         assert!(
             msg.contains("VIP 3") && msg.contains("VIP 0"),
             "both levels are shown: {msg}"
+        );
+
+        let msg = redact("setting the public link", &DomainError::OperatorOnly);
+        assert!(msg.contains("operator") && !msg.contains("ref:"), "{msg}");
+        let msg = redact(
+            "setting the public link",
+            &DomainError::InvalidPublicUrl("http://x".into()),
+        );
+        assert!(
+            msg.contains("bybit.com") && msg.contains("http://x"),
+            "{msg}"
         );
     }
 

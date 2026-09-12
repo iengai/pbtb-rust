@@ -2,14 +2,16 @@ use std::sync::Arc;
 
 use crate::domain::error::DomainError;
 use crate::domain::identity::{IdentityRepository, PROVIDER_TELEGRAM};
-use crate::domain::user::UserRepository;
+use crate::domain::user::{Role, UserRepository};
 
 /// Who a Telegram sender is, once resolved: the tenant every handler acts as,
-/// and the level the tenant's entitlements are read from.
+/// the level the tenant's entitlements are read from, and whether the account
+/// is the operator's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelegramSender {
     pub user_id: String,
     pub vip_level: u8,
+    pub role: Role,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +68,7 @@ impl ResolveTelegramSenderUseCase {
         Ok(SenderResolution::Known(TelegramSender {
             user_id: user.id,
             vip_level: user.vip_level,
+            role: user.role,
         }))
     }
 }
@@ -139,6 +142,9 @@ mod tests {
         async fn set_vip_level(&self, _: &str, _: u8, _: i64) -> Result<bool, DomainError> {
             Ok(false)
         }
+        async fn set_role(&self, _: &str, _: Role, _: i64) -> Result<bool, DomainError> {
+            Ok(false)
+        }
         async fn set_status(&self, _: &str, _: UserStatus, _: i64) -> Result<bool, DomainError> {
             Ok(false)
         }
@@ -174,6 +180,7 @@ mod tests {
             SenderResolution::Known(TelegramSender {
                 user_id: "acct-1".to_string(),
                 vip_level: 4,
+                role: Role::Member,
             })
         );
     }

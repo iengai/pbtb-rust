@@ -15,6 +15,7 @@ mod reconcile_stopped_task;
 mod record_running_task;
 mod resolve_telegram_sender;
 mod run_task;
+mod set_bot_public_url;
 mod set_bot_runtime;
 mod set_strategy_side;
 mod signup;
@@ -46,6 +47,7 @@ pub use reconcile_stopped_task::{ReconcileOutcome, ReconcileStoppedTaskUseCase, 
 pub use record_running_task::{RecordRunningOutcome, RecordRunningTaskUseCase};
 pub use resolve_telegram_sender::{ResolveTelegramSenderUseCase, SenderResolution, TelegramSender};
 pub use run_task::{RunTaskUseCase, TaskRunner};
+pub use set_bot_public_url::{SetBotPublicUrlUseCase, SetPublicUrlOutcome};
 pub use set_bot_runtime::{SetBotRuntimeUseCase, SetRuntimeOutcome};
 pub use set_strategy_side::SetStrategySideUseCase;
 pub use signup::{SignupOutcome, SignupUseCase};

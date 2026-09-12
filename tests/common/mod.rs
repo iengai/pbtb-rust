@@ -469,6 +469,10 @@ fn build_deps(
             engines,
             clock.clone(),
         )),
+        set_bot_public_url_usecase: Arc::new(SetBotPublicUrlUseCase::new(
+            bots_dyn.clone(),
+            clock.clone(),
+        )),
         get_bot_runtime_usecase: Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone())),
         start_bot_usecase: Arc::new(StartBotUseCase::new(
             bots_dyn.clone(),
