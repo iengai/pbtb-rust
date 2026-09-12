@@ -148,7 +148,7 @@ written by the daily collector (`src/bin/daily_pnl_snapshot/model.rs`,
 
 `id` is opaque (twelve hex characters), not the bot id. Percentages only:
 `cap_usdt`, the capital the bot ran a config at, is the one balance-derived
-figure and is rounded to 1, 2 or 5 times a power of ten; there is no realized
+figure and is rounded to one significant digit; there is no realized
 PnL and no balance. `capital_resets` dates a wipe-out-and-refund. The S3
 layout is in docs/data-model.md.
 

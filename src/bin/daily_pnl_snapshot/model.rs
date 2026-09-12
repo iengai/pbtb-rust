@@ -385,21 +385,24 @@ pub fn showcase_link(bot: &Bot, operator: bool) -> Option<&str> {
     }
 }
 
-/// Round a balance to the nearest of 1, 2 and 5 times a power of ten (100,
-/// 200, 500, 1k, 2k, 5k, …); a tie goes down. Coarse on purpose: it is the
-/// one balance-derived figure the public sees. Nothing positive rounds to 0.
+/// Round a balance to one significant digit (706 → 700, 1 234 → 1 000,
+/// 1 500 → 2 000, 95 → 100); a tie goes up. Coarse on purpose: it is the one
+/// balance-derived figure the public sees, and it reads as the round sum the
+/// bot was funded with. Nothing positive rounds to 0. Below one dollar the
+/// scale is applied as a division by an exact power of ten, so the result
+/// serialises as `0.7`, not `0.7000000000000001`.
 pub fn round_cap(balance: f64) -> f64 {
     if !balance.is_finite() || balance <= 0.0 {
         return 0.0;
     }
-    let base = 10f64.powf(balance.log10().floor());
-    let mut best = base;
-    for candidate in [2.0 * base, 5.0 * base, 10.0 * base] {
-        if (candidate - balance).abs() < (best - balance).abs() {
-            best = candidate;
-        }
+    let exp = balance.log10().floor() as i32;
+    if exp < 0 {
+        let scale = 10f64.powi(-exp);
+        (balance * scale).round() / scale
+    } else {
+        let scale = 10f64.powi(exp);
+        (balance / scale).round() * scale
     }
-    best
 }
 
 /// The close of the last day before the day `ts` falls in, or of the first
@@ -570,14 +573,19 @@ mod public_tests {
     }
 
     #[test]
-    fn public_cap_rounds_on_the_1_2_5_series() {
+    fn public_cap_rounds_to_one_significant_digit() {
         for (balance, cap) in [
+            (705.91, 700.0),
             (1234.0, 1000.0),
             (1600.0, 2000.0),
-            (4200.0, 5000.0),
-            (1500.0, 1000.0),
+            (4200.0, 4000.0),
+            (1500.0, 2000.0),
             (95.0, 100.0),
-            (7.0, 5.0),
+            (7.0, 7.0),
+            (0.7, 0.7),
+            (0.25, 0.3),
+            (0.95, 1.0),
+            (99.999, 100.0),
             (0.0, 0.0),
             (-3.0, 0.0),
         ] {
