@@ -121,6 +121,28 @@ def style_of(config: dict) -> str:
     return STYLES.get(kind, kind)
 
 
+def limits(config: dict, side: str) -> dict:
+    """One side's risk limits, at the path BotConfig reads them from."""
+    held = (config.get("bot") or {}).get(side) or {}
+    return held["risk"] if isinstance(held.get("risk"), dict) else held
+
+
+def exposure(config: dict, side: str) -> float:
+    return float(limits(config, side).get("total_wallet_exposure_limit") or 0)
+
+
+def traded_sides(config: dict) -> tuple[str, ...]:
+    """The sides passivbot trades: those with an exposure limit and positions
+    to hold. What `pbtb.strategies` declares is stamped from this."""
+    held = config.get("bot") or {}
+    return tuple(
+        side for side in ("long", "short")
+        if exposure(config, side) > 0
+        and float(limits(config, side).get("n_positions",
+                                           (held.get(side) or {}).get("n_positions")) or 0) > 0
+    )
+
+
 def capital_label(usdt: int) -> str:
     return f"${usdt // 1000}k" if usdt >= 1000 and usdt % 1000 == 0 else f"${usdt}"
 

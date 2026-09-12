@@ -35,7 +35,7 @@ lab's own coordinates and ``original_name`` the optimizer-run name before that,
 so a template can still be found in the lab's NOTES.md and STRATEGIES.md.
 
 Each run also re-derives what the config and the lineage decide (``style``,
-``engine``, ``generation``) and recomposes every title from the naming
+``engine``, ``generation``, the sides in ``strategies``) and recomposes every title from the naming
 properties across the templates listed together, so a suffix appears or goes
 as templates are added and retired. Each bot's stored config, which copied
 its template's titles and properties when it was applied, is restamped onto
@@ -65,14 +65,14 @@ from pathlib import Path
 
 from backtest_templates import write_index, write_json
 from rename_predefined import BUCKET, CATALOG, PREFIX, RETIRED_PREFIX, TABLE, aws, body_bytes
-from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles
+from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 LAB_KEY = "lab"
 OURS = ("pbtb", LAB_KEY)
 LEAD = ("name", "title", "title_zh", *FACETS)
-ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation")
+ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "strategies")
 # What annotate writes into `lab` itself, beside the lineage.
 LAB_OWN = ("original_name", "readable_id", "status", "notes")
 
@@ -212,6 +212,22 @@ def readable_of(raw: dict, tid: str) -> str:
     return (raw.get(LAB_KEY) or {}).get("readable_id") or tid
 
 
+def stamped(entries: list | None, config: dict, default: str | None) -> list[dict]:
+    """One `strategies` entry per side the config trades. A combined bot names a
+    different strategy per side, so a side that already names one keeps it; a
+    side the config picked up takes `default`, the id being stamped."""
+    named = {e.get("side", "long"): e.get("name")
+             for e in entries or [] if isinstance(e, dict)}
+    sides = traded_sides(config) or tuple(named) or ("long",)
+    return [{"name": resolve(named[side]) if named.get(side) else default, "side": side}
+            for side in sides]
+
+
+def sides_of(meta: dict) -> str:
+    return ",".join(e.get("side", "long")
+                    for e in meta.get("strategies") or [] if isinstance(e, dict)) or "—"
+
+
 def annotate(raw: dict, readable: str) -> dict:
     meta = dict(raw.get("pbtb") or {})
     previous = raw.get(LAB_KEY) or {}
@@ -239,6 +255,7 @@ def annotate(raw: dict, readable: str) -> dict:
 
     meta["style"] = style_of(raw)
     meta["engine"] = engine_of(raw)
+    meta["strategies"] = stamped(meta.get("strategies"), raw, meta.get("name"))
     # Without a recorded iteration, a frozen template has no generation; any
     # other keeps the one it was uploaded with.
     if "iter" in entry:
@@ -316,7 +333,6 @@ def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> No
             print(f"  {bot_name:18} {stored} (no such template; skipped)")
             continue
         new_id = template["name"]
-        entries = meta.get("strategies") or [{"side": "long"}]
         restamped = {
             **meta,
             "name": new_id,
@@ -324,13 +340,7 @@ def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> No
             "title_zh": template.get("title_zh"),
             **{field: template[field] for field in FACETS if field in template},
             **({"description": template["description"]} if template.get("description") else {}),
-            # A combined bot names a different strategy per side, so each entry
-            # resolves on its own.
-            "strategies": [
-                {"name": resolve(e["name"]) if e.get("name") else new_id,
-                 "side": e.get("side", "long")}
-                for e in entries
-            ],
+            "strategies": stamped(meta.get("strategies"), raw, new_id),
         }
         out = {**raw, "pbtb": restamped}
         if out == raw:
@@ -338,6 +348,8 @@ def restamp_bots(metas: dict[str, dict], profile: str | None, apply: bool) -> No
             continue
         assert trading(out) == trading(raw), f"{bot_name}: would change what passivbot reads"
         print(f"  {bot_name:18} {stored} -> {new_id}  {template.get('title')}")
+        if sides_of(restamped) != sides_of(meta):
+            print(f"    sides {sides_of(meta)} -> {sides_of(restamped)} (what the config trades)")
         if not apply:
             continue
         tmp = REPO_ROOT / ".cache" / "annotate_templates" / f"bot-{sk}.json"
@@ -387,6 +399,10 @@ def main() -> int:
             mark = " (current)" if new == old else ""
             print(f"  {tid:34} {family:28} {out['pbtb'].get('title', '')}"
                   f" {block.get('status', '')}{mark}")
+            was = group[tid].get("pbtb") or {}
+            if sides_of(out["pbtb"]) != sides_of(was):
+                print(f"    sides {sides_of(was)} -> {sides_of(out['pbtb'])}"
+                      " (what the config trades)")
             if new == old:
                 continue
             if prefix == PREFIX:

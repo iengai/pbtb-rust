@@ -43,7 +43,7 @@ from pathlib import Path
 from annotate_templates import ordered, refresh_artifact, restamp_bots, trading
 from backtest_templates import write_index
 from rename_predefined import BUCKET, PREFIX, RETIRED_PREFIX, aws, body_bytes
-from template_naming import UNIVERSES, capital_label
+from template_naming import UNIVERSES, capital_label, exposure, traded_sides
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
@@ -114,26 +114,6 @@ def number(value: float) -> str:
 
 def multiple(gain: float) -> str:
     return f"{gain:.1f}" if gain >= 10 else f"{gain:.2f}"
-
-
-def limits(config: dict, side: str) -> dict:
-    """One side's risk limits, at the path BotConfig reads them from."""
-    held = (config.get("bot") or {}).get(side) or {}
-    return held["risk"] if isinstance(held.get("risk"), dict) else held
-
-
-def exposure(config: dict, side: str) -> float:
-    return float(limits(config, side).get("total_wallet_exposure_limit") or 0)
-
-
-def traded_sides(config: dict) -> tuple[str, ...]:
-    held = (config.get("bot") or {})
-    return tuple(
-        side for side in ("long", "short")
-        if exposure(config, side) > 0
-        and float(limits(config, side).get("n_positions",
-                                           (held.get(side) or {}).get("n_positions")) or 0) > 0
-    )
 
 
 def basket(meta: dict, coins: list[str]) -> str:
