@@ -30,7 +30,7 @@ The bot's configured identity and desired state.
 | `secret_key` | Exchange API secret |
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
 | `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run) |
-| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; present only on a bot the operator's account has put on the public showcase page (`/public <bot_id> <url>`; `/public <bot_id> off` removes it). Read as stored |
+| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; present only on a bot the operator's account has put on the public showcase page (`/public <bot_id> <url>`, or the ops `set-public-url`; `off` removes it). Read as stored |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 
@@ -96,7 +96,7 @@ identity pointing at it. Such a row is inert — nothing resolves to it and it
 holds no data — and is tolerated rather than cleaned up.
 
 Operator commands for these rows: `python scripts/ops/pbtb_ops.py user-show |
-user-create | set-vip | set-role | user-status`.
+user-create | set-vip | set-role | user-status`; for a bot row's showcase link, `set-public-url`.
 
 ### Row shapes and the readers
 

@@ -15,13 +15,15 @@ same answers with one command instead of re-deriving where things live:
                                        create an account row (and bind a Telegram id)
   set-vip USER_ID LEVEL                change an existing account's level
   set-role USER_ID operator|member     the operator's account may put its bots on the showcase page
+  set-public-url USER_ID BOT_ID URL|off
+                                       the bot's Bybit page for the showcase (what /public does)
   user-status USER_ID active|suspended
 
 Everything here is read-only except `smoke-lambda`, which invokes a function
 with an event its guard clause discards before any side effect, and the
-`user-*` / `set-vip` / `set-role` commands, which write account rows to the bots table
-(each is a conditional write: create refuses an existing account, the
-updates refuse a missing one).
+`user-*` / `set-vip` / `set-role` / `set-public-url` commands, which write account
+and bot rows to the bots table (each is a conditional write: create refuses an
+existing account, the updates refuse a missing row).
 
 Design notes (the reasons this is Python and not bash):
   - Windows Git Bash mangles `/aws/...` paths and collapses backslashes in
@@ -746,6 +748,66 @@ def cmd_set_role(a):
         raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
 
 
+# The domain's rule for a showcase link (Bot::validate_public_url): https, the
+# authority a bare host on bybit.com, no userinfo or port. The same words on
+# refusal, so an operator reading either surface learns the same rule.
+PUBLIC_URL_HOSTS = ("bybit.com",)
+
+
+def check_public_url(url: str) -> str:
+    if len(url) > 512 or not url.startswith("https://") or any(ch.isspace() or ord(ch) < 32 for ch in url):
+        raise RuntimeError("a public link must be an https URL on bybit.com")
+    rest = url[len("https://"):]
+    end = len(rest)
+    for stop in "/?#\\":
+        i = rest.find(stop)
+        if i != -1:
+            end = min(end, i)
+    host = rest[:end].lower()
+    ok = host and all(ch.isalnum() or ch in ".-" for ch in host) and any(
+        host == h or host.endswith("." + h) for h in PUBLIC_URL_HOSTS)
+    if not ok:
+        raise RuntimeError("a public link must be an https URL on bybit.com")
+    return url
+
+
+def dyn_update_bot(c: dict, user_id: str, bot_id: str, expr: str, names: dict, values: dict, a) -> bool:
+    """update-item on a bot row; False when the row does not exist."""
+    env = dict(os.environ, AWS_PROFILE=a.profile, AWS_DEFAULT_REGION=a.region, AWS_PAGER="",
+               MSYS_NO_PATHCONV="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    now = str(int(time.time()))
+    cmd = [AWS, "dynamodb", "update-item", "--table-name", c["table"],
+           "--key", json.dumps({"pk": {"S": f"user_id#{user_id}"}, "sk": {"S": bot_id}}),
+           "--update-expression", expr,
+           "--condition-expression", "attribute_exists(pk)",
+           "--expression-attribute-values", json.dumps({**values, ":now": {"N": now}})]
+    if names:
+        cmd += ["--expression-attribute-names", json.dumps(names)]
+    r = subprocess.run(cmd, capture_output=True, env=env)
+    if r.returncode == 0:
+        return True
+    err = r.stderr.decode("utf-8", "replace")
+    if "ConditionalCheckFailedException" in err:
+        return False
+    raise RuntimeError(f"aws dynamodb update-item failed: {err.strip().splitlines()[-1]}")
+
+
+def cmd_set_public_url(a):
+    c = cfg(a.env)
+    if a.url == "off":
+        done = dyn_update_bot(c, a.user_id, a.bot_id, "REMOVE public_url SET updated_at = :now", {}, {}, a)
+        state = "private"
+    else:
+        url = check_public_url(a.url)
+        done = dyn_update_bot(c, a.user_id, a.bot_id, "SET public_url = :u, updated_at = :now",
+                              {}, {":u": {"S": url}}, a)
+        state = f"public: {url}"
+    if done:
+        print(f"{a.user_id}/{a.bot_id} is now {state}")
+    else:
+        raise RuntimeError(f"no bot row {a.bot_id} under {a.user_id}")
+
+
 def cmd_user_status(a):
     c = cfg(a.env)
     if dyn_update_user(c, a.user_id, "status", {"S": a.status}, a):
@@ -816,6 +878,12 @@ def main(argv=None):
     s.add_argument("user_id")
     s.add_argument("role", choices=["operator", "member"])
     s.set_defaults(fn=cmd_set_role)
+
+    s = sub.add_parser("set-public-url", help="put the bot on the showcase page (an https bybit.com link) or take it off")
+    s.add_argument("user_id")
+    s.add_argument("bot_id")
+    s.add_argument("url", help="the bot's Bybit copy-trading page, or `off`")
+    s.set_defaults(fn=cmd_set_public_url)
 
     s = sub.add_parser("user-status", help="activate or suspend an account")
     s.add_argument("user_id")
