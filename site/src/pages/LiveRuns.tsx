@@ -13,7 +13,10 @@ import { useT } from "../i18n/locale";
 export function LiveRuns({ template }: { template: string }) {
   const t = useT();
   const { data } = useLoad(() => staticData.showcaseBots(), "showcase:bots");
-  const runs = useMemo(() => (data ? runsForTemplate(data, template) : []), [data, template]);
+  const runs = useMemo(
+    () => (data ? runsForTemplate(data, template).map((run) => ({ run, window: runWindow(run) })) : []),
+    [data, template],
+  );
   if (runs.length === 0) return null;
   return (
     <div className="card" style={{ marginBottom: 18 }}>
@@ -21,7 +24,7 @@ export function LiveRuns({ template }: { template: string }) {
       <div className="hint" style={{ marginBottom: 4 }}>
         {t.showcase.runs.lead(MIN_RUN_DAYS, MAX_RUNS_PER_TEMPLATE)}
       </div>
-      {runs.map((r) => {
+      {runs.map(({ run: r, window }) => {
         const up = r.return_pct >= 0;
         return (
           <div key={`${r.bot.id}:${r.start}`} className="run">
@@ -43,7 +46,7 @@ export function LiveRuns({ template }: { template: string }) {
               </span>
             </div>
             <div style={{ color: up ? "var(--pnl)" : "var(--pnl-neg)" }}>
-              <ReturnChart window={runWindow(r)} />
+              <ReturnChart window={window} />
             </div>
           </div>
         );
