@@ -35,8 +35,9 @@ lab's own coordinates and ``original_name`` the optimizer-run name before that,
 so a template can still be found in the lab's NOTES.md and STRATEGIES.md.
 
 Each run also re-derives what the config and the lineage decide (``style``,
-``engine``, ``generation``, the sides in ``strategies``) and recomposes every title from the naming
-properties across the templates listed together, so a suffix appears or goes
+``engine``, ``generation``, the sides in ``strategies``) and recomposes every
+title from the naming properties across the templates listed together, so a
+suffix appears or goes
 as templates are added and retired. Each bot's stored config, which copied
 its template's titles and properties when it was applied, is restamped onto
 the current ones. Re-run it after either.
