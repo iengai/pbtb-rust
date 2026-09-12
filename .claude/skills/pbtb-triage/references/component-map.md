@@ -33,11 +33,12 @@ with the unredacted chain is still where the component's "Logs / evidence"
 column points. `python scripts/ops/sentry_issues.py list` prints what is
 unresolved (needs `SENTRY_AUTH_TOKEN`).
 
-The `incident-diagnose` workflow runs this skill's loop as a model with
-read-only tools and posts a "🤖 Diagnosis" comment on the issue. What it
-can see is the `gh-diagnose` IAM role: `bot-status` (rows without keys),
-`deploy-audit` (the NAT host shows as *not probed*: no SSM), `lambda-logs`,
-the Sentry event, the checkout. Treat its comment as a first pass with
+The `incident-diagnose` workflow runs this skill's loop as Claude Code
+headless (DeepSeek's `deepseek-flash` behind its Anthropic-compatible
+endpoint), read-only by its hook, and posts a "🤖 Diagnosis" comment on the
+issue. What it can see is the `gh-diagnose` IAM role: `bot-status` (rows
+without keys), `deploy-audit` (the NAT host shows as *not probed*: no SSM),
+`lambda-logs`, the Sentry event, the checkout. Treat its comment as a first pass with
 evidence to re-run, not as the finding; it cannot see the telebot host and
 it never runs a trading action. Re-run by hand:
 `gh workflow run incident-diagnose.yml -f issue_number=<n>`.
