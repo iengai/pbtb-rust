@@ -1,11 +1,14 @@
-//! S3 IO for the collector, both halves keyed by tenant and bot: the series
-//! the API serves to its owner (under the configured prefix, at the key
-//! `infra::returncurverepository::series_key` names) and the accumulated
-//! ledger state under `_state/`, which only the collector reads.
+//! S3 IO for the collector. The private halves are keyed by tenant and bot:
+//! the series the API serves to its owner (under the configured prefix, at
+//! the key `infra::returncurverepository::series_key` names) and the
+//! accumulated ledger state under `_state/`, which only the collector reads.
+//! The public prefix holds the showcase artifacts, keyed by opaque public id,
+//! which the pages-publish workflow copies to the site.
 
 use anyhow::{Context, Result};
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
+use serde::Serialize;
 
 use pbtb_rust::config::chart::ChartConfig;
 use pbtb_rust::infra::returncurverepository::series_key;
@@ -99,5 +102,66 @@ pub async fn put_series(
         .send()
         .await
         .context("put chart json to S3")?;
+    Ok(())
+}
+
+fn public_key(cfg: &ChartConfig, name: &str) -> String {
+    format!("{}/{name}", cfg.public_prefix.trim_matches('/'))
+}
+
+/// Write one showcase artifact under the public prefix.
+pub async fn put_public<T: Serialize>(
+    client: &Client,
+    cfg: &ChartConfig,
+    name: &str,
+    value: &T,
+) -> Result<()> {
+    let body = serde_json::to_vec(value).context("serialize public artifact")?;
+    client
+        .put_object()
+        .bucket(&cfg.bucket_name)
+        .key(public_key(cfg, name))
+        .body(ByteStream::from(body))
+        .content_type("application/json")
+        .send()
+        .await
+        .context("put public artifact to S3")?;
+    Ok(())
+}
+
+/// The names under `<public prefix>/<sub>`, relative to the prefix, every page
+/// of the listing.
+pub async fn list_public(client: &Client, cfg: &ChartConfig, sub: &str) -> Result<Vec<String>> {
+    let prefix = public_key(cfg, sub);
+    let strip = format!("{}/", cfg.public_prefix.trim_matches('/'));
+    let mut names = Vec::new();
+    let mut pages = client
+        .list_objects_v2()
+        .bucket(&cfg.bucket_name)
+        .prefix(&prefix)
+        .into_paginator()
+        .send();
+    while let Some(page) = pages.next().await {
+        let page = page.context("list public prefix")?;
+        for object in page.contents() {
+            if let Some(key) = object.key()
+                && let Some(name) = key.strip_prefix(&strip)
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    Ok(names)
+}
+
+/// Remove one showcase artifact.
+pub async fn delete_public(client: &Client, cfg: &ChartConfig, name: &str) -> Result<()> {
+    client
+        .delete_object()
+        .bucket(&cfg.bucket_name)
+        .key(public_key(cfg, name))
+        .send()
+        .await
+        .context("delete public artifact")?;
     Ok(())
 }

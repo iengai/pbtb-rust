@@ -129,6 +129,26 @@ the daily collector writes under the owner's tenant, so an account only ever
 sees its own bots' curves. A 404 there means the collector has not written the
 bot yet.
 
+## Static data: `data/` (the showcase)
+
+Synced from the chart bucket's `public/` prefix by `pages-publish` (daily at
+01:40 UTC and on every publish), never committed; `npm run fixtures` copies
+the sample in `fixtures/data/` into place, so a local build serves it. Two shapes,
+written by the daily collector (`src/bin/daily_pnl_snapshot/model.rs`,
+`PublicIndex` / `PublicBotSeries`):
+
+- `data/index.json`: `{generated_at, bots[{id, name, exchange, public_url,
+  current_return_pct, spark[30 × return_pct]}]}`.
+- `data/bots/{id}.json`: `{id, name, exchange, public_url, generated_at,
+  current_return_pct, points[{ts, index, return_pct}], config_switches[{ts,
+  template_name, cap_usdt}], capital_resets[{ts, cap_usdt}]}`.
+
+`id` is opaque (twelve hex characters), not the bot id. Percentages only:
+`cap_usdt`, the capital the bot ran a config at, is the one balance-derived
+figure and is rounded to 1, 2 or 5 times a power of ten; there is no realized
+PnL and no balance. `capital_resets` dates a wipe-out-and-refund. The S3
+layout is in docs/data-model.md.
+
 ## Static data: `templates/`
 
 The directory sits at the project root, not under `public/`, beside the script
