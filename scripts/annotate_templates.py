@@ -296,11 +296,11 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
         return False
     art = json.loads(path.read_text(encoding="utf-8"))
     changed = False
-    if art.get("source_sha") == sha(old):
+    if art.get("source_sha") != sha(old):
+        print("    artifact was already stale; source_sha left for backtest_templates.py")
+    elif new != old:
         art["source_sha"] = sha(new)
         changed = True
-    else:
-        print("    artifact was already stale; source_sha left for backtest_templates.py")
     for field in ARTIFACT_FIELDS:
         if art.get(field) != meta.get(field):
             art[field] = meta.get(field)
@@ -404,6 +404,8 @@ def main() -> int:
             if sides_of(out["pbtb"]) != sides_of(was):
                 print(f"    sides {sides_of(was)} -> {sides_of(out['pbtb'])}"
                       " (what the config trades)")
+            # The artifact carries the template's naming fields, which can lag
+            # the template while its S3 bytes are current.
             if prefix == PREFIX:
                 artifacts |= refresh_artifact(tid, old, new, out["pbtb"], args.apply)
             if new == old:
