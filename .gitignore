@@ -32,3 +32,6 @@ __pycache__/
 
 # Raw backtest output, logs and the S3 template mirror of scripts/backtest_templates.py.
 /.cache/
+
+# The showcase data pages-publish syncs from the chart bucket (or `npm run fixtures` copies in).
+/site/data/

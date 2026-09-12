@@ -43,7 +43,9 @@ module "base" {
   )
 }
 
-# Enumerate bots (Scan) and read each bot's config-switch timeline (Query).
+# Enumerate bots (Scan), read each bot's config-switch timeline (Query), and
+# read the account row of a bot with a public link (GetItem: only the
+# operator's account publishes).
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project}-${var.env}-daily-pnl-snapshot-dynamodb"
   role = module.base.role_name
@@ -54,7 +56,7 @@ resource "aws_iam_role_policy" "dynamodb" {
       {
         Sid      = "BotsTableRead"
         Effect   = "Allow"
-        Action   = ["dynamodb:Scan", "dynamodb:Query"]
+        Action   = ["dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem"]
         Resource = var.dynamodb_table_arn
       }
     ]
@@ -62,7 +64,8 @@ resource "aws_iam_role_policy" "dynamodb" {
 }
 
 # Read each bot's api-keys.json from the bot-configs bucket; read/write the
-# per-bot series + private incremental state on the separate chart bucket.
+# per-bot series + private incremental state on the separate chart bucket, and
+# remove a showcase artifact under its public prefix when a bot leaves the page.
 resource "aws_iam_role_policy" "s3" {
   name = "${var.project}-${var.env}-daily-pnl-snapshot-s3"
   role = module.base.role_name
@@ -84,9 +87,16 @@ resource "aws_iam_role_policy" "s3" {
         Resource = "${var.chart_bucket_arn}/*"
       },
       {
+        Sid      = "RemovePublicChartData"
+        Effect   = "Allow"
+        Action   = ["s3:DeleteObject"]
+        Resource = "${var.chart_bucket_arn}/public/*"
+      },
+      {
         # ListBucket so a GetObject on a not-yet-existing state key returns a
         # clean 404 (NoSuchKey) rather than 403 — the first run then reads "no
-        # state yet" as an absence, not a fault.
+        # state yet" as an absence, not a fault; the public prefix is listed to
+        # find the artifacts of bots no longer public.
         Sid      = "ListChartBucket"
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]

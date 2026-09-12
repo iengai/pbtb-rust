@@ -2,17 +2,21 @@
 //! split so the return index can be recomputed incrementally from accumulated
 //! state without re-fetching history.
 //!
-//! The output carries two readings of the same ledger: a time-weighted return
-//! index (cumulative return %, deposit-neutral) and the realized PnL in the
-//! settlement coin, per day and accumulated. It never carries a balance or
+//! The private output carries two readings of the same ledger: a time-weighted
+//! return index (cumulative return %, deposit-neutral) and the realized PnL in
+//! the settlement coin, per day and accumulated. It never carries a balance or
 //! equity — how much money the owner has is not the collector's to tell. It
 //! is keyed by the bot's immutable id, so a rename never orphans it; the
-//! readable name rides inside as mutable data. Nothing here is Bybit-specific.
+//! readable name rides inside as mutable data. The public output, for a bot
+//! the operator put on the showcase page, carries the index alone plus one
+//! rounded capital figure per config switch and reset. Nothing here is
+//! Bybit-specific.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use pbtb_rust::domain::Bot;
 use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
 
 use crate::bybit::LedgerEntry;
@@ -294,6 +298,362 @@ pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
     ReturnSeries {
         points,
         capital_resets,
+    }
+}
+
+/// One day of a public curve: where the index stands, and nothing about money.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicPoint {
+    pub ts: i64,
+    pub index: f64,
+    pub return_pct: f64,
+}
+
+/// A config switch on a public curve, with the capital the bot ran the new
+/// config at: the wallet balance at the close of the last day before the
+/// switch, rounded to a magnitude.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicSwitch {
+    pub ts: i64,
+    pub template_name: String,
+    pub cap_usdt: f64,
+}
+
+/// A capital reset on a public curve, with the capital the new era started
+/// at: the close of the reset day itself, since the day before held the dust
+/// the re-funding replaced.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicReset {
+    pub ts: i64,
+    pub cap_usdt: f64,
+}
+
+/// The showcase artifact for one bot the operator made public. A type of its
+/// own rather than the private series with fields removed: it has no place
+/// for realized PnL or a balance, so a money field added to the private
+/// series later cannot leak through it. `cap_usdt` is the one balance-derived
+/// figure, rounded to a magnitude. `id` is the opaque public id, not the bot
+/// id: bot ids are per-tenant keys two tenants may share.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicBotSeries {
+    pub id: String,
+    pub name: String,
+    pub exchange: String,
+    pub public_url: String,
+    pub generated_at: i64,
+    pub current_return_pct: f64,
+    pub points: Vec<PublicPoint>,
+    pub config_switches: Vec<PublicSwitch>,
+    pub capital_resets: Vec<PublicReset>,
+}
+
+/// The showcase listing: every public bot with what a list row needs, and a
+/// 30-day sparkline. Written on every run, empty when nothing is public, so
+/// the page can tell "nothing public" from "never synced".
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicIndex {
+    pub generated_at: i64,
+    pub bots: Vec<PublicIndexBot>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicIndexBot {
+    pub id: String,
+    pub name: String,
+    pub exchange: String,
+    pub public_url: String,
+    pub current_return_pct: f64,
+    pub spark: Vec<f64>,
+}
+
+const SPARK_DAYS: usize = 30;
+
+/// `sha256("{user_id}#{bot_id}")`, twelve hex characters: stable for the life
+/// of the bot, distinct across tenants, and safe as an S3 key and a URL
+/// segment whatever the bot was named.
+pub fn public_id(user_id: &str, bot_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(&Sha256::digest(format!("{user_id}#{bot_id}"))[..6])
+}
+
+/// The link a bot is published under, when it is: the operator's account gave
+/// it one. A link on any other account's row is inert.
+pub fn showcase_link(bot: &Bot, operator: bool) -> Option<&str> {
+    match &bot.public_url {
+        Some(url) if operator => Some(url),
+        _ => None,
+    }
+}
+
+/// Round a balance to the nearest of 1, 2 and 5 times a power of ten (100,
+/// 200, 500, 1k, 2k, 5k, …); a tie goes down. Coarse on purpose: it is the
+/// one balance-derived figure the public sees. Nothing positive rounds to 0.
+pub fn round_cap(balance: f64) -> f64 {
+    if !balance.is_finite() || balance <= 0.0 {
+        return 0.0;
+    }
+    let base = 10f64.powf(balance.log10().floor());
+    let mut best = base;
+    for candidate in [2.0 * base, 5.0 * base, 10.0 * base] {
+        if (candidate - balance).abs() < (best - balance).abs() {
+            best = candidate;
+        }
+    }
+    best
+}
+
+/// The close of the last day before the day `ts` falls in, or of the first
+/// recorded day when the ledger starts later (a switch recorded before the
+/// backfill window). 0 without any day.
+fn close_before(days: &[DayAgg], ts: i64) -> f64 {
+    let day = ts.div_euclid(DAY_S);
+    days.iter()
+        .rev()
+        .find(|d| d.day < day)
+        .or_else(|| days.first())
+        .map(|d| d.end_balance)
+        .unwrap_or(0.0)
+}
+
+/// The close of the day `ts` falls in; 0 when the ledger has no such day.
+fn close_on(days: &[DayAgg], ts: i64) -> f64 {
+    let day = ts.div_euclid(DAY_S);
+    days.iter()
+        .find(|d| d.day == day)
+        .map(|d| d.end_balance)
+        .unwrap_or(0.0)
+}
+
+impl PublicBotSeries {
+    pub fn new(
+        bot: &Bot,
+        public_url: &str,
+        series: &ReturnSeries,
+        switches: &[ConfigSwitchEvent],
+        days: &[DayAgg],
+        generated_at: i64,
+    ) -> Self {
+        let points: Vec<PublicPoint> = series
+            .points
+            .iter()
+            .map(|p| PublicPoint {
+                ts: p.ts,
+                index: p.index,
+                return_pct: p.return_pct,
+            })
+            .collect();
+        let current_return_pct = points.last().map(|p| p.return_pct).unwrap_or(0.0);
+        let config_switches = switches
+            .iter()
+            .map(|s| PublicSwitch {
+                ts: s.applied_at,
+                template_name: s.template_name.clone(),
+                cap_usdt: round_cap(close_before(days, s.applied_at)),
+            })
+            .collect();
+        let capital_resets = series
+            .capital_resets
+            .iter()
+            .map(|&ts| PublicReset {
+                ts,
+                cap_usdt: round_cap(close_on(days, ts)),
+            })
+            .collect();
+        Self {
+            id: public_id(&bot.user_id, &bot.id),
+            name: bot.name.clone(),
+            exchange: bot.exchange.as_str().to_string(),
+            public_url: public_url.to_string(),
+            generated_at,
+            current_return_pct,
+            points,
+            config_switches,
+            capital_resets,
+        }
+    }
+}
+
+impl PublicIndex {
+    pub fn new(series: &[PublicBotSeries], generated_at: i64) -> Self {
+        let bots = series
+            .iter()
+            .map(|s| PublicIndexBot {
+                id: s.id.clone(),
+                name: s.name.clone(),
+                exchange: s.exchange.clone(),
+                public_url: s.public_url.clone(),
+                current_return_pct: s.current_return_pct,
+                spark: s
+                    .points
+                    .iter()
+                    .rev()
+                    .take(SPARK_DAYS)
+                    .map(|p| p.return_pct)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect(),
+            })
+            .collect();
+        Self { generated_at, bots }
+    }
+}
+
+#[cfg(test)]
+mod public_tests {
+    use super::*;
+
+    const LINK: &str = "https://www.bybit.com/copyTrade/x";
+
+    fn day(day: i64, realized: f64, end_balance: f64) -> DayAgg {
+        DayAgg {
+            day,
+            realized,
+            end_balance,
+        }
+    }
+
+    fn a_public_bot() -> Bot {
+        let mut bot = Bot::create("u-1".into(), "shown".into(), "ak".into(), "sk".into(), 1);
+        bot.set_public_url(Some(LINK.into()), 1).unwrap();
+        bot
+    }
+
+    fn switch(ts: i64, template: &str) -> ConfigSwitchEvent {
+        ConfigSwitchEvent::template("u-1".into(), "shown".into(), template.into(), None, ts)
+    }
+
+    fn keys(value: &serde_json::Value, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (k, v) in map {
+                    out.push(k.clone());
+                    keys(v, out);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| keys(v, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn public_bot_series_has_no_money_key() {
+        let days = [
+            day(0, 10.0, 1010.0),
+            day(1, -5.0, 1005.0),
+            day(2, 20.0, 1025.0),
+        ];
+        let series = compute_points(&days, 1000.0);
+        let public = PublicBotSeries::new(
+            &a_public_bot(),
+            LINK,
+            &series,
+            &[switch(DAY_S + 100, "tpl-a")],
+            &days,
+            3 * DAY_S,
+        );
+        let mut found = Vec::new();
+        keys(&serde_json::to_value(&public).unwrap(), &mut found);
+        assert!(!found.is_empty());
+        for key in &found {
+            assert!(!key.contains("balance"), "{key}");
+            assert!(!key.contains("usdt") || key == "cap_usdt", "{key}");
+        }
+        let index = PublicIndex::new(&[public], 3 * DAY_S);
+        found.clear();
+        keys(&serde_json::to_value(&index).unwrap(), &mut found);
+        assert!(
+            found
+                .iter()
+                .all(|k| !k.contains("balance") && !k.contains("usdt"))
+        );
+    }
+
+    #[test]
+    fn public_cap_rounds_on_the_1_2_5_series() {
+        for (balance, cap) in [
+            (1234.0, 1000.0),
+            (1600.0, 2000.0),
+            (4200.0, 5000.0),
+            (1500.0, 1000.0),
+            (95.0, 100.0),
+            (7.0, 5.0),
+            (0.0, 0.0),
+            (-3.0, 0.0),
+        ] {
+            assert_eq!(round_cap(balance), cap, "{balance}");
+        }
+    }
+
+    #[test]
+    fn public_cap_is_the_close_before_a_switch_and_the_close_of_a_reset_day() {
+        // Day 2 is a re-funding: 12 of dust, then 5000 arrives.
+        let days = [
+            day(0, 10.0, 1010.0),
+            day(1, -998.0, 12.0),
+            day(2, 1.0, 5013.0),
+            day(3, 30.0, 5043.0),
+        ];
+        let series = compute_points(&days, 1000.0);
+        assert_eq!(series.capital_resets, vec![2 * DAY_S]);
+        let public = PublicBotSeries::new(
+            &a_public_bot(),
+            LINK,
+            &series,
+            &[switch(DAY_S + 3600, "tpl-a"), switch(-DAY_S, "tpl-0")],
+            &days,
+            4 * DAY_S,
+        );
+        assert_eq!(public.config_switches[0].cap_usdt, 1000.0, "close of day 0");
+        assert_eq!(
+            public.config_switches[1].cap_usdt, 1000.0,
+            "a switch before the ledger reads the first close"
+        );
+        assert_eq!(
+            public.capital_resets[0].cap_usdt, 5000.0,
+            "the reset day's own close"
+        );
+        assert_eq!(public.points.len(), 4);
+        assert_eq!(public.current_return_pct, series.points[3].return_pct);
+    }
+
+    #[test]
+    fn public_id_is_twelve_hex_of_user_and_bot() {
+        let id = public_id("u-1", "shown");
+        assert_eq!(id.len(), 12);
+        assert!(id.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(id, public_id("u-1", "shown"), "stable");
+        assert_ne!(id, public_id("u-2", "shown"), "per tenant");
+        assert_eq!(a_public_bot().user_id, "u-1");
+        assert_eq!(
+            PublicBotSeries::new(&a_public_bot(), LINK, &ReturnSeries::default(), &[], &[], 0).id,
+            id
+        );
+    }
+
+    #[test]
+    fn public_material_is_none_without_a_link() {
+        let private = Bot::create("u-1".into(), "quiet".into(), "ak".into(), "sk".into(), 1);
+        assert_eq!(showcase_link(&private, true), None);
+        assert_eq!(showcase_link(&a_public_bot(), true), Some(LINK));
+    }
+
+    #[test]
+    fn public_material_is_none_when_the_account_is_not_an_operator() {
+        assert_eq!(showcase_link(&a_public_bot(), false), None);
+    }
+
+    #[test]
+    fn the_index_sparkline_is_the_last_thirty_days_oldest_first() {
+        let days: Vec<DayAgg> = (0..40).map(|d| day(d, 1.0, 1000.0 + d as f64)).collect();
+        let series = compute_points(&days, 1000.0);
+        let public = PublicBotSeries::new(&a_public_bot(), LINK, &series, &[], &days, 0);
+        let index = PublicIndex::new(&[public], 0);
+        let spark = &index.bots[0].spark;
+        assert_eq!(spark.len(), 30);
+        assert_eq!(spark[29], series.points[39].return_pct);
+        assert_eq!(spark[0], series.points[10].return_pct);
+        assert_eq!(index.bots[0].id, public_id("u-1", "shown"));
     }
 }
 

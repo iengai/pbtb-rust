@@ -133,6 +133,10 @@ scoped `terraform apply`. Before reading code:
    means the collector never wrote the bot.
 2. A stale *page*: `gh run list -R iengai/pbtb-rust --workflow=pages-publish.yml --limit 3`;
    `gh api repos/iengai/pbtb-rust/pages --jq .build_type` must be `workflow`.
+3. A stale *showcase* (`data/index.json`): the collector writes `public/` at 01:00 UTC and
+   the 01:40 UTC scheduled publish copies it; `aws s3 ls s3://scalable-cluster-dev-return-charts/public/ --recursive`
+   timestamps say which half is late. A `::warning::` about `AWS_PAGES_PUBLISH_ROLE_ARN` in the run
+   means the sync was skipped. The Pages CDN can serve `data/*.json` up to ~10 min old.
 
 ## engine-routing
 

@@ -160,7 +160,9 @@ Bucket: {project}-{env}-bot-configs
 
 ## S3 (return curves)
 
-The chart bucket (`{project}-{env}-return-charts`) is the daily collector's, keyed by tenant like the config bucket: `charts/{user_id}/{bot_id}.json` is the series the API serves to the bot's owner (`GET /api/v1/bots/{id}/returns`), `_state/{user_id}/{bot_id}.json` the accumulated ledger only the collector reads. Nothing in it is published; the console reads curves through the API after sign-in. The prefix is one Terraform local shared by the collector and the API function.
+The chart bucket (`{project}-{env}-return-charts`) is the daily collector's, keyed by tenant like the config bucket: `charts/{user_id}/{bot_id}.json` is the series the API serves to the bot's owner (`GET /api/v1/bots/{id}/returns`), `_state/{user_id}/{bot_id}.json` the accumulated ledger only the collector reads. The prefix is one Terraform local shared by the collector and the API function. The console reads a tenant's curves through the API after sign-in.
+
+`public/` is the one prefix that leaves the bucket: `public/index.json` (every showcase bot: opaque id, name, exchange, link, current return, a 30-day sparkline) and `public/bots/{id}.json` (the curve as index and return per day, the config switches and capital resets each with the rounded capital the bot ran at, never a balance or a realized figure), written on every run for each bot whose account row is the operator's and whose bot row carries `public_url`. `{id}` is `sha256("{user_id}#{bot_id}")` cut to twelve hex characters: a collision-safe key across tenants (bot ids are per-tenant names), not a shield for the `user_id`, which a keyed hash would be. A bot that stops being public loses its file at the next run. The pages-publish workflow copies the prefix to the site (`site/data/`).
 
 ## Tenant isolation
 

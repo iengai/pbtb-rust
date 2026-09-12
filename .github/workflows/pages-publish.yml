@@ -1,27 +1,41 @@
 name: pages-publish
 
 # Build the static console (site/) and publish it to GitHub Pages. The page is
-# code and the committed template backtests only: every tenant's data, the
-# return curves included, reaches the browser through the API after sign-in,
-# so this workflow needs no cloud credentials.
+# code, the committed template backtests, and the showcase data: the chart
+# bucket's `public/` prefix (the operator's public bots, percentages and a
+# rounded capital figure, keyed by opaque id) synced into `site/data/` through
+# a read-only OIDC role that sees nothing else in the bucket. A tenant's own
+# curves still reach the browser through the API after sign-in.
 #
-# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions".
+# Runs on a push touching the site, on dispatch, and daily at 01:40 UTC: the
+# collector writes `public/` at 01:00 UTC and finishes in minutes.
+#
+# One-time setup: repo Settings -> Pages -> Source: "GitHub Actions"; the
+# secret AWS_PAGES_PUBLISH_ROLE_ARN from terraform's pages_publish_gh_role_arn
+# output. Without the secret the sync is skipped with a warning and the page
+# publishes without `data/`.
 
 on:
   push:
     branches: [main]
     paths: ['site/**', '.github/workflows/pages-publish.yml']
+  schedule:
+    - cron: '40 1 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write # deploy to GitHub Pages
-  id-token: write # deploy-pages authenticates the deployment with an OIDC token
+  id-token: write # deploy-pages and the AWS role both authenticate with an OIDC token
 
 # Never run two publishes at once (they race on the Pages deployment).
 concurrency:
   group: pages
   cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-northeast-1
+  CHART_BUCKET: scalable-cluster-dev-return-charts
 
 jobs:
   publish:
@@ -38,9 +52,40 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
 
-      # The console is a Vite build; `site/templates/` is copied into `dist/` by
-      # the build. The three values are public identifiers (the API's URL, the
-      # issuer, a public OAuth client id), not secrets — see site/README.md.
+      # A secret cannot be read in an `if`, so a step exports whether it is set.
+      - name: Check for the sync role
+        id: role
+        env:
+          ROLE: ${{ secrets.AWS_PAGES_PUBLISH_ROLE_ARN }}
+        run: |
+          if [ -n "$ROLE" ]; then
+            echo "sync=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "sync=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::AWS_PAGES_PUBLISH_ROLE_ARN is not set; publishing without the showcase data"
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.role.outputs.sync == 'yes'
+        with:
+          role-to-assume: ${{ secrets.AWS_PAGES_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # An empty prefix (the collector has not run since the role was made)
+      # syncs nothing; the page then publishes without `data/`, with a warning.
+      - name: Sync the showcase data
+        if: steps.role.outputs.sync == 'yes'
+        run: |
+          set -euo pipefail
+          aws s3 sync "s3://$CHART_BUCKET/public/" site/data/ --delete
+          if [ ! -f site/data/index.json ]; then
+            echo "::warning::public/ holds no index.json yet; publishing without the showcase data"
+          fi
+
+      # The console is a Vite build; `site/templates/` and `site/data/` are
+      # copied into `dist/` by the build. The three values are public identifiers
+      # (the API's URL, the issuer, a public OAuth client id), not secrets — see
+      # site/README.md.
       - name: Build the console
         working-directory: site
         env:
@@ -53,6 +98,7 @@ jobs:
           npm run build
           test -f dist/templates/index.json
           test -f dist/404.html
+          if [ -f data/index.json ]; then test -f dist/data/index.json; fi
 
       - uses: actions/configure-pages@v5
 

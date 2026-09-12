@@ -2,7 +2,9 @@
 # Private bucket for the per-bot return-curve JSON. No public access and no
 # bucket policy: the collector Lambda writes and the API function reads each
 # tenant's series for its owner, both via their own IAM roles, so nothing is
-# granted at the bucket level and nothing in it is ever published.
+# granted at the bucket level. The one prefix that leaves the bucket is
+# `public/`, the showcase artifacts, read by the pages-publish role and copied
+# to the site; the bucket itself stays closed.
 resource "aws_s3_bucket" "this" {
   bucket = var.bucket_name
 
