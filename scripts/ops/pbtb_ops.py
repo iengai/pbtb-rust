@@ -16,7 +16,8 @@ same answers with one command instead of re-deriving where things live:
   set-vip USER_ID LEVEL                change an existing account's level
   set-role USER_ID operator|member     the operator's account may put its bots on the showcase page
   set-public-url USER_ID BOT_ID URL|off
-                                       the bot's Bybit page for the showcase (what /public does)
+                                       the bot's Bybit page for the showcase (the /public write,
+                                       without its operator check; `off` lowercase)
   user-status USER_ID active|suspended
 
 Everything here is read-only except `smoke-lambda`, which invokes a function
@@ -44,6 +45,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 # Everything deployment-specific is overridable by env so the same CLI serves a
@@ -748,38 +750,51 @@ def cmd_set_role(a):
         raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
 
 
-# The domain's rule for a showcase link (Bot::validate_public_url): https, the
-# authority a bare host on bybit.com, no userinfo or port. The same words on
-# refusal, so an operator reading either surface learns the same rule.
+# The domain's rule for a showcase link (Bot::validate_public_url), byte for
+# byte: at most 512 bytes, no whitespace or control character, https, the
+# authority (up to the first of / ? # \\) a bare ASCII host on bybit.com, so
+# no userinfo, no port, no IDN. The same words on refusal, so an operator
+# reading either surface learns the same rule.
 PUBLIC_URL_HOSTS = ("bybit.com",)
 
 
 def check_public_url(url: str) -> str:
-    if len(url) > 512 or not url.startswith("https://") or any(ch.isspace() or ord(ch) < 32 for ch in url):
-        raise RuntimeError("a public link must be an https URL on bybit.com")
+    refuse = RuntimeError("a public link must be an https URL on bybit.com")
+    if len(url.encode("utf-8")) > 512 or not url.startswith("https://"):
+        raise refuse
+    if any(ch.isspace() or unicodedata.category(ch) == "Cc" for ch in url):
+        raise refuse
     rest = url[len("https://"):]
     end = len(rest)
     for stop in "/?#\\":
         i = rest.find(stop)
         if i != -1:
             end = min(end, i)
-    host = rest[:end].lower()
-    ok = host and all(ch.isalnum() or ch in ".-" for ch in host) and any(
-        host == h or host.endswith("." + h) for h in PUBLIC_URL_HOSTS)
-    if not ok:
-        raise RuntimeError("a public link must be an https URL on bybit.com")
+    host = rest[:end]
+    if not host or not host.isascii() or not all(ch.isalnum() or ch in ".-" for ch in host):
+        raise refuse
+    host = host.lower()
+    if not any(host == h or host.endswith("." + h) for h in PUBLIC_URL_HOSTS):
+        raise refuse
     return url
 
 
 def dyn_update_bot(c: dict, user_id: str, bot_id: str, expr: str, names: dict, values: dict, a) -> bool:
-    """update-item on a bot row; False when the row does not exist."""
+    """update-item on a bot row; False when no bot row has that id.
+
+    The condition pins the row kind, not only the partition: every row of the
+    tenant lives under the same pk, and a stray `sk` would otherwise land the
+    attribute on a runtime or identity row. `exchange` is a field only a bot
+    row carries."""
+    if "#" in bot_id:
+        raise RuntimeError("a bot id carries no '#'; that is another row kind")
     env = dict(os.environ, AWS_PROFILE=a.profile, AWS_DEFAULT_REGION=a.region, AWS_PAGER="",
                MSYS_NO_PATHCONV="1", PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     now = str(int(time.time()))
     cmd = [AWS, "dynamodb", "update-item", "--table-name", c["table"],
            "--key", json.dumps({"pk": {"S": f"user_id#{user_id}"}, "sk": {"S": bot_id}}),
            "--update-expression", expr,
-           "--condition-expression", "attribute_exists(pk)",
+           "--condition-expression", "attribute_exists(pk) AND attribute_exists(exchange)",
            "--expression-attribute-values", json.dumps({**values, ":now": {"N": now}})]
     if names:
         cmd += ["--expression-attribute-names", json.dumps(names)]
@@ -879,7 +894,8 @@ def main(argv=None):
     s.add_argument("role", choices=["operator", "member"])
     s.set_defaults(fn=cmd_set_role)
 
-    s = sub.add_parser("set-public-url", help="put the bot on the showcase page (an https bybit.com link) or take it off")
+    s = sub.add_parser("set-public-url", help="give the bot its showcase link (an https bybit.com URL) or take it off; "
+                       "only an operator's bots are published")
     s.add_argument("user_id")
     s.add_argument("bot_id")
     s.add_argument("url", help="the bot's Bybit copy-trading page, or `off`")
