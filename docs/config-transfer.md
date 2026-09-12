@@ -51,6 +51,9 @@ is the console's, `lab` is ours.
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
+  `annotate_templates.py` stamps the list from the config — a side with an
+  exposure limit and positions to hold — on the template and on each bot's
+  stored copy, so `--sides` on the transfer holds only until the next run.
 - `description` — what a user reads about the template: the Telegram confirm
   and **State** views, and the console's template page beside the backtest
   chart. `scripts/describe_templates.py --apply` composes it from the site
@@ -126,8 +129,9 @@ title nor a property carries a claim about what the template returns.
 `scripts/template_naming.py` holds the vocabulary and the ids the store used
 before (`bybit-mix10-1000u-balanced-v8`, and the optimizer-run names before
 those), and resolves an old name a stored config or history row still quotes.
-`scripts/annotate_templates.py --apply` re-derives the properties and
-recomposes every title; run it after adding or retiring a template.
+`scripts/annotate_templates.py --apply` re-derives the properties and the
+sides in `strategies`, and recomposes every title; run it after adding or
+retiring a template.
 
 Run it:
 
