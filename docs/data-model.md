@@ -30,7 +30,7 @@ The bot's configured identity and desired state.
 | `secret_key` | Exchange API secret |
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
 | `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run) |
-| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; present only on a bot the operator's account has put on the public showcase page (`/public <bot_id> <url>`, or the ops `set-public-url`; `off` removes it). Read as stored |
+| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; written by `/public <bot_id> <url>` (the operator's account only) or by the ops `set-public-url` (any account; the collector publishes only an operator's bots, so on a member's bot the link is inert); `off` removes it. Read as stored |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 
