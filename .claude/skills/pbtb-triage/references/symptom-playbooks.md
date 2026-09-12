@@ -110,6 +110,21 @@ A bot OOM-stopped and nothing relaunched it.
    FAILED phase message first, then the tail. `gcc is not installed` in the
    runtime stage → a dependency without an aarch64 wheel; wheel-build it in stage 1.
 
+## deployed-behind-main
+
+A merge deploys nothing here: `lambda-deploy`, `daily-pnl-snapshot-deploy` and
+`telebot-deploy` are `workflow_dispatch`, and a lambda's env comes from a
+scoped `terraform apply`. Before reading code:
+
+1. `python scripts/ops/pbtb_ops.py deploy-audit` → each lambda's `sha=` and
+   `modified=` against the merge time of the commit in question; a modified
+   time before the merge is the whole cause (#82).
+2. `gh run list --workflow=lambda-deploy.yml --limit 3` (and the other two)
+   → whether anyone dispatched the rollout at all.
+3. If the change was an env key: `aws lambda get-function-configuration
+   --function-name <fn> --query Environment` → whether the apply ran; the
+   rollout order and its window are the `pbtb-deploy` skill's.
+
 ## site-stale
 
 1. A stale *curve* is the collector, not the site: `lambda-logs daily-pnl --since 1d`

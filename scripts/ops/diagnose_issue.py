@@ -91,6 +91,12 @@ code change is the fix, name the file and the failing test to write first.
 ### Confidence
 high / medium / low, and what would raise it.
 
+### Lesson
+One line, `[cat:<slug>] Lesson: <what would have made this run shorter or
+safer>`, the slug from REVIEW.md's passes (`agent-habit` for a habit of
+yours), or "none". A candidate for the people who maintain this harness, not
+a doc edit.
+
 ### Self-evident
 `yes` or `no`, then one line per test: the cause is at a file:line, not a
 guess; the next step above names a failing test or command the fix agent can
