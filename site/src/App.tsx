@@ -11,6 +11,8 @@ import { ConfigDetail } from "./pages/ConfigDetail";
 import { Configs } from "./pages/Configs";
 import { Login } from "./pages/Login";
 import { Returns } from "./pages/Returns";
+import { Showcase } from "./pages/Showcase";
+import { ShowcaseBot } from "./pages/ShowcaseBot";
 import { Signup } from "./pages/Signup";
 
 function RequireAuth() {
@@ -40,6 +42,8 @@ export function App() {
       <Route element={<Layout />}>
         <Route path="/configs" element={<Configs />} />
         <Route path="/configs/:name" element={<ConfigDetail />} />
+        <Route path="/p" element={<Showcase />} />
+        <Route path="/p/bots/:pid" element={<ShowcaseBot />} />
         <Route element={<RequireAuth />}>
           <Route path="/bots" element={<Bots />} />
           <Route path="/returns" element={<Returns />} />

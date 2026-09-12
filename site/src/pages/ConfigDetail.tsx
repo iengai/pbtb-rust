@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
+import { LiveRuns } from "./LiveRuns";
 import { metricRows, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
@@ -87,6 +88,8 @@ export function ConfigDetail() {
             </div>
             <EquityChart points={data.points} />
           </div>
+
+          <LiveRuns template={data.name} />
 
           <div className="two-col">
             <div className="stack">

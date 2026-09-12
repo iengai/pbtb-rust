@@ -56,7 +56,7 @@ export const bots: typeof en = {
     cumulativeReturn: "累计收益率",
     noReturnData: "该机器人还没有收益数据。",
     noReturnDataHint: "机器人开始交易后，每日采集任务会发布收益序列。",
-    switchDot: "橙色圆点表示切换配置。",
+    switchDot: "橙色圆点表示切换配置。曲线后的色带是该配置的生效期间：悬停高亮，点击名称打开配置页。",
     configuration: "配置",
     template: "模板",
     tunedOn: "调优于",

@@ -18,11 +18,12 @@ site/
     App.tsx             routes
     auth/               PKCE + OAuth (public client), session in sessionStorage
     api/                /api/v1 client, response types, load/action hooks, dev mock
-    chart/              return curve (windowing, re-basing, SVG) + backtest equity chart
+    chart/              return curve (windowing, re-basing, SVG), the showcase's runs, backtest equity chart
     components/         nav, pills/badges/tiles, banners, modal, icons
-    data/               static JSON access (templates/)
+    data/               static JSON access (templates/, data/)
     i18n/               English + Simplified Chinese catalogs (see Languages below)
-    pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail, Account, Returns
+    pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail (+ LiveRuns), Account,
+                        Returns, Showcase, ShowcaseBot
   templates/            strategy-template backtests (committed; see below)
   dist/                 build output (gitignored)
 ```
@@ -36,9 +37,9 @@ i18n/
   locale.tsx      Lang = "en" | "zh"; detectLang/loadLang/saveLang; LocaleProvider (context
                   {lang, setLang, t}); useT() -> Messages; useLang() -> {lang, setLang}; LangSwitch
   messages.ts     Messages = typeof en; messages: Record<Lang, Messages>
-  en/index.ts     en = { common, auth, bots, configs, account, returns }
+  en/index.ts     en = { common, auth, bots, configs, account, returns, showcase }
   en/<area>.tsx   one file per page area, plain object literal
-  zh/index.ts     zh: Messages = { common, auth, bots, configs, account, returns }
+  zh/index.ts     zh: Messages = { common, auth, bots, configs, account, returns, showcase }
   zh/<area>.tsx   import { <area> as en } from "../en/<area>"; export const <area>: typeof en = {...}
 ```
 
@@ -50,7 +51,7 @@ word order differs from English); rich text with inline markup (`<b>`, `<span>`)
 returning `ReactNode`, which is why catalog files are `.tsx`. Components read `t.<area>.<key>` via
 `useT()`.
 
-The pure modules — `chart/returnCurve.ts`, `chart/equitySvg.ts`, `pages/metrics.ts` — stay
+The pure modules — `chart/returnCurve.ts`, `chart/showcase.ts`, `chart/equitySvg.ts`, `pages/metrics.ts` — stay
 language-free: they return structured data (an enum-like reason, numbers, timestamps) rather than
 sentences, and the React side (`ReturnChart.tsx`, `EquityChart.tsx`, the pages) resolves it through
 `t`.
@@ -66,8 +67,9 @@ The language is stored in `localStorage["pbtb.lang"]`; absent that, it defaults 
 | `npm run build` | `tsc --noEmit` + `vite build` → `dist/` (base `/pbtb-rust/`) |
 | `npm run preview` | serve `dist/` on `http://localhost:4173/pbtb-rust/` |
 | `npm run lint` | `tsc --noEmit` + `eslint .` |
+| `npm test` | vitest, the unit tests beside the pure modules (`src/**/*.test.ts`) |
 
-`.claude/skills/verify/scripts/gate.sh` runs `lint` and `build` whenever
+`.claude/skills/verify/scripts/gate.sh` runs `lint`, `test` and `build` whenever
 `site/package.json` exists.
 
 ## Configuration
@@ -120,8 +122,8 @@ the user with or without a readable token. The bundle carries no third-party
 script, and the three `innerHTML` sites are the charts, which interpolate
 numbers and `escapeXml` the one label that comes from data.
 
-`/configs` and `/configs/:name` render without a token (static data). Every
-other page requires one; `/bots/:id` polls the API every 15 s. Return curves
+`/configs`, `/configs/:name`, `/p` and `/p/bots/:id` render without a token (static
+data). Every other page requires one; `/bots/:id` polls the API every 15 s. Return curves
 (`/returns`, and the chart on `/bots/:id`) come from `GET
 /api/v1/bots/{id}/returns` — a `BotReturnSeries` (`points[{ts, index,
 return_pct}]`, `config_switches[{ts, template_name}]`, `capital_resets[ts]`)

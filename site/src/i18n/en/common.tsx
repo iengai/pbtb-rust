@@ -5,6 +5,7 @@ export const common = {
     bots: "Bots",
     configs: "Configs",
     returns: "Returns",
+    showcase: "Showcase",
     account: "Account",
     signIn: "Sign in",
   },

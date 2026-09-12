@@ -23,6 +23,9 @@ export function Layout() {
           <NavLink to="/returns" className={({ isActive }) => (isActive ? "on" : "")}>
             {t.common.nav.returns}
           </NavLink>
+          <NavLink to="/p" className={({ isActive }) => (isActive ? "on" : "")}>
+            {t.common.nav.showcase}
+          </NavLink>
           <NavLink to="/account" className={({ isActive }) => (isActive ? "on" : "")}>
             {t.common.nav.account}
           </NavLink>

@@ -27,7 +27,9 @@ export const returns: typeof en = {
     aria: "收益曲线",
     returnRow: "收益率",
     pnlRow: "当日净利",
+    configRow: "配置",
     switchTitle: (template, date) => `切换配置：${template} · ${date}`,
+    periodTitle: (template, from, to) => `${template} · ${from} → ${to}`,
     axisDate: (month, day) => `${month}${day}日`,
     caption: (c) =>
       [

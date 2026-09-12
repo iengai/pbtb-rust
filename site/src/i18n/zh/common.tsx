@@ -5,6 +5,7 @@ export const common: typeof en = {
     bots: "机器人",
     configs: "配置",
     returns: "收益",
+    showcase: "公开展示",
     account: "账户",
     signIn: "登录",
   },
