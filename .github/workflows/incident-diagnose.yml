@@ -1,11 +1,17 @@
 name: incident-diagnose
 
 # Post a read-only diagnosis on an Incident issue. scripts/ops/diagnose_issue.py
-# drives an OpenAI-compatible chat model with this repo's pbtb-triage skill
-# as its briefing and a fixed set of read-only tools (the checkout, git log,
-# pbtb_ops.py read subcommands, the Sentry issue). The AWS side is bounded
-# by the gh-diagnose role in terraform/envs/dev/diagnose-ci.tf: describe and
-# read-log calls only, bot rows without their key attributes, no SSM.
+# runs Claude Code headless on this checkout (the harness this repository is
+# written for, against the model the Anthropic-compatible endpoint serves:
+# DeepSeek's deepseek-flash by default) with the pbtb-triage skill as its
+# loop and a read-only surface its own hook enforces: Read / Grep / Glob
+# inside the checkout, git log / show / blame, the read subcommands of
+# pbtb_ops.py and the Sentry issue lookup; no edits, no web, no subagents.
+# The AWS side is bounded by the gh-diagnose role in
+# terraform/envs/dev/diagnose-ci.tf: describe and read-log calls only, bot
+# rows without their key attributes, no SSM. Those credentials sit in the
+# harness's environment for pbtb_ops.py; the model reaches them through
+# nothing but that script. The GitHub token never enters the harness.
 #
 # Two ways in. A person opening or labelling an issue `incident` runs it
 # when they have write access to the repo (an outsider's issue does not
@@ -17,13 +23,12 @@ name: incident-diagnose
 # raises that issue to the "open a PR" tier and dispatches issue-fix; an
 # issue a person filed keeps the tier the person chose.
 #
-# One-time setup: repo variables LLM_BASE_URL and LLM_MODEL (comma-separated
-# models in order of preference), repo secrets LLM_API_KEY and
+# One-time setup, shared with issue-fix: secret LLM_API_KEY (the DeepSeek
+# key, handed to Claude Code as ANTHROPIC_API_KEY), variable LLM_MODEL
+# (deepseek-flash when unset) and, for another Anthropic-compatible
+# endpoint, variable LLM_ANTHROPIC_BASE_URL. Own to this workflow: secret
 # AWS_DIAGNOSE_ROLE_ARN (terraform output gh_diagnose_role_arn);
-# SENTRY_AUTH_TOKEN is shared with incident-intake. Optional second endpoint:
-# variables LLM_FALLBACK_BASE_URL, LLM_FALLBACK_MODEL and secret
-# LLM_FALLBACK_API_KEY; a model that fails is dropped for the run and the
-# next one continues the same conversation.
+# SENTRY_AUTH_TOKEN is shared with incident-intake.
 
 on:
   issues:
@@ -47,6 +52,7 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
+  ISSUE: ${{ github.event.inputs.issue_number || github.event.issue.number }}
 
 jobs:
   diagnose:
@@ -55,6 +61,7 @@ jobs:
       (contains(github.event.issue.labels.*.name, 'incident') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # One diagnosis per issue at a time; a second trigger waits its turn.
     concurrency:
       group: incident-diagnose-${{ github.event.inputs.issue_number || github.event.issue.number }}
@@ -63,21 +70,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # git log is one of the model's tools
+          persist-credentials: false
 
+      # The role trusts main only (diagnose-ci.tf); a dry run dispatched on a
+      # branch tries the harness without the AWS side, and its ops probes
+      # answer with the missing credentials.
       - name: Configure AWS credentials (OIDC, read-only role)
+        if: github.ref == 'refs/heads/main'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DIAGNOSE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The harness. Pinned to the version issue-fix pins, so a release does
+      # not change what a run can do between one issue and the next.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.263
+
       - name: Diagnose
         env:
-          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_FALLBACK_BASE_URL: ${{ vars.LLM_FALLBACK_BASE_URL }}
-          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL }}
-          LLM_FALLBACK_API_KEY: ${{ secrets.LLM_FALLBACK_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.LLM_ANTHROPIC_BASE_URL || 'https://api.deepseek.com/anthropic' }}
+          ANTHROPIC_API_KEY: ${{ secrets.LLM_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.LLM_MODEL || 'deepseek-flash' }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -87,7 +104,25 @@ jobs:
           PBTB_AWS_PROFILE: ""
         run: |
           set -euo pipefail
-          issue="${{ github.event.inputs.issue_number || github.event.issue.number }}"
           args=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then args="--dry-run"; fi
-          python3 scripts/ops/diagnose_issue.py --issue "$issue" $args
+          python3 scripts/ops/diagnose_issue.py run --issue "$ISSUE" --out "$RUNNER_TEMP/diagnose" $args
+
+      # What the harness did, for a run that needs reading: every command the
+      # hook saw with its exit code, and the settings it ran under. The
+      # outputs the model read stay out of the artifact.
+      - name: Harness trail
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/diagnose/runs.jsonl"
+          [ -f "$f" ] && { jq -r '"\(.rc // "-")\t\(.cmd[0:200] | gsub("\n"; " "))"' "$f" || true; }
+          f="$RUNNER_TEMP/diagnose/claude-settings.json"
+          [ -f "$f" ] && cat "$f"
+          true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diagnose-${{ env.ISSUE }}
+          path: ${{ runner.temp }}/diagnose
+          retention-days: 7
