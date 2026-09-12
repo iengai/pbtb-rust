@@ -404,10 +404,10 @@ def main() -> int:
             if sides_of(out["pbtb"]) != sides_of(was):
                 print(f"    sides {sides_of(was)} -> {sides_of(out['pbtb'])}"
                       " (what the config trades)")
-            if new == old:
-                continue
             if prefix == PREFIX:
                 artifacts |= refresh_artifact(tid, old, new, out["pbtb"], args.apply)
+            if new == old:
+                continue
             if not args.apply:
                 continue
             tmp = REPO_ROOT / ".cache" / "annotate_templates" / f"{tid}.json"
