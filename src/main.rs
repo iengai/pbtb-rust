@@ -104,6 +104,9 @@ async fn main() -> anyhow::Result<()> {
     // DynamoBotRepository implements BotRepository, BotRuntimeRepository and
     // StartLockRepository, so coerce the same Arc into each trait object.
     let bots_dyn: Arc<dyn domain::BotRepository> = bot_repository.clone();
+    // The operator's showcase link on a bot; the role check is the use case's.
+    let set_bot_public_url_usecase =
+        Arc::new(SetBotPublicUrlUseCase::new(bots_dyn.clone(), clock.clone()));
     let runtimes_dyn: Arc<dyn domain::BotRuntimeRepository> = bot_repository.clone();
     let start_locks: Arc<dyn domain::StartLockRepository> = bot_repository.clone();
     let get_bot_runtime_usecase = Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone()));
@@ -165,6 +168,7 @@ async fn main() -> anyhow::Result<()> {
         update_risk_level_usecase,
         set_strategy_side_usecase,
         set_bot_runtime_usecase,
+        set_bot_public_url_usecase,
         // Runtime / desired-state management
         get_bot_runtime_usecase,
         // Sender resolution and Telegram binding

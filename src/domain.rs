@@ -25,4 +25,4 @@ pub use identity::{
 pub use returncurve::ReturnCurveRepository;
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};
 pub use secret::{random_token, token_digest};
-pub use user::{User, UserRepository, UserStatus};
+pub use user::{Role, User, UserRepository, UserStatus};

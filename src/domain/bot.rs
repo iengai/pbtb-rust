@@ -15,6 +15,10 @@ pub struct Bot {
     /// Which image runs this bot's engine line (`py` passivbot, `rs` pb-runner).
     /// Read at launch only; a change applies on the next start.
     pub runtime: Runtime,
+    /// The bot's Bybit copy-trading page, given by the operator with
+    /// `/public`. A bot that carries one is meant for the public showcase
+    /// page; `None` keeps its curve private.
+    pub public_url: Option<String>,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -42,6 +46,7 @@ impl Bot {
             secret_key,
             enabled,
             runtime,
+            public_url: None,
             created_at,
             updated_at,
         }
@@ -77,6 +82,7 @@ impl Bot {
             secret_key,
             enabled: false,
             runtime: Runtime::default(),
+            public_url: None,
             created_at: now,
             updated_at: now,
         }
@@ -92,6 +98,45 @@ impl Bot {
     pub fn disable(&mut self, now: i64) {
         self.enabled = false;
         self.updated_at = now;
+    }
+
+    /// Accept a link only when it is an https page on bybit.com. The authority
+    /// is read by hand (the domain takes no URL crate) and ends at the first of
+    /// `/ ? # \\`; the backslash counts because browsers read it as `/` in an
+    /// https URL, so `https://evil.example\\@www.bybit.com` would otherwise
+    /// pass as a bybit.com host and land on evil.example. A user-info part
+    /// (`@`), a port, and any byte outside `[A-Za-z0-9.-]` in the authority
+    /// are refused outright, as is whitespace or a control character anywhere.
+    pub fn validate_public_url(url: &str) -> Result<(), DomainError> {
+        // The echo is what the user reads back; a value near Telegram's message
+        // limit would make the reply itself undeliverable.
+        let refuse = || DomainError::InvalidPublicUrl(url.chars().take(128).collect());
+        if url.len() > 512 || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(refuse());
+        }
+        let rest = url.strip_prefix("https://").ok_or_else(refuse)?;
+        let authority = rest.split(['/', '?', '#', '\\']).next().unwrap_or("");
+        let plain = |b: u8| b.is_ascii_alphanumeric() || b == b'.' || b == b'-';
+        if authority.is_empty() || !authority.bytes().all(plain) {
+            return Err(refuse());
+        }
+        let host = authority.to_ascii_lowercase();
+        if host == "bybit.com" || host.ends_with(".bybit.com") {
+            Ok(())
+        } else {
+            Err(refuse())
+        }
+    }
+
+    /// Give the bot its public link, or take it away. Validated here so an
+    /// off-Bybit value can never reach a row.
+    pub fn set_public_url(&mut self, url: Option<String>, now: i64) -> Result<(), DomainError> {
+        if let Some(u) = &url {
+            Self::validate_public_url(u)?;
+        }
+        self.public_url = url;
+        self.updated_at = now;
+        Ok(())
     }
 
     /// Move the bot to another runtime image. Takes effect on the next launch:
@@ -177,6 +222,54 @@ mod tests {
         bot.disable(200);
         assert!(!bot.enabled);
         assert_eq!(bot.updated_at, 200);
+    }
+
+    #[test]
+    fn a_public_link_must_be_https_on_bybit() {
+        for ok in [
+            "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=abc",
+            "https://bybit.com",
+            "https://WWW.Bybit.com/x#y",
+        ] {
+            assert!(Bot::validate_public_url(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "https://evil.example\\@www.bybit.com",
+            "https://www.bybit.com.evil.example/x",
+            "https://bybit.com@evil.example",
+            "http://www.bybit.com/x",
+            "https://www.bybit.com:443/x",
+            "https://",
+            "bybit.com",
+            "https://www.bybit.com/x y",
+            "https://www.bybit.com/x\n",
+        ] {
+            assert!(
+                matches!(
+                    Bot::validate_public_url(bad),
+                    Err(DomainError::InvalidPublicUrl(_))
+                ),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_public_url_validates_and_stamps_updated_at() {
+        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        assert!(
+            bot.set_public_url(Some("http://www.bybit.com/x".into()), 300)
+                .is_err()
+        );
+        assert_eq!(bot.public_url, None);
+        assert_eq!(bot.updated_at, 1, "a refused value stamps nothing");
+        bot.set_public_url(Some("https://www.bybit.com/x".into()), 300)
+            .unwrap();
+        assert_eq!(bot.public_url.as_deref(), Some("https://www.bybit.com/x"));
+        assert_eq!(bot.updated_at, 300);
+        bot.set_public_url(None, 400).unwrap();
+        assert_eq!(bot.public_url, None);
+        assert_eq!(bot.updated_at, 400);
     }
 
     #[test]

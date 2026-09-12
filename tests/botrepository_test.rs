@@ -152,6 +152,48 @@ async fn dynamo_bot_repository_roundtrip() {
 /// AlreadyStarting reporting, release, and stale-lock recovery against real
 /// DynamoDB Local. Skips gracefully without Docker.
 #[tokio::test]
+async fn public_url_round_trips() {
+    let Some(db) = common::dynamo::start().await else {
+        return;
+    };
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
+    let link = "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=abc";
+
+    let mut bot = Bot::create(
+        "user-1".to_string(),
+        "shown-bot".to_string(),
+        "ak".to_string(),
+        "sk".to_string(),
+        1_700_000_000,
+    );
+    repo.save(&bot).await.expect("save");
+    let found = BotRepository::find(&repo, "user-1", "shown-bot")
+        .await
+        .expect("find")
+        .expect("saved");
+    assert_eq!(found.public_url, None, "a fresh bot is private");
+
+    bot.set_public_url(Some(link.to_string()), 1_700_000_100)
+        .expect("a bybit link");
+    repo.save(&bot).await.expect("save with link");
+    let found = BotRepository::find(&repo, "user-1", "shown-bot")
+        .await
+        .expect("find")
+        .expect("saved");
+    assert_eq!(found.public_url.as_deref(), Some(link));
+    assert_eq!(found.updated_at, 1_700_000_100);
+
+    bot.set_public_url(None, 1_700_000_200).expect("off");
+    repo.save(&bot).await.expect("save without link");
+    let found = BotRepository::find(&repo, "user-1", "shown-bot")
+        .await
+        .expect("find")
+        .expect("saved");
+    assert_eq!(found.public_url, None, "off removes the attribute");
+    assert_eq!(found.updated_at, 1_700_000_200);
+}
+
+#[tokio::test]
 async fn start_lock_cas_and_lifecycle() {
     let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.

@@ -15,7 +15,7 @@ use pbtb_rust::domain::identity::{
     IdentityRepository, LinkOutcome, LinkTicket, LinkTicketRepository, LinkedIdentity,
     PROVIDER_TELEGRAM,
 };
-use pbtb_rust::domain::user::{User, UserRepository, UserStatus};
+use pbtb_rust::domain::user::{Role, User, UserRepository, UserStatus};
 use pbtb_rust::infra::botrepository::DynamoBotRepository;
 
 const NOW: i64 = 1_700_000_000;
@@ -403,6 +403,57 @@ async fn an_account_is_created_once_and_read_back_whole() {
             .vip_level,
         3,
         "the refused create must leave the row untouched"
+    );
+}
+
+#[tokio::test]
+async fn role_round_trips() {
+    let repo = repo!();
+
+    // A member's row carries no role attribute and reads as member.
+    let user = User::new("acct-role".to_string(), None, NOW);
+    repo.create_user(&user).await.expect("create");
+    let found = repo.find_user("acct-role").await.expect("find").unwrap();
+    assert_eq!(found.role, Role::Member);
+
+    assert!(
+        repo.set_role("acct-role", Role::Operator, NOW + 1)
+            .await
+            .expect("set role")
+    );
+    let found = repo.find_user("acct-role").await.expect("find").unwrap();
+    assert_eq!(found.role, Role::Operator);
+    assert_eq!(found.updated_at, NOW + 1);
+
+    assert!(
+        repo.set_role("acct-role", Role::Member, NOW + 2)
+            .await
+            .expect("set role back")
+    );
+    assert_eq!(
+        repo.find_user("acct-role")
+            .await
+            .expect("find")
+            .unwrap()
+            .role,
+        Role::Member
+    );
+
+    // An operator created whole reads back whole.
+    let mut operator = User::new("acct-op".to_string(), None, NOW);
+    operator.role = Role::Operator;
+    assert!(repo.create_user(&operator).await.expect("create"));
+    assert_eq!(
+        repo.find_user("acct-op").await.expect("find").unwrap(),
+        operator
+    );
+
+    assert!(
+        !repo
+            .set_role("acct-nobody", Role::Operator, NOW)
+            .await
+            .expect("set role"),
+        "an update must not conjure an account"
     );
 }
 

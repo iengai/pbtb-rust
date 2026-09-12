@@ -14,11 +14,12 @@ same answers with one command instead of re-deriving where things live:
   user-create USER_ID [--vip N] [--email E] [--telegram TG_ID]
                                        create an account row (and bind a Telegram id)
   set-vip USER_ID LEVEL                change an existing account's level
+  set-role USER_ID operator|member     the operator's account may put its bots on the showcase page
   user-status USER_ID active|suspended
 
 Everything here is read-only except `smoke-lambda`, which invokes a function
 with an event its guard clause discards before any side effect, and the
-`user-*` / `set-vip` commands, which write account rows to the bots table
+`user-*` / `set-vip` / `set-role` commands, which write account rows to the bots table
 (each is a conditional write: create refuses an existing account, the
 updates refuse a missing one).
 
@@ -683,7 +684,7 @@ def cmd_user_show(a):
         print(f"no account row for {a.user_id}")
     else:
         print(f"user_id    {a.user_id}")
-        for k in ("vip_level", "status", "email", "created_at", "updated_at"):
+        for k in ("vip_level", "status", "role", "email", "created_at", "updated_at"):
             v = dyn_val(item, k)
             if v is not None:
                 if k.endswith("_at"):
@@ -733,6 +734,14 @@ def cmd_set_vip(a):
         raise RuntimeError(f"level must be within 0..{MAX_VIP_LEVEL}")
     if dyn_update_user(c, a.user_id, "vip_level", {"N": str(a.level)}, a):
         print(f"{a.user_id} vip_level={a.level}")
+    else:
+        raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
+
+
+def cmd_set_role(a):
+    c = cfg(a.env)
+    if dyn_update_user(c, a.user_id, "role", {"S": a.role}, a):
+        print(f"{a.user_id} role={a.role}")
     else:
         raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
 
@@ -802,6 +811,11 @@ def main(argv=None):
     s.add_argument("user_id")
     s.add_argument("level", type=int)
     s.set_defaults(fn=cmd_set_vip)
+
+    s = sub.add_parser("set-role", help="make the account the operator's (its bots may be shown publicly) or a member")
+    s.add_argument("user_id")
+    s.add_argument("role", choices=["operator", "member"])
+    s.set_defaults(fn=cmd_set_role)
 
     s = sub.add_parser("user-status", help="activate or suspend an account")
     s.add_argument("user_id")

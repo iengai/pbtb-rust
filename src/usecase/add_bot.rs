@@ -66,9 +66,10 @@ impl AddBotUseCase {
     /// the existing bot's id so the existing row is updated in place; saving
     /// under a name-derived id instead would leave a same-name row whose id is
     /// a numeric account id untouched and spawn yet another duplicate. The
-    /// desired state (`enabled`) and `created_at` are preserved — an overwrite
-    /// rotates the keys, it does not reset the bot. Falls back to a fresh
-    /// create when no bot by that name is found.
+    /// existing bot is changed in place, so everything but the name, the keys
+    /// and `updated_at` survives — an overwrite rotates the keys, it does not
+    /// reset the bot. Falls back to a fresh create when no bot by that name is
+    /// found.
     pub async fn overwrite(
         &self,
         user_id: &str,
@@ -79,18 +80,13 @@ impl AddBotUseCase {
         Bot::validate_name(&name)?;
         let now = self.clock.now();
         let bot = match self.find_by_name(user_id, &name).await? {
-            Some(existing) => Bot::new(
-                existing.id,
-                user_id.to_string(),
-                existing.exchange,
-                name,
-                api_key,
-                secret_key,
-                existing.enabled,
-                existing.runtime,
-                existing.created_at,
-                now,
-            ),
+            Some(mut existing) => {
+                existing.name = name;
+                existing.api_key = api_key;
+                existing.secret_key = secret_key;
+                existing.updated_at = now;
+                existing
+            }
             None => Bot::create(user_id.to_string(), name, api_key, secret_key, now),
         };
         self.persist(&bot).await?;
@@ -333,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn overwrite_updates_in_place_reusing_existing_id() {
-        let legacy = Bot::new(
+        let mut legacy = Bot::new(
             "452425891".into(),
             "user-1".into(),
             Exchange::Bybit,
@@ -345,6 +341,9 @@ mod tests {
             100,
             100,
         );
+        legacy
+            .set_public_url(Some("https://www.bybit.com/x".into()), 100)
+            .unwrap();
         let bots = Arc::new(InMemoryBots::default());
         bots.save(&legacy).await.unwrap();
         let api_keys = Arc::new(MockApiKeyRepository::default());
@@ -370,6 +369,11 @@ mod tests {
         assert_eq!(row.api_key, "new-ak", "keys rotated");
         assert!(row.enabled, "desired state preserved");
         assert_eq!(row.runtime, Runtime::Rs, "runtime preserved");
+        assert_eq!(
+            row.public_url.as_deref(),
+            Some("https://www.bybit.com/x"),
+            "public link preserved"
+        );
         assert_eq!(row.created_at, 100, "created_at preserved");
         assert_eq!(row.updated_at, 1_700_000_000, "updated_at bumped to now");
     }

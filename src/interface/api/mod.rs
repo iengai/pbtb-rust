@@ -86,7 +86,12 @@ impl ApiError {
             DomainError::RiskOutOfRange { .. }
             | DomainError::LeverageOutOfRange { .. }
             | DomainError::MissingConfigPath(_)
-            | DomainError::InvalidConfig(_) => Self::BadRequest(err.to_string()),
+            | DomainError::InvalidConfig(_)
+            | DomainError::InvalidPublicUrl(_) => Self::BadRequest(err.to_string()),
+            DomainError::OperatorOnly => Self::Forbidden(json!({
+                "error": "operator_only",
+                "message": err.to_string(),
+            })),
             DomainError::QuotaExceeded { limit } => Self::Forbidden(json!({
                 "error": "quota_exceeded",
                 "limit": limit,
