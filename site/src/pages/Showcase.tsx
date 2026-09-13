@@ -19,7 +19,8 @@ export function Showcase() {
   const { data, error, loading, reload } = useLoad(async () => {
     const index = await staticData.showcase();
     if (!index) return null;
-    const series = await Promise.all(index.bots.map((b) => staticData.showcaseBot(b.id)));
+    // A bot file that fails to load costs its own row's figure, not the listing.
+    const series = await Promise.all(index.bots.map((b) => staticData.showcaseBot(b.id).catch(() => null)));
     return { index, heads: series.map((s) => (s ? headline(s) : null)) };
   }, "showcase");
   const bots = data?.index.bots ?? [];
