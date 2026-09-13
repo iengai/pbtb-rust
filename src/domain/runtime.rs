@@ -148,7 +148,8 @@ pub trait StartLockRepository: Send + Sync {
     ) -> Result<StartClaim, DomainError>;
     /// Atomically claim the right to restart after `stopped_task_id` stopped:
     /// transition the row to `starting` ONLY while that task is still the bot's
-    /// current task (the row's `task_id` still matches), bumping the restart
+    /// current task (the row's `task_id` still matches, in `running`, `starting`
+    /// or the `stopping` a restart's own StopTask stamped), bumping the restart
     /// counter. This is the idempotency gate for the Lambda's auto-restart —
     /// duplicate STOPPED events for the same task find the id already cleared and
     /// are rejected, so a stopped task can be replaced at most once. `Acquired`

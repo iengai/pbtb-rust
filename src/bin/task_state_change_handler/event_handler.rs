@@ -182,8 +182,9 @@ pub(crate) async fn function_handler(
         }
 
         // Task STOPPED -> delegate the restart-or-skip decision to the reconcile
-        // use case. It checks desired state (Bot.enabled), the memory-related rule,
-        // records observed runtime, and (re)starts the task when appropriate.
+        // use case. It checks desired state (Bot.enabled), whether the stop was an
+        // OOM or a restart's own StopTask, records observed runtime, and (re)starts
+        // the task when appropriate.
         "STOPPED" => {
             tracing::info!(
                 "ECS task stopped: taskArn={}, clusterArn={}, stopCode={:?}, stoppedReason={:?}",
@@ -193,19 +194,15 @@ pub(crate) async fn function_handler(
                 detail.stopped_reason
             );
 
-            let container = match detail.containers.as_ref().and_then(|v| v.first()) {
-                Some(c) => c,
-                None => {
-                    tracing::info!(
-                        "No containers found in task detail; skip container-based handling. taskArn={}",
-                        task_arn
-                    );
-                    return Ok(());
-                }
-            };
-
-            let name = container.name.as_deref().unwrap_or("<unknown-container>");
-            let exit = container.exit_code.unwrap_or(-1);
+            // A task stopped before its container existed (a stop during
+            // PROVISIONING) carries no container: it still settles the row, and a
+            // restart's stop of such a task still relaunches, so reconcile runs
+            // with no exit code rather than returning early.
+            let container = detail.containers.as_ref().and_then(|v| v.first());
+            let name = container
+                .and_then(|c| c.name.as_deref())
+                .unwrap_or("<no-container>");
+            let exit = container.and_then(|c| c.exit_code).unwrap_or(-1);
             let stop_code = detail.stop_code.as_deref().unwrap_or("<unknown-stop-code>");
             tracing::info!(
                 "Container exit (single-container task): name={}, exitCode={}, reason={:?}",
@@ -218,6 +215,7 @@ pub(crate) async fn function_handler(
             let stop = StopInfo {
                 exit_code: exit,
                 stop_code: stop_code.to_string(),
+                stopped_reason: detail.stopped_reason.clone(),
             };
             let stopped_task_id = task_id_from_arn(task_arn);
 
@@ -246,9 +244,9 @@ pub(crate) async fn function_handler(
                         task_arn
                     );
                 }
-                ReconcileOutcome::SkippedNotMemoryRelated => {
+                ReconcileOutcome::SkippedNotRestartable => {
                     tracing::warn!(
-                        "Task did not exit due to a memory-related reason; skipping restart. taskArn={}",
+                        "Task stop was neither memory-related nor a requested restart; skipping restart. taskArn={}",
                         task_arn
                     );
                 }

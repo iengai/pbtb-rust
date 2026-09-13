@@ -2,7 +2,7 @@ use crate::domain::bot::BotRepository;
 use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, StartClaim, StartLockRepository};
 use crate::usecase::engine_routing::LaunchTargetResolver;
 use crate::usecase::run_task::TaskRunner;
-use crate::usecase::stop_task::TaskController;
+use crate::usecase::stop_task::{RESTART_REASON, TaskController};
 use anyhow::Result;
 use std::sync::Arc;
 
@@ -10,18 +10,37 @@ use std::sync::Arc;
 pub struct StopInfo {
     pub exit_code: i32,
     pub stop_code: String,
+    /// The event's `stoppedReason`: the text a `StopTask` caller gave, or ECS's
+    /// own for a stop it initiated. Absent when the event carries none.
+    pub stopped_reason: Option<String>,
 }
 impl StopInfo {
     pub fn is_memory_related(&self) -> bool {
         self.exit_code == 137 && !self.stop_code.contains("UserInitiated")
     }
+    /// A `StopTask` sent by `RestartBotUseCase`: the one user-initiated stop
+    /// the bot is relaunched after.
+    pub fn is_restart_requested(&self) -> bool {
+        self.stop_code.contains("UserInitiated")
+            && self
+                .stopped_reason
+                .as_deref()
+                .is_some_and(|r| r.starts_with(RESTART_REASON))
+    }
+    /// Whether this stop is one the reconcile relaunches, desired state permitting.
+    pub fn is_restartable(&self) -> bool {
+        self.is_memory_related() || self.is_restart_requested()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReconcileOutcome {
-    Restarted { task_id: String },
+    Restarted {
+        task_id: String,
+    },
     SkippedNotEnabled, // user intent is OFF -> do NOT restart
-    SkippedNotMemoryRelated,
+    /// Neither an OOM nor a restart's own stop: the bot stays down.
+    SkippedNotRestartable,
     SkippedSuperseded, // the stopped task is no longer current (e.g. duplicate STOPPED)
     BotNotFound,
 }
@@ -104,7 +123,7 @@ impl ReconcileStoppedTaskUseCase {
             }
         };
 
-        // Desired state OFF (user manually stopped) -> reflect stopped, never restart. THIS is the rule the old Lambda was missing.
+        // Desired state OFF (the user stopped it) -> reflect stopped, never restart.
         if !bot.enabled {
             self.runtimes
                 .record(&BotRuntime::stopped(
@@ -116,7 +135,7 @@ impl ReconcileStoppedTaskUseCase {
                 .await?;
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
-        if !stop.is_memory_related() {
+        if !stop.is_restartable() {
             self.runtimes
                 .record(&BotRuntime::stopped(
                     user_id.to_string(),
@@ -125,7 +144,7 @@ impl ReconcileStoppedTaskUseCase {
                     observed_at,
                 ))
                 .await?;
-            return Ok(ReconcileOutcome::SkippedNotMemoryRelated);
+            return Ok(ReconcileOutcome::SkippedNotRestartable);
         }
 
         // The engine line the bot's CURRENT config targets, and its task
@@ -136,7 +155,8 @@ impl ReconcileStoppedTaskUseCase {
         // Claim the restart through the same exclusive lock the telebot uses,
         // keyed on the stopped task. Only the claim that finds this task still
         // current launches, so a duplicate STOPPED event (EventBridge is
-        // at-least-once) cannot spawn a second live-trading task. The lock is
+        // at-least-once) cannot spawn a second live-trading task; the row may
+        // read `stopping` here, the stamp a restart's own StopTask left. The lock is
         // stamped with wall-clock `now`, not the (possibly stale) event time, so
         // a concurrent telebot start cannot mistake this fresh lock for an
         // abandoned one and reclaim it.
@@ -274,6 +294,7 @@ mod tests {
         let stop = StopInfo {
             exit_code: 137,
             stop_code: "TaskFailedToStart".to_string(),
+            stopped_reason: None,
         };
         assert!(stop.is_memory_related());
     }
@@ -283,6 +304,7 @@ mod tests {
         let stop = StopInfo {
             exit_code: 137,
             stop_code: "UserInitiated".to_string(),
+            stopped_reason: None,
         };
         assert!(!stop.is_memory_related());
     }
@@ -292,8 +314,39 @@ mod tests {
         let stop = StopInfo {
             exit_code: 0,
             stop_code: "TaskFailedToStart".to_string(),
+            stopped_reason: None,
         };
         assert!(!stop.is_memory_related());
+    }
+
+    #[test]
+    fn restart_requested_when_user_initiated_with_the_restart_reason() {
+        let stop = StopInfo {
+            exit_code: 137,
+            stop_code: "UserInitiated".to_string(),
+            stopped_reason: Some(RESTART_REASON.to_string()),
+        };
+        assert!(stop.is_restart_requested());
+        assert!(stop.is_restartable());
+    }
+
+    #[test]
+    fn not_restart_requested_without_the_reason_or_the_user_initiated_code() {
+        let other_reason = StopInfo {
+            exit_code: 137,
+            stop_code: "UserInitiated".to_string(),
+            stopped_reason: Some("stopped by user via telebot".to_string()),
+        };
+        assert!(!other_reason.is_restart_requested());
+        assert!(!other_reason.is_restartable());
+        // The reason alone is not enough: ECS's own stops (`ServiceSchedulerInitiated`,
+        // `TaskFailedToStart`) never carry a caller's reason, and a spoofed one must not count.
+        let not_user = StopInfo {
+            exit_code: 1,
+            stop_code: "TaskFailedToStart".to_string(),
+            stopped_reason: Some(RESTART_REASON.to_string()),
+        };
+        assert!(!not_user.is_restart_requested());
     }
 
     // --- Use-case behaviour tests with in-memory mock repositories ---
@@ -508,6 +561,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -521,6 +575,109 @@ mod tests {
         assert_eq!(rt.phase, RuntimePhase::Stopped);
         assert_eq!(rt.task_id, None);
         assert_eq!(rt.observed_at, EVENT_AT);
+    }
+
+    #[tokio::test]
+    async fn enabled_bot_user_initiated_stop_with_the_restart_reason_relaunches() {
+        let bots = Arc::new(InMemoryBots::with(enabled_bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(CountingRunner::default());
+        let uc = ReconcileStoppedTaskUseCase::new(
+            bots,
+            runtimes,
+            locks.clone(),
+            runner.clone(),
+            Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
+        );
+
+        let outcome = uc
+            .execute(
+                "user-1",
+                "bot-1",
+                "stopped-task",
+                "cluster",
+                "container",
+                StopInfo {
+                    exit_code: 137,
+                    stop_code: "UserInitiated".to_string(),
+                    stopped_reason: Some(RESTART_REASON.to_string()),
+                },
+                EVENT_AT,
+                EVENT_AT,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            ReconcileOutcome::Restarted {
+                task_id: "task-new".to_string()
+            }
+        );
+        assert_eq!(*locks.restart_calls.lock().unwrap(), 1);
+        assert_eq!(*runner.calls.lock().unwrap(), 1);
+        assert_eq!(
+            locks.attached.lock().unwrap().as_deref(),
+            Some("task-new"),
+            "the replacement is attached to the held lock"
+        );
+    }
+
+    #[tokio::test]
+    async fn enabled_bot_user_initiated_stop_without_the_reason_stays_stopped() {
+        let bots = Arc::new(InMemoryBots::with(enabled_bot(true)));
+        let runtimes = Arc::new(InMemoryRuntimes::default());
+        let locks = Arc::new(MockLock::new(StartClaim::Acquired));
+        let runner = Arc::new(CountingRunner::default());
+        let uc = ReconcileStoppedTaskUseCase::new(
+            bots,
+            runtimes.clone(),
+            locks.clone(),
+            runner.clone(),
+            Arc::new(MockStopper::default()),
+            Arc::new(FixedTarget),
+        );
+
+        // The Lambda's own fail-safe stop: a UserInitiated stop of an enabled bot
+        // that must not become a launch loop.
+        let outcome = uc
+            .execute(
+                "user-1",
+                "bot-1",
+                "stopped-task",
+                "cluster",
+                "container",
+                StopInfo {
+                    exit_code: 137,
+                    stop_code: "UserInitiated".to_string(),
+                    stopped_reason: Some("stopped: desired-state re-check failed".to_string()),
+                },
+                EVENT_AT,
+                EVENT_AT,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, ReconcileOutcome::SkippedNotRestartable);
+        assert_eq!(*locks.restart_calls.lock().unwrap(), 0);
+        assert_eq!(*runner.calls.lock().unwrap(), 0);
+        let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopped);
+    }
+
+    /// A TaskRunner that launches `task-new` and counts calls.
+    #[derive(Default)]
+    struct CountingRunner {
+        calls: Mutex<usize>,
+    }
+    #[async_trait]
+    impl TaskRunner for CountingRunner {
+        async fn run(&self, _u: &str, _b: &str, _c: &str, _t: &str, _n: &str) -> Result<String> {
+            *self.calls.lock().unwrap() += 1;
+            Ok("task-new".to_string())
+        }
     }
 
     #[tokio::test]
@@ -549,13 +706,14 @@ mod tests {
                 StopInfo {
                     exit_code: 0,
                     stop_code: "EssentialContainerExited".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
             )
             .await
             .unwrap();
-        assert_eq!(outcome, ReconcileOutcome::SkippedNotMemoryRelated);
+        assert_eq!(outcome, ReconcileOutcome::SkippedNotRestartable);
 
         // 137 but UserInitiated => also not memory related.
         let outcome2 = uc
@@ -568,13 +726,14 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "UserInitiated".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
             )
             .await
             .unwrap();
-        assert_eq!(outcome2, ReconcileOutcome::SkippedNotMemoryRelated);
+        assert_eq!(outcome2, ReconcileOutcome::SkippedNotRestartable);
 
         let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
         assert_eq!(rt.phase, RuntimePhase::Stopped);
@@ -605,6 +764,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -675,6 +835,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -727,6 +888,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -790,6 +952,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -868,6 +1031,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -936,6 +1100,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,
@@ -1004,6 +1169,7 @@ mod tests {
                 StopInfo {
                     exit_code: 137,
                     stop_code: "TaskFailedToStart".to_string(),
+                    stopped_reason: None,
                 },
                 EVENT_AT,
                 EVENT_AT,

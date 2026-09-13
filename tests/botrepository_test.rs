@@ -364,6 +364,54 @@ async fn start_lock_restart_is_idempotent_per_stopped_task() {
     );
 }
 
+/// A restart's own StopTask stamps `stopping` on the task it stopped; the
+/// STOPPED event that follows must still be able to claim the relaunch, or the
+/// row would sit `stopping` for the stale window with nothing coming back.
+#[tokio::test]
+async fn restart_claim_admits_the_stopping_row_of_the_task_it_stopped() {
+    let Some(db) = common::dynamo::start().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
+    let (u, b) = ("user-1", "restarting-bot");
+
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-1".into(), 5, 1000),
+    )
+    .await
+    .unwrap();
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::stopping(u.into(), b.into(), "task-1".into(), 5, 1050),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.try_acquire_restart(u, b, "task-1", 1100)
+            .await
+            .unwrap(),
+        StartClaim::Acquired,
+        "the STOPPED event of a restart-stopped task claims the relaunch"
+    );
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.phase, RuntimePhase::Starting);
+    assert_eq!(rt.task_id, None);
+    assert_eq!(rt.version, 6, "restart counter bumped");
+
+    // A duplicate STOPPED(task-1) finds the id cleared and is refused.
+    assert_ne!(
+        repo.try_acquire_restart(u, b, "task-1", 1101)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
+}
+
 /// The observed `Stopping` write is identity-guarded: it marks the task it
 /// actually stopped, but must NEVER clobber a newer generation (a restart lock a
 /// concurrent reconcile just claimed, which clears the id and bumps the version).

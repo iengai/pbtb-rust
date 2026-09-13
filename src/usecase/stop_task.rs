@@ -1,6 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 
+/// The `StopTask` reason a restart sends. ECS hands it back verbatim as the
+/// STOPPED event's `stoppedReason`, and the reconcile Lambda relaunches a
+/// `UserInitiated` stop only when the reason starts with this string; a stop
+/// with any other reason (a user's Stop, an operator's console stop, the
+/// Lambda's own fail-safe stops) is final.
+pub const RESTART_REASON: &str = "restart requested";
+
 /// Whether an ECS task is still alive, as reported authoritatively by ECS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskLiveness {

@@ -1,9 +1,9 @@
-use crate::domain::bot::BotRepository;
+use crate::domain::bot::{Bot, BotRepository};
 use crate::domain::clock::Clock;
 use crate::domain::entitlement;
 use crate::domain::error::{DomainError, Retryability};
 use crate::domain::runtime::{BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository};
-use crate::usecase::engine_routing::LaunchTargetResolver;
+use crate::usecase::engine_routing::{LaunchTarget, LaunchTargetResolver};
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::{TaskController, TaskLiveness};
 use std::sync::Arc;
@@ -75,6 +75,45 @@ impl StartBotUseCase {
         }
     }
 
+    /// The level's ceiling on switched-on bots, counted over the tenant's
+    /// OTHER bots so that re-running one that is already on never trips it.
+    /// Desired state is the measure, not the observed phase: a bot that is
+    /// on but between tasks still holds its slot. Two starts racing past
+    /// this read can both pass; the ceiling is a cost guard, not a lock, and
+    /// the exclusive start lock is what keeps a bot from double-running.
+    pub(in crate::usecase) async fn ensure_slot(
+        &self,
+        user_id: &str,
+        vip_level: u8,
+        bot_id: &str,
+    ) -> Result<(), DomainError> {
+        if let Some(limit) = entitlement::max_running_bots(vip_level) {
+            let enabled_others = self
+                .bots
+                .find_by_user_id(user_id)
+                .await?
+                .iter()
+                .filter(|b| b.enabled && b.id != bot_id)
+                .count();
+            if enabled_others >= limit {
+                return Err(DomainError::QuotaExceeded { limit });
+            }
+        }
+        Ok(())
+    }
+
+    /// Which engine this bot's config needs, and the task definition for it.
+    /// Resolved BEFORE desired state is flipped on, and before a restart stops
+    /// anything: a config that cannot launch (unparseable stamp, no image
+    /// registered for its engine) is the user's to fix, and must neither leave
+    /// intent ON for the auto-restart to chase nor take a healthy task down.
+    pub(in crate::usecase) async fn resolve_target(
+        &self,
+        bot: &Bot,
+    ) -> Result<LaunchTarget, DomainError> {
+        self.targets.resolve(bot).await
+    }
+
     /// `vip_level` is the caller's, as their account row reads at this request.
     pub async fn execute(
         &self,
@@ -87,30 +126,8 @@ impl StartBotUseCase {
             None => return Ok(StartOutcome::BotNotFound),
         };
 
-        // The level's ceiling on switched-on bots, counted over the tenant's
-        // OTHER bots so that re-running one that is already on never trips it.
-        // Desired state is the measure, not the observed phase: a bot that is
-        // on but between tasks still holds its slot. Two starts racing past
-        // this read can both pass; the ceiling is a cost guard, not a lock, and
-        // the exclusive start lock below is what keeps a bot from double-running.
-        if let Some(limit) = entitlement::max_running_bots(vip_level) {
-            let enabled_others = self
-                .bots
-                .find_by_user_id(user_id)
-                .await?
-                .iter()
-                .filter(|b| b.enabled && b.id != bot.id)
-                .count();
-            if enabled_others >= limit {
-                return Err(DomainError::QuotaExceeded { limit });
-            }
-        }
-
-        // Which engine this bot's config needs, and the task definition for it.
-        // Resolved BEFORE desired state is flipped on: a config that cannot launch
-        // (unparseable stamp, no image registered for its engine) is the user's to
-        // fix, and must not leave intent ON for the auto-restart to chase.
-        let target = self.targets.resolve(&bot).await?;
+        self.ensure_slot(user_id, vip_level, bot_id).await?;
+        let target = self.resolve_target(&bot).await?;
 
         // Desired state ON first: intent is recorded even if the launch fails,
         // and auto-restart keys off it.
@@ -210,12 +227,10 @@ impl StartBotUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::bot::Bot;
     use crate::domain::engine::{EngineVersion, Runtime};
     use crate::domain::error::DomainError;
     use crate::domain::exchange::Exchange;
     use crate::domain::runtime::BotRuntime;
-    use crate::usecase::engine_routing::LaunchTarget;
     use anyhow::{Result, anyhow};
     use async_trait::async_trait;
     use std::collections::HashMap;
