@@ -91,10 +91,11 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `DELETE /bots/{id}` | write | Delete API key | body `{confirm: "<id>"}`; drops the row, the config and the keys |
 | `POST /bots/{id}/start` | write | Run bot | claims the start lock; `started` / `already_running` / `already_starting`; 409 `stopping` (retry); 403 `quota_exceeded` past the level's ceiling |
 | `POST /bots/{id}/stop` | write | Stop bot | `stopped` / `not_running` / `already_stopping`; 409 `start_in_progress` (retry) |
+| `POST /bots/{id}/restart` | write | Restart bot | `restarting` (the task stops with desired state kept on; the reconcile Lambda relaunches it) / `started` (nothing was running); 409 `start_in_progress` / `stopping` (retry); 403 `quota_exceeded` for a bot that is off past the level's ceiling |
 | `PUT /bots/{id}/risk` | write | Risk level | `{long, short}` wallet exposure limits; out-of-range → 400 |
 | `PUT /bots/{id}/sides` | write | Sides | `{side: "long"\|"short", enabled}` |
 | `PUT /bots/{id}/runtime` | write | Runtime | `{runtime: "py"\|"rs"}` |
-| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start; 403 `insufficient_level` for a template above the caller's level, 403 `operator_only` for an operator-only template unless the account is the operator's |
+| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start or restart; 403 `insufficient_level` for a template above the caller's level, 403 `operator_only` for an operator-only template unless the account is the operator's |
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
 | `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it: a return index plus realized PnL in the settlement coin (`realized_usdt` / `cum_realized_usdt` per point, `total_realized_usdt` overall), no balance; 404 until it has; 501 where no chart bucket is configured |
@@ -107,8 +108,9 @@ with the `style` and `generation` the console shows as tags. `GET /templates`
 lists each id with its English title; the console takes the Chinese one from
 the published backtests it already loads.
 
-Config changes take effect on a bot's next start. A running task keeps the
-config and the binary it started with.
+Config changes take effect on a bot's next start or restart. A running task
+keeps the config and the binary it started with; `POST /bots/{id}/restart` is
+how a change is applied to one.
 
 Balance and unstuck are placeholders in telebot too (`$0.00` / "coming soon"),
 so the API mirrors them rather than inventing behaviour. A real balance has an

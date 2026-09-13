@@ -74,10 +74,10 @@ Use cases depend on domain ports rather than concrete infra types — for exampl
 
 The crate produces two binaries, both built on the same Domain/Use Case/Infrastructure core:
 
-- **`src/main.rs`** — the Telegram bot. It long-polls the Telegram Bot API via teloxide, wires every use case in its composition root (DynamoDB, S3, and ECS clients; `RunTaskUseCase`, `EcsTaskController`, `StartBotUseCase`, `StopBotUseCase`, the bot/template/config use cases), and dispatches updates through the interface layer.
+- **`src/main.rs`** — the Telegram bot. It long-polls the Telegram Bot API via teloxide, wires every use case in its composition root (DynamoDB, S3, and ECS clients; `RunTaskUseCase`, `EcsTaskController`, `StartBotUseCase`, `StopBotUseCase`, `RestartBotUseCase`, the bot/template/config use cases), and dispatches updates through the interface layer.
 - **`src/bin/task_state_change_handler/`** — an AWS Lambda that listens to ECS **Task State Change** events (RUNNING and STOPPED) delivered via EventBridge.
   - On **RUNNING** it records observed-running state via `RecordRunningTaskUseCase`.
-  - On **STOPPED** it parses the stop reason into a `StopInfo` (container `exitCode` + `stopCode`) and delegates the restart-or-skip decision to `ReconcileStoppedTaskUseCase`.
+  - On **STOPPED** it parses the stop into a `StopInfo` (container `exitCode`, `stopCode`, `stoppedReason`; a task stopped before it had a container reads exit `-1`) and delegates the restart-or-skip decision to `ReconcileStoppedTaskUseCase`.
 
   Together these keep the observed `BotRuntime` state in sync with reality, event by event. The Lambda has its own composition root in `src/bin/task_state_change_handler/main.rs`, performing cold-start initialization once and reusing the same `AppState` across warm invocations. The event parsing lives in `event_handler.rs`: it ignores any event that is not `source = "aws.ecs"` / `detail-type = "ECS Task State Change"`, extracts `USER_ID`/`BOT_ID` from the container override environment (scanning every override, since a name-only sidecar override can sort ahead of the passivbot container), and uses the EventBridge event time as the observation timestamp.
 
@@ -101,7 +101,7 @@ The dialogue layer renders the **Status** view, which shows both desired and obs
 - **Desired** comes from `Bot.enabled` — `🟢 Enabled` / `🔴 Disabled`.
 - **Actual** comes from the observed `RuntimePhase` — `⏳ Starting` / `▶️ Running` / `🛑 Stopping` / `⏹️ Stopped` (or `❔ Unknown` when no record exists yet). This observed glyph also leads each bot-list button, so a fresh `▶️ Running` reads differently from a winding-down `🛑 Stopping`.
 
-The **Run bot** / **Stop bot** buttons flip desired state **and** actuate ECS by driving `StartBotUseCase` / `StopBotUseCase`.
+The **Run bot** / **Stop bot** buttons flip desired state **and** actuate ECS by driving `StartBotUseCase` / `StopBotUseCase`. **Restart bot** keeps desired state ON and stops the task through `RestartBotUseCase`; the reconcile Lambda brings it back.
 
 ## Desired State vs Observed State
 
@@ -111,7 +111,7 @@ The model deliberately separates two distinct concepts:
 - **Observed state = reality.** The `BotRuntime` aggregate (`src/domain/runtime.rs`) records whether the ECS task is actually running. It carries `phase: RuntimePhase`, plus `task_id`, `version` (a restart counter / task generation), and `observed_at`. `RuntimePhase` has four variants:
   - `Running` / `Stopped` — written by the ECS Task State Change Lambda (`RecordRunningTaskUseCase` on RUNNING, `ReconcileStoppedTaskUseCase` on STOPPED).
   - `Starting` — the transient exclusive-start-lock state a launcher stamps the instant it claims the right to launch and before the RUNNING event arrives. It lets a concurrent launch be rejected and lets a stop issued during startup locate the task.
-  - `Stopping` — the mirror transient state `StopBotUseCase` stamps the instant it issues `StopTask`, before the STOPPED event arrives (keeping `task_id`). It makes the wind-down visible and lets a racing Run see `stopping` (returning `AlreadyStopping`) instead of a stale `running`; the launch is still refused by the start-lock CAS, so a task is never double-run. The Lambda only ever writes `Running` / `Stopped`, which settle the row.
+  - `Stopping` — the mirror transient state `StopBotUseCase` and `RestartBotUseCase` stamp the instant they issue `StopTask`, before the STOPPED event arrives (keeping `task_id`). It makes the wind-down visible and lets a racing Run see `stopping` (returning `AlreadyStopping`) instead of a stale `running`; the launch is still refused by the start-lock CAS, so a task is never double-run. The Lambda only ever writes `Running` / `Stopped`, which settle the row.
 
 Observed runtime is read via `GetBotRuntimeUseCase`. `BotRuntimeRepository::find_consistent` provides a strongly-consistent read for decisions that must not act on a stale replica (e.g. stopping a task needs the freshest `task_id`); it defaults to `find` and is overridden by the DynamoDB implementation.
 
@@ -120,7 +120,7 @@ Observed runtime is read via `GetBotRuntimeUseCase`. `BotRuntimeRepository::find
 `ReconcileStoppedTaskUseCase` (`src/usecase/reconcile_stopped_task.rs`) owns the restart policy. It restarts a stopped task **only** when both conditions hold:
 
 1. **Desired state is ON** — `bot.enabled == true`.
-2. **The stop was memory-related** — `StopInfo::is_memory_related()` is true, i.e. `exit_code == 137` and `stop_code` does not contain `UserInitiated`.
+2. **The stop is restartable** — `StopInfo::is_restartable()`: either **memory-related** (`exit_code == 137` and `stop_code` does not contain `UserInitiated`) or a **requested restart** (`stop_code` contains `UserInitiated` and `stopped_reason` starts with `RESTART_REASON`, the `StopTask` reason `RestartBotUseCase` sends). Any other user-initiated stop — a user's Stop, an operator's console stop, the Lambda's own fail-safe stops — is final; relaunching every `UserInitiated` stop of an enabled bot would turn the fail-safe stop into a launch loop.
 
 The restart is claimed through the **exclusive start lock**, keyed on the stopped task id, so a duplicate or late STOPPED event (EventBridge is at-least-once) cannot spawn a second task. The use case returns one of:
 
@@ -128,7 +128,7 @@ The restart is claimed through the **exclusive start lock**, keyed on the stoppe
 |---------|---------|
 | `Restarted { task_id }` | A replacement task was launched. |
 | `SkippedNotEnabled` | Desired state is OFF; the user manually stopped it. Recorded as stopped, never restarted. |
-| `SkippedNotMemoryRelated` | The stop was not an OOM (e.g. exit 0, or 137 with `UserInitiated`). Recorded as stopped. |
+| `SkippedNotRestartable` | Neither an OOM nor a requested restart (e.g. exit 0, or `UserInitiated` without the restart reason). Recorded as stopped. |
 | `SkippedSuperseded` | The stopped task is no longer the row's current task (duplicate/late STOPPED). |
 | `BotNotFound` | The bot no longer exists; a stopped runtime is recorded so it is not left showing Running. |
 
@@ -137,7 +137,7 @@ The flow inside `execute` is ordered for safety:
 1. Read `prev_version` up front (needed even on the bot-not-found path to record stopped state).
 2. If the bot is missing, record stopped and return `BotNotFound`.
 3. If `!enabled`, record stopped and return `SkippedNotEnabled` — a bot the user manually disabled is never resurrected, even after an OOM.
-4. If the stop is not memory-related, record stopped and return `SkippedNotMemoryRelated`.
+4. If the stop is neither memory-related nor a requested restart, record stopped and return `SkippedNotRestartable`.
 5. Claim the restart via `try_acquire_restart`; anything other than `Acquired` returns `SkippedSuperseded`.
 6. Re-validate desired state inside the held lock with a strongly-consistent read; if the bot was disabled mid-claim, release the lock and return `SkippedNotEnabled`.
 7. Launch the task; on failure release the lock and propagate the error.
@@ -148,12 +148,12 @@ The lock is stamped with fresh wall-clock `now` (not the possibly-stale EventBri
 
 ## Exclusive Start Lock (no double-run)
 
-A bot must **never** run two live-trading tasks at once. Every launcher — the telebot "Run bot" (`StartBotUseCase`) and the Lambda auto-restart (`ReconcileStoppedTaskUseCase`) — claims an exclusive lock before `RunTask`. The lock is the `StartLockRepository` port (`src/domain/runtime.rs`): a `starting` row guarded by a DynamoDB **conditional write**. The authoritative gate is the atomic write, **not** the read — a strongly-consistent read alone cannot stop two concurrent claimers from both launching.
+A bot must **never** run two live-trading tasks at once. Every launcher — the telebot "Run bot" (`StartBotUseCase`) and the Lambda auto-restart (`ReconcileStoppedTaskUseCase`) — claims an exclusive lock before `RunTask`. A restart adds no launcher: it stops the task and the Lambda's claim relaunches it. The lock is the `StartLockRepository` port (`src/domain/runtime.rs`): a `starting` row guarded by a DynamoDB **conditional write**. The authoritative gate is the atomic write, **not** the read — a strongly-consistent read alone cannot stop two concurrent claimers from both launching.
 
 `StartClaim` is the outcome of a claim attempt: `Acquired` (the caller won and must launch exactly one task), `AlreadyRunning` (a task is already running, nothing to launch), `AlreadyStarting` (another launch is already in flight), or `AlreadyStopping` (a fresh `stopping` row is held — the task is still winding down, so the caller must wait and retry). The four lock operations:
 
 - **`try_acquire_start(user_id, bot_id, now, stale_after)`** — the cold-start claim. Atomically transitions the row to `starting`, succeeding only when it is safe to launch: the row is absent/stopped, or holds a `starting`/`stopping` state older than `stale_after` seconds (an abandoned launch, or a `stopping` whose STOPPED event was dropped). A **fresh** `stopping` returns `AlreadyStopping` (refused, retry later); a **stale** `stopping` is reclaimable only after the same ECS-liveness check as a stale `starting` (below), so a still-live winding-down task is never double-launched. Concurrent callers are serialized per row, so at most one receives `Acquired`. `StartBotUseCase` uses `START_LOCK_STALE_AFTER_SECS = 600` (deliberately longer than any real task-start latency).
-- **`try_acquire_restart(user_id, bot_id, stopped_task_id, now)`** — the Lambda's restart claim. Transitions to `starting` **only** while `stopped_task_id` is still the row's current `task_id`, bumping the restart counter. This is the idempotency gate: duplicate STOPPED events for the same task find the id already cleared and are rejected, so a stopped task is replaced at most once.
+- **`try_acquire_restart(user_id, bot_id, stopped_task_id, now)`** — the Lambda's restart claim. Transitions to `starting` **only** while `stopped_task_id` is still the row's current `task_id` — in `running`, `starting`, or the `stopping` a restart's own `StopTask` stamped — bumping the restart counter. This is the idempotency gate: duplicate STOPPED events for the same task find the id already cleared and are rejected, so a stopped task is replaced at most once. The counter therefore moves on a live-task restart and not on a stopped bot's Restart, which is a plain start through `try_acquire_start`.
 - **`attach_started_task(user_id, bot_id, task_id)`** — records the launched `task_id` on the held `starting` lock so a stop issued before the RUNNING event can still find the task. A no-op if the row already advanced past `starting`.
 - **`release_start(user_id, bot_id, now)`** — releases a held `starting` lock back to `stopped` after a failed launch. A no-op if the row already advanced past `starting`.
 
@@ -165,7 +165,9 @@ Before reclaiming a stale `starting` **or** `stopping` lock that still carries a
 
 `StartBotUseCase::execute` is ordered: flip desired state ON and save first (so intent survives a launch failure and auto-restart keys off it), then run the liveness guard, then `try_acquire_start`, then launch and `attach_started_task` (or `release_start` on failure). It returns `Started { task_id }`, `AlreadyRunning`, `AlreadyStarting`, `Stopping` (the previous task is still winding down — retry shortly), or `BotNotFound`.
 
-`StopBotUseCase::execute` flips desired state OFF first — so the STOPPED event from its own `StopTask` (which ECS stamps `UserInitiated`) is reconciled as user-initiated and never auto-restarted — then locates the task by the `task_id` on the runtime row (read strongly-consistently so a just-started task is seen) and issues `StopTask`. It returns `Stopped { task_id }`, `NotRunning`, `StartInProgress` (a launch is mid-flight and its id is not recorded yet; a retry once RUNNING lands will stop it), or `BotNotFound`.
+`StopBotUseCase::execute` flips desired state OFF first — so the STOPPED event from its own `StopTask` (which ECS stamps `UserInitiated`) is reconciled as user-initiated and never auto-restarted — then `wind_down`: locate the task by the `task_id` on the runtime row (read strongly-consistently so a just-started task is seen) and issue `StopTask` with a reason, stamping `stopping`. It returns `Stopped { task_id }`, `NotRunning`, `StartInProgress` (a launch is mid-flight and its id is not recorded yet; a retry once RUNNING lands will stop it), `AlreadyStopping`, or `BotNotFound`.
+
+`RestartBotUseCase::execute` is the same wind-down with desired state kept ON and the reason `RESTART_REASON`, which is what admits the STOPPED event to the Lambda's relaunch. Ordered: a fresh `stopping` row returns `Stopping` without touching intent (that Stop or Restart owns it; a stale one falls through to `StartBotUseCase`'s liveness-gated reclaim); a `running`/`starting` row with a task id first passes the level ceiling (for a bot that is off — a bot that is on holds its slot) and resolves the launch target, so a config that cannot come back refuses the restart and stops nothing, then enables and saves, then winds down → `Restarting { task_id }`; a `starting` row with no id yet → `StartInProgress`; anything else is a plain `StartBotUseCase::execute` → `Started { task_id }` (a racing `AlreadyRunning` / `AlreadyStarting` reads as `StartInProgress`). The relaunch itself takes up to the container's stop timeout plus the Lambda's event latency. Failure modes: with the Lambda down or behind (the deploy window), a Restart is a Stop that leaves *Enabled · Stopped*, which Run fixes; a lost STOPPED event leaves `🛑 Stopping` until the stale window passes; Stop and Restart in the same instant race on intent (two reads), and settle to whichever wrote last with one task at most.
 
 ## Layer Details
 
@@ -196,6 +198,7 @@ Business logic orchestration:
 - `UpdateRiskLevelUseCase` — adjust risk parameters.
 - `StartBotUseCase` — "Run bot": flip desired ON and launch the ECS task behind the exclusive start lock.
 - `StopBotUseCase` — "Stop bot": flip desired OFF and stop the running task.
+- `RestartBotUseCase` — "Restart bot": keep desired ON, stop the running task with the restart reason; the Lambda relaunches it. Starts a bot that is not running.
 - `GetBotRuntimeUseCase` — read observed runtime (`BotRuntime`) for a bot.
 - `RecordRunningTaskUseCase` — record observed-running state on a RUNNING event (returns `Recorded { version }` or `SkippedStale`).
 - `ReconcileStoppedTaskUseCase` — decide whether to restart a stopped task; the restart is claimed through the start lock and is idempotent per stopped task.

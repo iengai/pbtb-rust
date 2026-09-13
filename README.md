@@ -7,8 +7,8 @@ A Telegram bot, written in Rust, for managing [Passivbot](https://github.com/ena
 - **Bot management** — create, delete, and list trading bots through Telegram
 - **Configuration** — apply predefined configuration templates to bots
 - **Risk management** — adjust risk levels (long/short exposure); leverage is derived automatically
-- **Run / Stop control** — turn a bot on or off; this sets *desired state* (user intent) **and** actuates the ECS task (`RunTask`/`StopTask`) behind an exclusive start lock
-- **Auto-restart supervision** — a Lambda reconciles stopped ECS tasks, restarting only when the bot is still enabled and the stop was memory-related (OOM)
+- **Run / Stop / Restart control** — turn a bot on or off, or restart it with its current config; this sets *desired state* (user intent) **and** actuates the ECS task (`RunTask`/`StopTask`) behind an exclusive start lock
+- **Auto-restart supervision** — a Lambda reconciles stopped ECS tasks, restarting only when the bot is still enabled and the stop was memory-related (OOM) or a requested restart
 - **Secure credentials** — exchange API keys stored encrypted in S3, isolated per user
 
 ## Tech Stack

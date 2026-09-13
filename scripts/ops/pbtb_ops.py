@@ -287,7 +287,7 @@ def cmd_bot_status(a):
         running_line = engine_key_line(running_engine)
         if t and cfg_engine and running_line and cfg_engine != running_line:
             warnings.append(f"{name} ({bid}): config targets v{cfg_engine} but the running task is on v{running_engine} "
-                            f"-> takes effect on the next Stop/Run (or auto-restart)")
+                            f"-> takes effect on the next Run, Restart or auto-restart")
         if enabled and not t and rt_status != "stopped":
             warnings.append(f"{name} ({bid}): enabled=true, runtime={rt_status}, but no RUNNING task")
         if not enabled and t:

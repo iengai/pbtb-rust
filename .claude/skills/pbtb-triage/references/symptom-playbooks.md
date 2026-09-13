@@ -79,7 +79,8 @@ client rather than starting at the server.
 
 ## no-auto-restart
 
-A bot OOM-stopped and nothing relaunched it.
+A bot OOM-stopped and nothing relaunched it; or Restart was tapped and the bot
+sits Enabled · Stopped (or `🛑 Stopping` for ten minutes).
 
 1. `python scripts/ops/pbtb_ops.py lambda-logs task-state --since 2h --pattern "?ERROR ?Failed ?panic"`.
 2. `Failed to load configs` / missing field → **env/binary skew** (see the lambda
@@ -89,9 +90,15 @@ A bot OOM-stopped and nothing relaunched it.
    to drop the key.
 3. `SkippedNotEnabled` → the user turned the bot off; correct behaviour.
 4. `SkippedSuperseded` → duplicate STOPPED event; correct behaviour.
-5. Nothing logged at all → check the EventBridge rule still targets the function
-   and the function has the ECS `RunTask` + `iam:PassRole` policy.
-6. `python scripts/ops/pbtb_ops.py smoke-lambda task-state` must return 200.
+5. `SkippedNotRestartable` after a Restart → the STOPPED line above it shows the
+   `stoppedReason`; `restart requested` there with this outcome means the
+   Lambda predates the rule (`deploy-audit`, then `lambda-deploy`). Any other
+   reason is a stop something else issued (an operator's console stop, the
+   Lambda's own fail-safe), which is final by design.
+6. Nothing logged at all → check the EventBridge rule still targets the function
+   and the function has the ECS `RunTask` + `iam:PassRole` policy. A row stuck
+   `stopping` with no STOPPED line is a lost event: Run works again after 600 s.
+7. `python scripts/ops/pbtb_ops.py smoke-lambda task-state` must return 200.
 
 ## ci-red
 
