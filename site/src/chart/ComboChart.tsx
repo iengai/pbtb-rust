@@ -5,8 +5,11 @@ import {
   type Curve,
   DAY,
   PRESETS,
+  type Scale,
   type Span,
+  axisOf,
   clampSpan,
+  fmtTick,
   presetOf,
   presetSpan,
   rebase,
@@ -25,25 +28,6 @@ const BH = 56; // the brush strip's height
 // Within this many viewBox units of a handle a press takes the handle.
 const GRIP = 10;
 
-function yScale(curves: Curve[]) {
-  let vmin = 0,
-    vmax = 0; // the 0% baseline is always in view
-  for (const c of curves) {
-    for (const p of c.view) {
-      if (p.pct < vmin) vmin = p.pct;
-      if (p.pct > vmax) vmax = p.pct;
-    }
-  }
-  if (vmin === vmax) {
-    vmin -= 1;
-    vmax += 1;
-  }
-  const pad = (vmax - vmin) * 0.08;
-  vmin -= pad;
-  vmax += pad;
-  return { vmin, vmax, y: (v: number) => M.t + (1 - (v - vmin) / (vmax - vmin)) * PH };
-}
-
 const xOf = (span: Span) => (t: number) => M.l + ((t - span.from) / (span.to - span.from || 1)) * PW;
 const tOf = (span: Span) => (x: number) => span.from + ((x - M.l) / PW) * (span.to - span.from);
 
@@ -57,25 +41,54 @@ function path(view: Curve["view"], x: (t: number) => number, y: (v: number) => n
   return view.map((p, i) => `${i ? "L" : "M"}${x(p.ts).toFixed(1)} ${y(p.pct).toFixed(1)}`).join(" ");
 }
 
-// The preset buttons and the dates of the period in force; no button is lit
-// while the brush holds a span of its own.
-export function PresetBar({ domain, span, onSpan }: { domain: Span; span: Span; onSpan: (s: Span) => void }) {
+// The preset buttons, the axis scale toggle and the dates of the period in
+// force; no preset is lit while the brush holds a span of its own.
+export function PresetBar({
+  domain,
+  span,
+  onSpan,
+  scale,
+  onScale,
+}: {
+  domain: Span;
+  span: Span;
+  onSpan: (s: Span) => void;
+  scale: Scale;
+  onScale: (s: Scale) => void;
+}) {
+  const t = useT();
   const on = presetOf(domain, span);
   return (
     <div className="presets">
-      <div className="ranges" role="tablist">
-        {PRESETS.map((p, i) => (
-          <button
-            key={p.k}
-            type="button"
-            role="tab"
-            aria-selected={i === on}
-            className={`range${i === on ? " on" : ""}`}
-            onClick={() => onSpan(presetSpan(domain, p.days))}
-          >
-            {p.k}
-          </button>
-        ))}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="ranges" role="tablist">
+          {PRESETS.map((p, i) => (
+            <button
+              key={p.k}
+              type="button"
+              role="tab"
+              aria-selected={i === on}
+              className={`range${i === on ? " on" : ""}`}
+              onClick={() => onSpan(presetSpan(domain, p.days))}
+            >
+              {p.k}
+            </button>
+          ))}
+        </div>
+        <div className="ranges" role="tablist">
+          {(["log", "linear"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="tab"
+              aria-selected={scale === s}
+              className={`range${scale === s ? " on" : ""}`}
+              onClick={() => onScale(s)}
+            >
+              {t.configs.chart.scale[s]}
+            </button>
+          ))}
+        </div>
       </div>
       <span className="span">
         {fmtDate(span.from)} → {fmtDate(span.to)}
@@ -84,14 +97,16 @@ export function PresetBar({ domain, span, onSpan }: { domain: Span; span: Span; 
   );
 }
 
-// The series over the chosen span, each re-based there, with a hover that
-// names every curve present on the pointed day.
-export function ComboChart({ series, span }: { series: ComboSeries[]; span: Span }) {
+// The series over the chosen span, each re-based there and drawn on the
+// chosen scale, with a hover that names every curve present on the pointed
+// day.
+export function ComboChart({ series, span, scale }: { series: ComboSeries[]; span: Span; scale: Scale }) {
   const t = useT();
   const { lang } = useLang();
   const [hover, setHover] = useState<{ ts: number; cx: number; cy: number } | null>(null);
   const curves = useMemo(() => rebase(series, span), [series, span]);
-  const { vmin, vmax, y } = useMemo(() => yScale(curves), [curves]);
+  const axis = useMemo(() => axisOf(curves, scale), [curves, scale]);
+  const y = (v: number) => M.t + (1 - axis.pos(v)) * PH;
   const x = xOf(span);
   const month = useMemo(
     () => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short", timeZone: "UTC" }),
@@ -106,9 +121,7 @@ export function ComboChart({ series, span }: { series: ComboSeries[]; span: Span
 
   if (curves.length === 0) return <div className="msg">{t.configs.chart.notEnough}</div>;
 
-  const ROWS = 5,
-    COLS = 5;
-  const grid = Array.from({ length: ROWS + 1 }, (_, i) => vmin + ((vmax - vmin) * i) / ROWS);
+  const COLS = 5;
   const cols = Array.from({ length: COLS + 1 }, (_, i) => span.from + ((span.to - span.from) * i) / COLS);
   const rows = hover
     ? curves
@@ -128,12 +141,11 @@ export function ComboChart({ series, span }: { series: ComboSeries[]; span: Span
     <>
       <div className="chart">
         <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t.configs.chart.aria}>
-          {grid.map((v) => (
+          {axis.ticks.map((v) => (
             <g key={v}>
               <line x1={M.l} y1={y(v)} x2={W - M.r} y2={y(v)} stroke="var(--grid)" />
               <text x={M.l - 8} y={y(v)} textAnchor="end" dominantBaseline="middle" fill="var(--muted)" fontSize={11}>
-                {v > 0 ? "+" : ""}
-                {v.toFixed(1)}%
+                {fmtTick(v)}
               </text>
             </g>
           ))}

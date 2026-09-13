@@ -2,7 +2,15 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLoad } from "../api/hooks";
 import { Brush, ComboChart, PresetBar } from "../chart/ComboChart";
-import { type ComboSeries, RUN_COLORS, type Span, domainOf, initialSelection, presetSpan } from "../chart/combo";
+import {
+  type ComboSeries,
+  RUN_COLORS,
+  type Scale,
+  type Span,
+  domainOf,
+  initialSelection,
+  presetSpan,
+} from "../chart/combo";
 import { fmtDate, fmtSignedPct } from "../chart/returnCurve";
 import { MAX_RUNS_PER_TEMPLATE, MIN_RUN_DAYS, type Run, fmtCap, runsForTemplate } from "../chart/showcase";
 import { type TemplateBacktest, staticData } from "../data/static";
@@ -65,6 +73,9 @@ export function ConfigChart({ template }: { template: TemplateBacktest }) {
   // the axis under the reader.
   const domain = useMemo(() => domainOf([...backtest, ...live]), [backtest, live]);
   const [chosen, setChosen] = useState<Span | null>(null);
+  // Log by default: a backtest that multiplies its capital is read as
+  // multiples, and over a short period the two scales draw the same line.
+  const [scale, setScale] = useState<Scale>("log");
   const span = chosen && domain ? chosen : domain ? presetSpan(domain, null) : null;
   const shown = useMemo(() => [...backtest, ...live.filter((s) => selected.has(s.id))], [backtest, live, selected]);
 
@@ -86,8 +97,8 @@ export function ConfigChart({ template }: { template: TemplateBacktest }) {
       </div>
       {domain && span ? (
         <>
-          <PresetBar domain={domain} span={span} onSpan={setChosen} />
-          <ComboChart series={shown} span={span} />
+          <PresetBar domain={domain} span={span} onSpan={setChosen} scale={scale} onScale={setScale} />
+          <ComboChart series={shown} span={span} scale={scale} />
           <Brush overview={backtest[0]!} domain={domain} span={span} onSpan={setChosen} />
         </>
       ) : (
