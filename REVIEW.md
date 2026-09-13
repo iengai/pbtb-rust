@@ -16,7 +16,7 @@ Policy for every review here, by a reviewer agent in `.claude/agents/`, Claude C
 
 ## Finding lines and repeats
 
-A finding is one line: `- [cat:<slug>] Important|Nit <file:line> — <finding>`, a slug from the passes or `other`. A slug already in a merged PR body (`gh pr list --state merged --limit 500 --json number,body`) for the same component (the cited path's directory; a security slug or a Lesson line on the slug alone) is a **REPEAT**: it keeps its severity, escapes the nit cap; its fix includes the correction to the layer docs/conventions.md § Knowledge placement names, stated as a rule, not history. `other` never repeats.
+A finding is one line: `- [cat:<slug>] Important|Nit <file:line> — <finding>`, a slug from the passes or `other`. A slug already in a merged PR body (`gh pr list --state merged --limit 500 --json number,body`) for the same component (the cited path's directory; a security slug, a Lesson or demoted line on the slug alone) is a **REPEAT**: it keeps its severity, escapes the nit cap; its fix includes the correction to the layer docs/conventions.md § Knowledge placement names, stated as a rule, not history. `other` never repeats.
 
 ## Do not report
 
