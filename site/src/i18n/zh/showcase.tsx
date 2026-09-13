@@ -9,8 +9,7 @@ export const showcase: typeof en = {
   loading: "公开展示",
   loadingBot: "机器人",
   onBybit: "在 Bybit 查看",
-  col: { bot: "机器人", trend: "近 30 天", current: "收益率" },
-  currentReturn: "当前收益率",
+  col: { bot: "机器人", trend: (days) => `近 ${days} 天` },
   updated: (date) => `更新于 ${date} UTC`,
   runs: {
     title: "实盘运行",

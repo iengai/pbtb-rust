@@ -9,8 +9,7 @@ export const showcase = {
   loading: "showcase",
   loadingBot: "bot",
   onBybit: "View on Bybit",
-  col: { bot: "Bot", trend: "Last 30 days", current: "Return" },
-  currentReturn: "Current return",
+  col: { bot: "Bot", trend: (days: number) => `Last ${days} days` },
   updated: (date: string) => `updated ${date} UTC`,
   runs: {
     title: "Live runs",

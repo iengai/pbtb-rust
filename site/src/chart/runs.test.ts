@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShowcaseBot } from "../data/static";
 import { selectWindow } from "./returnCurve";
-import { MAX_BOTS_PER_TEMPLATE, asSeries, botsForTemplate, deriveRuns, fmtCap } from "./showcase";
+import { MAX_BOTS_PER_TEMPLATE, asSeries, botsForTemplate, deriveRuns, fmtCap, headline } from "./showcase";
 
 const DAY = 86400;
 
@@ -116,6 +116,33 @@ describe("selectWindow periods", () => {
     if (win.kind !== "ok") throw new Error(win.reason);
     expect(win.view[0]!.ts).toBe(150 * DAY);
     expect(win.periods).toEqual([{ start: 150 * DAY, end: 199 * DAY, template_name: "a", startsInside: false }]);
+  });
+});
+
+describe("headline", () => {
+  it("is the 90D window's return, not the era's", () => {
+    // Flat, a 60% loss on day 50, then 0.2% a day: the era is still down, the
+    // last 90 days are up.
+    const b = bot(200);
+    for (const p of b.points) {
+      const d = p.ts / DAY;
+      p.index = d < 50 ? 100 : Number((40 * 1.002 ** (d - 50)).toFixed(4));
+    }
+    const last = b.points[199]!.index;
+    expect(last).toBeLessThan(100);
+    const head = headline(b);
+    expect(head?.label).toEqual({ kind: "range", k: "90D" });
+    expect(head!.ret).toBeCloseTo((last / b.points[109]!.index - 1) * 100, 6);
+    expect(head!.ret).toBeGreaterThan(0);
+    expect(head!.view[0]!.ts).toBe(109 * DAY);
+  });
+
+  it("measures from a re-funding inside the window, and is null when the window opens at zero", () => {
+    const refunded = bot(200, { capital_resets: [{ ts: 150 * DAY, cap_usdt: 500 }] });
+    expect(headline(refunded)?.label).toEqual({ kind: "sinceRefunding" });
+    const wiped = bot(200);
+    for (const p of wiped.points) if (p.ts < 150 * DAY) p.index = 0;
+    expect(headline(wiped)).toBeNull();
   });
 });
 

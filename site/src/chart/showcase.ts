@@ -4,7 +4,7 @@
 // the config page and the bot page read the same file.
 
 import type { ShowcaseBot } from "../data/static";
-import { type BotReturnSeries, type ViewPoint } from "./returnCurve";
+import { type BotReturnSeries, DEFAULT_RANGE, type RangeLabel, type ViewPoint, selectWindow } from "./returnCurve";
 
 const DAY = 86400;
 
@@ -34,6 +34,18 @@ type Span = { start: number; end: number | null; cap_usdt: number; fromReset: bo
 // draws both: only the resets differ, a bare timestamp on the private side.
 export function asSeries(bot: ShowcaseBot): BotReturnSeries {
   return { ...bot, capital_resets: (bot.capital_resets ?? []).map((r) => r.ts) };
+}
+
+export type Headline = { ret: number; label: RangeLabel; view: ViewPoint[] };
+
+// The return a showcase row and a bot page's heading lead with: the default
+// window's, the same figure the bot page's tiles open on. The file's
+// `current_return_pct` is the whole era since the last re-funding, so a loss
+// long before any window would read as the bot's current performance. Null
+// when the window has nothing to measure.
+export function headline(bot: ShowcaseBot): Headline | null {
+  const win = selectWindow(asSeries(bot), DEFAULT_RANGE);
+  return win.kind === "ok" ? { ret: win.stats.ret, label: win.stats.label, view: win.view } : null;
 }
 
 // Every run of every config on one bot, newest first. A span opens at a
