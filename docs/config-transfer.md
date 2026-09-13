@@ -70,7 +70,10 @@ is the console's, `lab` is ours.
   chart. `scripts/describe_templates.py --apply` composes it from the site
   backtest, the config's exposure, and the character and stress-window runs it
   holds per template, then copies it onto the bots built from the template;
-  run it after `backtest_templates.py` or after adding a template.
+  run it after `backtest_templates.py` or after adding a template. The
+  character and the stress windows describe the template at its
+  `capital_usdt` only: a tuning offered at several capitals is one template
+  per capital, each with that capital's own runs.
   `--description` on the transfer sets one until then; absent, a view shows `—`.
   It never reaches the published site data.
 
