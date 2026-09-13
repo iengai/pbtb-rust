@@ -169,9 +169,12 @@ LINEAGE: dict[str, dict] = {
         seeds=["cap500_iter5_winner", "cap1000_iter3_winner", "cap1000_iter2_maxreturn",
                "cap700_iter3_winner"],
         genome=GENOME, branch="record-genome"),
+    # Offered at $700: cap700_iter6_winner (04ef2a4165) is this v7 body's v8
+    # migration, matching it over the four lab windows.
     "bybit-mix10-500u-balanced-v7": lineage(
-        "cap500_iter6_maxreturn", "cap500", 6, "542da0d8f5", run="8510283d",
-        seeds=CAP500_ITER6, genome=GENOME, branch="let-profits-run"),
+        "cap700_iter6_winner", "cap700", 6, "542da0d8f5", run="8510283d",
+        seeds=CAP500_ITER6, genome=GENOME, branch="let-profits-run",
+        variant="cap500_iter6_maxreturn v7.12.0 body run at $700"),
     "bybit-mix10-500u-bold-v7-b": lineage(
         "cap500_iter6_highreturn", "cap500", 6, "75fdbe22e6", run="8510283d",
         seeds=CAP500_ITER6, genome=GENOME, branch="let-profits-run"),
