@@ -162,9 +162,10 @@ gate ops-tests $RC; [ $RC -ne 0 ] && show "$OUT" "^(FAIL|ERROR)"
 
 # 10. knowledge budgets (docs/conventions.md § Knowledge placement): the files
 # every session loads, the review policy (applied whole, so kept short) and
-# every skill description have a byte ceiling, and a
-# change to the row layout or the infra is a prompt to re-read the leaf that
-# describes it.
+# every skill description have a byte ceiling; a file within a tenth of its
+# ceiling gets a headroom line, the prompt to demote before the next
+# promotion has to. A change to the row layout or the infra is a prompt to
+# re-read the leaf that describes it.
 python - <<'PY'; gate knowledge-budget $?
 import glob, os, re, sys
 bad = 0
@@ -172,11 +173,15 @@ for f, lim in [("AGENTS.md", 6144), (".claude/CLAUDE.md", 1536), ("REVIEW.md", 4
     n = os.path.getsize(f)
     if n > lim:
         print(f"  {f}: {n} bytes > {lim}"); bad = 1
+    elif lim - n < lim // 10:
+        print(f"  headroom {f}: {lim - n} bytes of {lim} (demote a fact before promoting one)")
 for f in glob.glob(".claude/skills/*/SKILL.md"):
     m = re.search(r"^description:[ \t]*(.*?)\n(?=\S)", open(f, encoding="utf-8").read(), re.S | re.M)
     n = len(m.group(1).encode("utf-8")) if m else 0
     if n > 300:
         print(f"  {f}: description {n} bytes > 300"); bad = 1
+    elif 300 - n < 30:
+        print(f"  headroom {f}: description {300 - n} bytes of 300 (demote a fact before promoting one)")
 sys.exit(bad)
 PY
 echo "$CHANGED" | grep -q '^src/infra/botrepository\.rs$' && echo "  (botrepository.rs changed: does docs/data-model.md still describe the rows?)"

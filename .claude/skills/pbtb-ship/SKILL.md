@@ -78,7 +78,8 @@ than the review asked for.
    what was done with the findings; a finding you overruled is named there, so
    the PR stays the audit record.
 4. A finding the reviewer marked REPEAT carries its correction into the layer
-   it names, in this PR; `REVIEW.md` owns that rule.
+   it names, in this PR; `REVIEW.md` owns that rule. Any other finding is
+   fixed in the file it cites (docs/conventions.md § Knowledge placement).
 5. The PR's **Knowledge** section ends with one `Lesson` line: what would have
    made this PR shorter or safer, with the slug it belongs to, or `none`. It
    is a candidate, not a doc edit; a slug seen again is what promotes it.
