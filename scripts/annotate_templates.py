@@ -169,12 +169,15 @@ LINEAGE: dict[str, dict] = {
         seeds=["cap500_iter5_winner", "cap1000_iter3_winner", "cap1000_iter2_maxreturn",
                "cap700_iter3_winner"],
         genome=GENOME, branch="record-genome"),
-    # Offered at $700: cap700_iter6_winner (04ef2a4165) is this v7 body's v8
-    # migration, matching it over the four lab windows.
+    # Offered at $700 (backtest starting_balance 700). `source` and `tier` name
+    # cap700_iter6_winner (04ef2a4165), this tuning's v8 counterpart: equal on
+    # FULL and the 2025-10 crash, milder in the 2025-11～2026-03 bear leg at $700
+    # (strategy_lab NOTES.md, "2026-09-13 · tpl-8bzdh8ay 由 $500 改档"). `member`,
+    # `run` and `seeds` are the body's own, cap500_iter6_maxreturn.
     "bybit-mix10-500u-balanced-v7": lineage(
         "cap700_iter6_winner", "cap700", 6, "542da0d8f5", run="8510283d",
         seeds=CAP500_ITER6, genome=GENOME, branch="let-profits-run",
-        variant="cap500_iter6_maxreturn v7.12.0 body run at $700"),
+        variant="backtest.starting_balance 500 -> 700 on the cap500_iter6_maxreturn v7.12.0 body"),
     "bybit-mix10-500u-bold-v7-b": lineage(
         "cap500_iter6_highreturn", "cap500", 6, "75fdbe22e6", run="8510283d",
         seeds=CAP500_ITER6, genome=GENOME, branch="let-profits-run"),

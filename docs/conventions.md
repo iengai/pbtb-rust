@@ -15,6 +15,8 @@
 
 Comments describe the code as it is, for a reader who never saw the diff. Do not narrate the change or the act of writing it: no "previously/now/no longer", "not just the first", "this replaces…", and do not frame new code by its pairing ("the counterpart to X", "together they…"). That is commit-message material. Keep comments for the non-obvious *why* — invariants, gotchas, ordering rules, external constraints — and cut anything that merely restates the code or only parses if you watched it being written. The `comment-reviewer` agent enforces this on the diff.
 
+A comment on a record whose fields come from more than one origin says which fields name which, and names any external evidence it cites by document and section, not as "the N windows".
+
 ## Error Handling
 
 One line: **classify errors by what the *reader* must do, not by which layer produced them.** Three readers, three duties — propagate, record, redact.
