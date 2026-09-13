@@ -29,6 +29,7 @@ export const common = {
   networkError: "Network error — the console could not reach the API.",
   notFound: "Nothing here.",
   backToBots: "Back to bots",
+  backToShowcase: "Back to the showcase",
   busyConflict: (phase: string) => `The bot is ${phase} right now — try again in a moment.`,
   // Refusals about the account's level (403 with a code), never about the session.
   insufficientLevel: (required: number, current: number) =>

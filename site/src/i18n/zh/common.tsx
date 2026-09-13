@@ -29,6 +29,7 @@ export const common: typeof en = {
   networkError: "网络错误，无法连接到 API。",
   notFound: "这里什么都没有。",
   backToBots: "返回机器人列表",
+  backToShowcase: "返回公开展示",
   busyConflict: (phase) => `机器人当前${phase}，请稍后重试。`,
   insufficientLevel: (required, current) => `这个配置需要 VIP ${required}，你的账户是 VIP ${current}。`,
   quotaExceeded: (limit) => `你的等级同时最多运行 ${limit} 个机器人，请先停掉一个。`,

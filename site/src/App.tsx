@@ -26,20 +26,24 @@ function RequireAuth() {
 
 function NotFound() {
   const t = useT();
+  const { session } = useAuth();
   return (
     <div className="msg">
-      {t.common.notFound} <Link to="/bots">{t.common.backToBots}</Link>
+      {t.common.notFound}{" "}
+      {session ? <Link to="/bots">{t.common.backToBots}</Link> : <Link to="/p">{t.common.backToShowcase}</Link>}
     </div>
   );
 }
 
+// The sign-up and callback pages stand outside the header: a signed-in
+// subject with no account yet has nowhere else to go.
 export function App() {
   return (
     <Routes>
-      <Route path="/" element={<Login />} />
       <Route path="/callback" element={<Callback />} />
       <Route path="/signup" element={<Signup />} />
       <Route element={<Layout />}>
+        <Route path="/" element={<Login />} />
         <Route path="/configs" element={<Configs />} />
         <Route path="/configs/:name" element={<ConfigDetail />} />
         <Route path="/p" element={<Showcase />} />
