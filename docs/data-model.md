@@ -124,14 +124,14 @@ new one.
 
 ## S3 (configurations, templates, API keys)
 
-A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `predefined/`, the ones taken out of the catalogue under `retired/`, and per-bot data under `{user_id}/{bot_id}/`.
+A single bucket (`{project}-{env}-bot-configs`) holds reusable templates under `predefined/`, the archived ones under `retired/`, and per-bot data under `{user_id}/{bot_id}/`.
 
 ```
 Bucket: {project}-{env}-bot-configs
 ├── predefined/              # Configuration templates, keyed by id
 │   ├── tpl-bzwt9jn2.json
 │   └── tpl-sappt9w2.json
-├── retired/                 # Same objects, out of every listing
+├── retired/                 # Archived: same objects, out of every listing
 │   └── tpl-wuy2q2df.json
 └── {user_id}/              # User-specific data
     └── {bot_id}/
@@ -147,16 +147,17 @@ Bucket: {project}-{env}-bot-configs
   `capital_usdt`, `style`, `profile`, `generation`, `engine`); `exchange`,
   `description`, `strategies`; `min_vip_level`, the lowest account level
   that may apply it (absent = open to all); and `audience`, `"operator"` on a
-  template offered to the operator's account only (absent = everyone; a
-  member is not listed it and may not apply it). An operator edits the object
+  retired template, offered to the operator's account only (absent =
+  published, everyone; a member is not listed it and may not apply it). An
+  operator edits the object
   to change either gate, no deploy needed. Beside it, `lab` is the strategy
   lab's record of the tuning (run, seeds, genome, verdicts); no surface reads
   it and a bot's copy of the template drops it.
-- `retired/` — a template that is no longer offered. `S3TemplateRepository::list`
+- `retired/` — an archived template, offered to no one. `S3TemplateRepository::list`
   scans `predefined/` only, so an object here is absent from the Telegram
   chooser, the API and the site while its content and version history stay
-  intact. `scripts/retire_templates.py` moves an id either way and refuses to
-  retire one a bot's stored config still names.
+  intact. `scripts/archive_templates.py` moves an id either way and refuses to
+  archive one a bot's stored config still names.
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
 - `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
 

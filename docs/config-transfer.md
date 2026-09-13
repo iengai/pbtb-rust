@@ -49,14 +49,16 @@ is the console's, `lab` is ours.
   composed from the naming properties.
 - `universe`, `capital_usdt`, `style`, `profile`, `generation`, `engine` — the
   naming properties (see below).
-- `audience` — `"operator"` addresses the template to the operator's account:
-  it is absent from every listing a member or a visitor sees (the Telegram
-  chooser, MCP `list_templates`, `GET /templates`, the site's Configs list)
-  and a member's apply is refused (`operator_only`), while the operator is
-  offered it and its site page stays reachable by link. Absent means everyone.
-  `min_vip_level` (absent = 0) is the other gate, on level rather than role:
-  applying above it is refused, listing is not. `annotate_templates.py`
-  stamps the audience from its `OPERATOR_ONLY` set and strips it elsewhere.
+- `audience` — `"operator"` marks the template **retired**: no longer
+  published, kept for the operator's account. It is absent from every listing
+  a member or a visitor sees (the Telegram chooser, MCP `list_templates`,
+  `GET /templates`, the site's Configs list) and a member's apply is refused
+  (`operator_only`), while the operator is offered it — the site lists it under
+  its Retired tab — and its site page stays reachable by link. Absent means
+  **published**: everyone. `min_vip_level` (absent = 0) is the other gate, on
+  level rather than role: applying above it is refused, listing is not.
+  `annotate_templates.py` stamps the audience from its `RETIRED` set and
+  strips it elsewhere.
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
@@ -139,8 +141,8 @@ title nor a property carries a claim about what the template returns.
 before (`bybit-mix10-1000u-balanced-v8`, and the optimizer-run names before
 those), and resolves an old name a stored config or history row still quotes.
 `scripts/annotate_templates.py --apply` re-derives the properties and the
-sides in `strategies`, and recomposes every title; run it after adding or
-retiring a template.
+sides in `strategies`, and recomposes every title; run it after adding,
+retiring or archiving a template.
 
 Run it:
 
@@ -164,16 +166,24 @@ python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --uploa
 
 ### Retiring one
 
+A template the owner stops publishing but still runs on their own bots is
+retired: its id goes into `annotate_templates.py`'s `RETIRED` set and `--apply`
+stamps `pbtb.audience: "operator"` on it (and strips the mark from an id taken
+out of the set). Nothing moves: the operator keeps applying it, everyone else
+stops seeing it.
+
+### Archiving one
+
 A template another one beats on both gain and worst drawdown at the same
-capital tier is not worth offering. `scripts/retire_templates.py <id> …
---apply` moves the object to `retired/` — out of every listing, content and
-history intact — deletes its backtest artifact and rebuilds the site index;
-`--restore` puts it back. It refuses to retire a template a bot's stored config
-names on either side, resolving the old names those configs still carry through
-the rename catalogue first. Only drawdowns measured over the **same backtest
-window** may be compared: a run that stops at 2025-04-30 never met the 2025-10-10
-crash.
-Then re-run `annotate_templates.py --apply`: a title suffix the retired
+capital tier is not worth offering to anyone. `scripts/archive_templates.py
+<id> … --apply` moves the object to the `retired/` key prefix — out of every
+listing, the operator's included, content and history intact — deletes its
+backtest artifact and rebuilds the site index; `--restore` puts it back. It
+refuses to archive a template a bot's stored config names on either side,
+resolving the old names those configs still carry through the rename catalogue
+first. Only drawdowns measured over the **same backtest window** may be
+compared: a run that stops at 2025-04-30 never met the 2025-10-10 crash.
+Then re-run `annotate_templates.py --apply`: a title suffix the archived
 template forced on a sibling is dropped.
 
 ## Stage 2 — per-bot adjustments (telebot, not the transfer script)

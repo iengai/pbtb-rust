@@ -101,7 +101,7 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   // React's id has colons, which a CSS `url(#…)` reference does not take.
   const idPrefix = useId().replace(/[^A-Za-z0-9]/g, "");
   // A switch row quotes the template's id; the marker and the band name it by
-  // its title, and an id the catalogue no longer lists (a retired template)
+  // its title, and an id the catalogue no longer lists (an archived template)
   // as itself, with no page to link to. A window with nothing to name (a
   // single run's chart) skips the catalogue.
   const named = win.kind === "ok" && win.switches.length + win.periods.length > 0;

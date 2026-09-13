@@ -42,7 +42,7 @@ from pathlib import Path
 
 from annotate_templates import ordered, refresh_artifact, restamp_bots, trading
 from backtest_templates import write_index
-from rename_predefined import BUCKET, PREFIX, RETIRED_PREFIX, aws, body_bytes
+from rename_predefined import ARCHIVED_PREFIX, BUCKET, PREFIX, aws, body_bytes
 from template_naming import UNIVERSES, capital_label, exposure, traded_sides
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -172,7 +172,7 @@ def main() -> int:
     metas: dict[str, dict] = {}
     listed: set[str] = set()
     artifacts = False
-    for prefix in (PREFIX, RETIRED_PREFIX):
+    for prefix in (PREFIX, ARCHIVED_PREFIX):
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], args.profile)
         keys = sorted(line.split()[-1] for line in listing.splitlines()
                       if line.strip().endswith(".json"))

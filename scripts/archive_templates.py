@@ -1,26 +1,30 @@
 #!/usr/bin/env python3
-"""Take a template out of the catalogue without destroying it.
+"""Archive a template: out of the catalogue, for everyone, without destroying it.
 
-A retired template moves from ``predefined/`` to ``retired/`` in the same
-bucket. Nothing lists it after that — ``S3TemplateRepository::list`` scans the
-``predefined/`` prefix only — so it leaves the Telegram chooser, the API and the
-site, while the object, its version history and any bot that still names it are
-untouched. Moving it back is the same command with the prefixes swapped.
+An archived template moves from ``predefined/`` to the ``retired/`` key prefix
+in the same bucket. Nothing lists it after that — ``S3TemplateRepository::list``
+scans the ``predefined/`` prefix only — so it leaves the Telegram chooser, the
+API and the site, the operator's view included, while the object, its version
+history and any bot that still names it are untouched. Moving it back is the
+same command with the prefixes swapped. A *retired* template in the catalogue's
+sense — offered to the operator's account alone — is a different thing: it stays
+under ``predefined/`` with ``pbtb.audience: "operator"`` (annotate_templates.py,
+``RETIRED``).
 
 Its backtest artifact is deleted from ``site/templates`` and the index rebuilt,
 so the published catalogue drops it too. The artifact is recoverable from git,
 and from the object, by re-running ``backtest_templates.py``.
 
-Retiring a template a bot's stored config still names is refused: the bot would
+Archiving a template a bot's stored config still names is refused: the bot would
 keep running (nothing resolves a template by name at launch) but its config
 could no longer be re-applied, and the refusal is cheaper than finding out
 later.
 
 Usage::
 
-    python scripts/retire_templates.py <id> [<id> …]                 # dry run
-    python scripts/retire_templates.py <id> … --apply --profile dev
-    python scripts/retire_templates.py <id> … --restore --apply --profile dev
+    python scripts/archive_templates.py <id> [<id> …]                 # dry run
+    python scripts/archive_templates.py <id> … --apply --profile dev
+    python scripts/archive_templates.py <id> … --restore --apply --profile dev
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 BUCKET = "scalable-cluster-dev-bot-configs"
 LIVE = "predefined/"
-RETIRED = "retired/"
+ARCHIVED = "retired/"
 TABLE = "scalable-cluster-dev-bots"
 
 
@@ -98,7 +102,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("ids", nargs="+", help="template ids to retire")
+    parser.add_argument("ids", nargs="+", help="template ids to archive")
     parser.add_argument("--apply", action="store_true", help="write (default is a dry run)")
     parser.add_argument("--profile", default=None, help="AWS CLI profile")
     parser.add_argument("--restore", action="store_true", help="move back into the catalogue")
@@ -106,7 +110,7 @@ def main() -> int:
 
     # A template named by an id it had before is acted on under its current one.
     ids = [resolve(i) for i in args.ids]
-    src, dst = (RETIRED, LIVE) if args.restore else (LIVE, RETIRED)
+    src, dst = (ARCHIVED, LIVE) if args.restore else (LIVE, ARCHIVED)
 
     if not args.restore:
         in_use = templates_in_use(args.profile)

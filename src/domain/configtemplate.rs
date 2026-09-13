@@ -15,8 +15,8 @@ impl ConfigTemplate {
     /// The lowest VIP level that may apply this template, read from
     /// `pbtb.min_vip_level` in the template JSON. Absent, or not a
     /// non-negative integer, means open to everyone; a value past `u8` is kept
-    /// at the ceiling, which no account reaches, so an operator can retire a
-    /// template from use by setting it absurdly high.
+    /// at the ceiling, which no account reaches, so an operator can take a
+    /// template out of use by setting it absurdly high.
     ///
     /// It lives in the template file because that is the one place a template
     /// carries metadata already, and an operator can change it by editing the
