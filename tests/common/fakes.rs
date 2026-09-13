@@ -208,7 +208,9 @@ pub struct LaunchedTask {
 #[derive(Default)]
 pub struct RecordingEcs {
     launches: Mutex<Vec<LaunchedTask>>,
-    stops: Mutex<Vec<(String, String)>>,
+    /// `(cluster_arn, task_id, reason)` per StopTask; the reason is what tells
+    /// a restart's stop from a user's on the STOPPED event.
+    stops: Mutex<Vec<(String, String, String)>>,
     liveness: Mutex<HashMap<String, TaskLiveness>>,
 }
 
@@ -217,7 +219,7 @@ impl RecordingEcs {
         self.launches.lock().unwrap().clone()
     }
 
-    pub fn stops(&self) -> Vec<(String, String)> {
+    pub fn stops(&self) -> Vec<(String, String, String)> {
         self.stops.lock().unwrap().clone()
     }
 
@@ -254,11 +256,12 @@ impl TaskRunner for RecordingEcs {
 
 #[async_trait]
 impl TaskController for RecordingEcs {
-    async fn stop(&self, cluster_arn: &str, task_id: &str, _reason: &str) -> anyhow::Result<()> {
-        self.stops
-            .lock()
-            .unwrap()
-            .push((cluster_arn.to_string(), task_id.to_string()));
+    async fn stop(&self, cluster_arn: &str, task_id: &str, reason: &str) -> anyhow::Result<()> {
+        self.stops.lock().unwrap().push((
+            cluster_arn.to_string(),
+            task_id.to_string(),
+            reason.to_string(),
+        ));
         Ok(())
     }
 

@@ -265,6 +265,39 @@ async fn stop_finds_the_task_the_start_launched() {
 }
 
 #[tokio::test]
+async fn restart_stops_the_task_with_the_restart_reason_and_launches_nothing() {
+    let h = harness!();
+    h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
+    h.configs.put(a_config(&USER_ID.to_string(), BOT_ID));
+    let tools = h.mcp_tools(operator());
+
+    tools
+        .start_bot(params(json!({ "bot_id": BOT_ID })))
+        .await
+        .expect("start");
+    let out = payload(
+        tools
+            .restart_bot(params(json!({ "bot_id": BOT_ID })))
+            .await
+            .expect("restart"),
+    );
+
+    assert_eq!(out["status"], "restarting");
+    assert_eq!(out["task_id"], "task-1");
+    let stops = h.ecs.stops();
+    assert_eq!(stops.len(), 1);
+    assert_eq!(stops[0].1, "task-1");
+    assert_eq!(stops[0].2, pbtb_rust::usecase::RESTART_REASON);
+    assert_eq!(h.ecs.launches().len(), 1, "the relaunch is the Lambda's");
+    let bot =
+        pbtb_rust::domain::bot::BotRepository::find(h.bots.as_ref(), &USER_ID.to_string(), BOT_ID)
+            .await
+            .expect("read")
+            .expect("the bot");
+    assert!(bot.enabled);
+}
+
+#[tokio::test]
 async fn deleting_needs_the_confirmation_to_name_the_bot() {
     let h = harness!();
     h.given_bot(a_bot(&USER_ID.to_string(), BOT_ID)).await;
@@ -537,6 +570,7 @@ async fn the_registry_exposes_no_whole_config_overwrite() {
         "list_templates",
         "start_bot",
         "stop_bot",
+        "restart_bot",
         "apply_template",
         "set_risk_level",
         "set_strategy_side",

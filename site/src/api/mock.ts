@@ -224,6 +224,21 @@ export function installMock(): void {
       settle(b, "stopped", 20_000);
       return delay({ status: "stopped", task_id: b.task_id });
     },
+    restartBot: (id: string) => {
+      const b = find(id);
+      if (b.phase === "stopping") return Promise.reject(new ApiError(409, { status: "stopping", retry: true }, ""));
+      b.enabled = true;
+      if (b.phase === "stopped" || b.phase === null) {
+        b.phase = "starting";
+        settle(b, "running", 20_000);
+        return delay({ status: "started", task_id: "arn:task/new" });
+      }
+      // The wind-down, then the Lambda's relaunch.
+      b.phase = "stopping";
+      settle(b, "starting", 10_000);
+      settle(b, "running", 25_000);
+      return delay({ status: "restarting", task_id: b.task_id });
+    },
     setRisk: (id: string, long: number, short: number) => {
       const b = find(id);
       if (long > 3 || short > 3) return Promise.reject(new ApiError(400, { error: "risk level out of range: max 3.0" }, ""));

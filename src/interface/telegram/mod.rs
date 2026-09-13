@@ -132,4 +132,5 @@ pub struct Deps {
     // ECS actuation (desired state -> real RunTask/StopTask)
     pub start_bot_usecase: Arc<StartBotUseCase>,
     pub stop_bot_usecase: Arc<StopBotUseCase>,
+    pub restart_bot_usecase: Arc<RestartBotUseCase>,
 }

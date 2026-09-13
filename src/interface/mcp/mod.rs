@@ -14,8 +14,9 @@
 //! 3. **Every write is audited** with principal, tool, bot and outcome.
 //!
 //! The launch path reuses `StartBotUseCase`, so a tool call claims the same
-//! DynamoDB start lock a button does. A second launch path here would be a way
-//! to give one bot two live trading tasks.
+//! DynamoDB start lock a button does; a restart stops the task and leaves the
+//! relaunch to the reconcile Lambda's claim. A second launch path here would be
+//! a way to give one bot two live trading tasks.
 
 pub mod auth;
 pub mod http;
@@ -53,6 +54,7 @@ pub struct Deps {
     pub get_bot_runtime_usecase: Arc<GetBotRuntimeUseCase>,
     pub start_bot_usecase: Arc<StartBotUseCase>,
     pub stop_bot_usecase: Arc<StopBotUseCase>,
+    pub restart_bot_usecase: Arc<RestartBotUseCase>,
     pub get_template_usecase: Arc<GetTemplateUseCase>,
     /// `None` where no chart bucket is configured; the surface then says so
     /// rather than failing.

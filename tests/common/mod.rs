@@ -336,6 +336,24 @@ impl Harness {
             engines.clone(),
         ));
 
+        let start_bot_usecase = Arc::new(StartBotUseCase::new(
+            bots_dyn.clone(),
+            runtimes_dyn.clone(),
+            locks,
+            self.ecs.clone(),
+            self.ecs.clone(),
+            clock.clone(),
+            CLUSTER_ARN.to_string(),
+            targets,
+            CONTAINER_NAME.to_string(),
+        ));
+        let stop_bot_usecase = Arc::new(StopBotUseCase::new(
+            bots_dyn.clone(),
+            runtimes_dyn.clone(),
+            self.ecs.clone(),
+            clock.clone(),
+            CLUSTER_ARN.to_string(),
+        ));
         mcp::Deps {
             list_bots_usecase: Arc::new(ListBotsUseCase::new(bots_dyn.clone())),
             delete_bot_usecase: Arc::new(DeleteBotUseCase::new(
@@ -367,23 +385,14 @@ impl Harness {
                 clock.clone(),
             )),
             get_bot_runtime_usecase: Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone())),
-            start_bot_usecase: Arc::new(StartBotUseCase::new(
-                bots_dyn.clone(),
-                runtimes_dyn.clone(),
-                locks,
-                self.ecs.clone(),
-                self.ecs.clone(),
-                clock.clone(),
-                CLUSTER_ARN.to_string(),
-                targets,
-                CONTAINER_NAME.to_string(),
-            )),
-            stop_bot_usecase: Arc::new(StopBotUseCase::new(
+            start_bot_usecase: start_bot_usecase.clone(),
+            stop_bot_usecase: stop_bot_usecase.clone(),
+            restart_bot_usecase: Arc::new(RestartBotUseCase::new(
                 bots_dyn,
                 runtimes_dyn,
-                self.ecs.clone(),
+                stop_bot_usecase,
+                start_bot_usecase,
                 clock.clone(),
-                CLUSTER_ARN.to_string(),
             )),
             get_template_usecase: Arc::new(GetTemplateUseCase::new(self.templates.clone())),
             get_bot_returns_usecase: Some(Arc::new(GetBotReturnsUseCase::new(self.curves.clone()))),
@@ -423,6 +432,24 @@ fn build_deps(
     let identities: Arc<dyn domain::IdentityRepository> = bots.clone();
     let users: Arc<dyn domain::UserRepository> = bots.clone();
 
+    let start_bot_usecase = Arc::new(StartBotUseCase::new(
+        bots_dyn.clone(),
+        runtimes_dyn.clone(),
+        locks,
+        ecs.clone(),
+        ecs.clone(),
+        clock.clone(),
+        CLUSTER_ARN.to_string(),
+        targets,
+        CONTAINER_NAME.to_string(),
+    ));
+    let stop_bot_usecase = Arc::new(StopBotUseCase::new(
+        bots_dyn.clone(),
+        runtimes_dyn.clone(),
+        ecs,
+        clock.clone(),
+        CLUSTER_ARN.to_string(),
+    ));
     Deps {
         resolve_sender_usecase: Arc::new(ResolveTelegramSenderUseCase::new(
             identities.clone(),
@@ -474,23 +501,14 @@ fn build_deps(
             clock.clone(),
         )),
         get_bot_runtime_usecase: Arc::new(GetBotRuntimeUseCase::new(runtimes_dyn.clone())),
-        start_bot_usecase: Arc::new(StartBotUseCase::new(
-            bots_dyn.clone(),
-            runtimes_dyn.clone(),
-            locks,
-            ecs.clone(),
-            ecs.clone(),
-            clock.clone(),
-            CLUSTER_ARN.to_string(),
-            targets,
-            CONTAINER_NAME.to_string(),
-        )),
-        stop_bot_usecase: Arc::new(StopBotUseCase::new(
+        start_bot_usecase: start_bot_usecase.clone(),
+        stop_bot_usecase: stop_bot_usecase.clone(),
+        restart_bot_usecase: Arc::new(RestartBotUseCase::new(
             bots_dyn,
             runtimes_dyn,
-            ecs,
+            stop_bot_usecase,
+            start_bot_usecase,
             clock,
-            CLUSTER_ARN.to_string(),
         )),
     }
 }

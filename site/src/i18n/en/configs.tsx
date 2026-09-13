@@ -67,12 +67,13 @@ export const configs = {
     warning: (bot: string): ReactNode => (
       <>
         This replaces <b>{bot}</b>&apos;s strategy, sides, coins and risk settings with the template&apos;s. It
-        applies on the bot&apos;s next start.
+        applies on the bot&apos;s next start or Restart.
       </>
     ),
     proceed: "Continue",
     applyTo: (bot: string) => `Apply to ${bot}`,
-    done: (template: string, bot: string) => `Applied ${template} to ${bot}; it takes effect on the next start.`,
+    done: (template: string, bot: string) =>
+      `Applied ${template} to ${bot}; it takes effect on the next start or Restart.`,
   },
 
   metric: {

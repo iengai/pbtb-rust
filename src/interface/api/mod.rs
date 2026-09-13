@@ -223,6 +223,7 @@ impl WebApi {
             (&Method::DELETE, ["bots", id]) => h.delete_bot(id, parse(body)?).await,
             (&Method::POST, ["bots", id, "start"]) => h.start_bot(id).await,
             (&Method::POST, ["bots", id, "stop"]) => h.stop_bot(id).await,
+            (&Method::POST, ["bots", id, "restart"]) => h.restart_bot(id).await,
             (&Method::PUT, ["bots", id, "risk"]) => h.set_risk(id, parse(body)?).await,
             (&Method::PUT, ["bots", id, "sides"]) => h.set_side(id, parse(body)?).await,
             (&Method::PUT, ["bots", id, "runtime"]) => h.set_runtime(id, parse(body)?).await,

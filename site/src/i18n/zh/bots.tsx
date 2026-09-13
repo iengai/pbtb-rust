@@ -28,7 +28,7 @@ export const bots: typeof en = {
     empty: "还没有机器人，添加一个即可开始。",
     note:
       "“期望”是你设定的状态，“实际”是 ECS 最近上报的任务状态。" +
-      "已启用但已停止的机器人会自动重启。",
+      "已启用但已停止的机器人，在内存不足退出或重启后会自行回来；其他情况请点启动。",
   },
 
   // --- BotDetail：头部、图表、配置与危险操作 ---
@@ -47,6 +47,7 @@ export const bots: typeof en = {
     taskObserved: (when) => `上次观测到任务：${when}`,
     noTaskObserved: "尚未观测到任务",
     stopBot: "停止机器人",
+    restartBot: "重启",
     runBot: "启动机器人",
     returnTile: (window) => `收益率 · ${window}`,
     maxDrawdownTile: (window) => `最大回撤 · ${window}`,
@@ -72,7 +73,7 @@ export const bots: typeof en = {
     noConfig: "还没有配置，选择一个后机器人才能运行。",
     changeConfig: "更换配置",
     runtime: "运行时",
-    configHint: "改动会在机器人下次启动时生效。正在运行的任务仍使用启动时的配置。",
+    configHint: "改动会在机器人下次启动或重启时生效。正在运行的任务仍使用启动时的配置。",
     balance: "余额",
     balanceHint: "余额查询尚未提供。",
     dangerZone: "危险操作",
@@ -88,6 +89,14 @@ export const bots: typeof en = {
     stopped: "已请求停止。",
     notRunning: "机器人当时未在运行，现已标记为已禁用。",
     alreadyStopping: "机器人正在停止中。",
+  },
+
+  // --- BotDetail：重启确认 ---
+  restartModal: {
+    title: "重启这个机器人？",
+    body: "任务会停止并用当前配置重新启动，机器人保持已启用。已有持仓按原样留在交易所。",
+    restarting: "已请求重启。任务先停止，随后会依次上报为启动中、运行中。",
+    started: "机器人当时未在运行，现已开始启动。",
   },
 
   // --- BotDetail：删除确认，需要照抄机器人 ID ---
@@ -109,22 +118,22 @@ export const bots: typeof en = {
     warning: (name) => (
       <>
         切换到 <span className="mono">{name}</span>{" "}
-        会用该模板的策略、方向、币种和风险设置覆盖当前设置，并在下次启动时生效。
+        会用该模板的策略、方向、币种和风险设置覆盖当前设置，并在下次启动或重启时生效。
       </>
     ),
     apply: (name) => `应用 ${name}`,
-    applied: (name) => `配置 ${name} 已应用，将在下次启动时生效。`,
+    applied: (name) => `配置 ${name} 已应用，将在下次启动或重启时生效。`,
   },
 
   // --- BotDetail：每个方向的钱包敞口 ---
   riskModal: {
-    hint: "每个方向的钱包敞口上限。杠杆按 max(多, 空) + 1 推导。下次启动时生效。",
+    hint: "每个方向的钱包敞口上限。杠杆按 max(多, 空) + 1 推导。下次启动或重启时生效。",
     saved: (long, short) => `风险等级已设为 多 ${long.toFixed(2)} · 空 ${short.toFixed(2)}。`,
   },
 
   // --- BotDetail：启用或禁用某个方向 ---
   sidesModal: {
-    hint: "启用或禁用策略的某个方向。下次启动时生效。",
+    hint: "启用或禁用策略的某个方向。下次启动或重启时生效。",
     saved: (long, short) => `方向已设置：多 ${long ? "开启" : "关闭"} · 空 ${short ? "开启" : "关闭"}。`,
   },
 

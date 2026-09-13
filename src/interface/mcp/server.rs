@@ -17,7 +17,7 @@ use crate::domain::error::DomainError;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::interface::describe;
 use crate::interface::redaction::redact;
-use crate::usecase::{DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
+use crate::usecase::{DeleteOutcome, RestartOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
 use std::str::FromStr;
 
 /// Identifies one bot. No tool takes a `user_id`: the tenant comes from the
@@ -83,7 +83,7 @@ const INSTRUCTIONS: &str = concat!(
     "Manage passivbot trading bots. Every tool acts on the authenticated caller's own ",
     "bots; there is no way to name another tenant. Exchange API keys are never accepted ",
     "or returned here - add a bot and enter its keys in the Telegram bot or the web ",
-    "console. Config changes apply on a bot's next start.",
+    "console. Config changes apply on a bot's next start or restart.",
 );
 
 #[derive(Clone)]
@@ -504,7 +504,50 @@ impl BotTools {
         Self::ok(body)
     }
 
-    /// Switch a bot to a configuration template. Applies on its next start.
+    /// Restart a bot with its current config: the task stops and the reconcile
+    /// Lambda launches the replacement once it is gone. Desired state stays on.
+    ///
+    /// Not idempotent: each call that finds a live task stops it again.
+    #[tool(annotations(idempotent_hint = false))]
+    pub async fn restart_bot(
+        &self,
+        Parameters(args): Parameters<BotRef>,
+    ) -> Result<CallToolResult, McpError> {
+        let principal = self.principal(SCOPE_WRITE)?;
+        let outcome = self
+            .deps
+            .restart_bot_usecase
+            .execute(&principal.user_id, principal.vip_level, &args.bot_id)
+            .await
+            .map_err(|e| {
+                Self::audit(&principal, "restart_bot", &args.bot_id, "error");
+                failed("restarting the bot", e)
+            })?;
+
+        let body = match &outcome {
+            RestartOutcome::Restarting { task_id } => {
+                json!({ "status": "restarting", "task_id": task_id })
+            }
+            RestartOutcome::Started { task_id } => {
+                json!({ "status": "started", "task_id": task_id })
+            }
+            RestartOutcome::StartInProgress => {
+                json!({ "status": "start_in_progress", "retry": true })
+            }
+            RestartOutcome::Stopping => json!({ "status": "stopping", "retry": true }),
+            RestartOutcome::BotNotFound => json!({ "status": "bot_not_found" }),
+        };
+        Self::audit(
+            &principal,
+            "restart_bot",
+            &args.bot_id,
+            body["status"].as_str().unwrap_or("unknown"),
+        );
+        Self::ok(body)
+    }
+
+    /// Switch a bot to a configuration template. Applies on its next start or
+    /// restart.
     #[tool]
     pub async fn apply_template(
         &self,
@@ -529,7 +572,8 @@ impl BotTools {
         Self::ok(json!({ "status": "applied", "template_name": args.template_name }))
     }
 
-    /// Set the per-side wallet exposure limits. Applies on the bot's next start.
+    /// Set the per-side wallet exposure limits. Applies on the bot's next start
+    /// or restart.
     #[tool]
     pub async fn set_risk_level(
         &self,
@@ -557,7 +601,8 @@ impl BotTools {
         }))
     }
 
-    /// Enable or disable one side of the strategy. Applies on the next start.
+    /// Enable or disable one side of the strategy. Applies on the next start or
+    /// restart.
     #[tool]
     pub async fn set_strategy_side(
         &self,
@@ -577,7 +622,8 @@ impl BotTools {
     }
 
     /// Choose which image the bot launches on within its engine line. Takes
-    /// effect on the next start; a running task keeps the binary it started with.
+    /// effect on the next start or restart; a running task keeps the binary it
+    /// started with.
     #[tool]
     pub async fn set_bot_runtime(
         &self,

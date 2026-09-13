@@ -14,7 +14,7 @@ import {
   fmtUsdt,
   selectWindow,
 } from "../chart/returnCurve";
-import { Play, Stop, Trash } from "../components/icons";
+import { Play, Restart, Stop, Trash } from "../components/icons";
 import {
   Badge,
   Chips,
@@ -35,7 +35,7 @@ import { useLang, useT } from "../i18n/locale";
 
 const POLL_MS = 15_000;
 
-type Dialog = "stop" | "delete" | "template" | "risk" | "sides" | "runtime" | null;
+type Dialog = "stop" | "restart" | "delete" | "template" | "risk" | "sides" | "runtime" | null;
 
 export function BotDetail() {
   const { id = "" } = useParams();
@@ -135,6 +135,10 @@ export function BotDetail() {
               <button type="button" className="btn" onClick={() => setDialog("stop")} disabled={action.busy}>
                 <Stop />
                 {t.bots.detail.stopBot}
+              </button>
+              <button type="button" className="btn" onClick={() => setDialog("restart")} disabled={action.busy}>
+                <Restart />
+                {t.bots.detail.restartBot}
               </button>
               <button type="button" className="btn primary" onClick={() => void start()} disabled={action.busy}>
                 <Play />
@@ -317,6 +321,29 @@ export function BotDetail() {
                   }
                 >
                   {t.bots.detail.stopBot}
+                </button>
+              </div>
+            </Modal>
+          )}
+          {dialog === "restart" && (
+            <Modal title={t.bots.restartModal.title} onClose={close}>
+              <div style={{ fontSize: 14 }}>{t.bots.restartModal.body}</div>
+              <div className="actions">
+                <button type="button" className="btn ghost" onClick={close}>
+                  {t.common.cancel}
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={action.busy}
+                  onClick={() =>
+                    void action.run(async () => {
+                      const r = await api.restartBot(id);
+                      done(r.status === "restarting" ? t.bots.restartModal.restarting : t.bots.restartModal.started);
+                    })
+                  }
+                >
+                  {t.bots.detail.restartBot}
                 </button>
               </div>
             </Modal>

@@ -34,6 +34,11 @@ export const Stop = ({ size = 16 }: P) => (
     <rect x="5" y="5" width="10" height="10" rx="1.5" />
   </svg>
 );
+export const Restart = ({ size = 16 }: P) => (
+  <svg {...stroke(size)}>
+    <path d="M15.5 10a5.5 5.5 0 1 1-1.6-3.9M15.5 4v3h-3" />
+  </svg>
+);
 export const Trash = ({ size = 16 }: P) => (
   <svg {...stroke(size)}>
     <path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10" />

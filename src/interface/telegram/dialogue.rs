@@ -8,7 +8,7 @@ use super::{
     redaction::redact,
     states::{BotContext, DialogueState},
 };
-use crate::usecase::{AddOutcome, StartOutcome, StopOutcome};
+use crate::usecase::{AddOutcome, RestartOutcome, StartOutcome, StopOutcome};
 
 type MyDialogue = Dialogue<DialogueState, InMemStorage<DialogueState>>;
 type MyBotContext = Dialogue<BotContext, InMemStorage<BotContext>>;
@@ -382,6 +382,37 @@ async fn handle_start_state(
                     .reply_markup(super::keyboards::main_menu_keyboard())
                     .await?;
             }
+            "Restart bot" => {
+                let ctx = bot_context.get().await?
+                    .unwrap_or_default();
+
+                let text = if let Some(ref bot_id) = ctx.selected_bot_id {
+                    let user_id = sender.user_id.clone();
+
+                    match deps.restart_bot_usecase.execute(&user_id, sender.vip_level, bot_id).await {
+                        Ok(RestartOutcome::Restarting { .. }) => format!(
+                            "🔁 Bot {bot_id} is restarting: the task stops and comes back \
+                            with the current config."
+                        ),
+                        Ok(RestartOutcome::Started { .. }) => format!("▶️ Bot {bot_id} wasn't running — starting it up."),
+                        Ok(RestartOutcome::StartInProgress) => format!(
+                            "⏳ Bot {bot_id} is starting — tap Restart again in a few seconds."
+                        ),
+                        Ok(RestartOutcome::Stopping) => format!(
+                            "🛑 Bot {bot_id} is stopping. After a Restart it comes back by itself; \
+                            after a Stop, tap Run once it has stopped."
+                        ),
+                        Ok(RestartOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
+                        Err(e) => redact("restarting the bot", &e),
+                    }
+                } else {
+                    "❌ Please select a bot first using 'List'".to_string()
+                };
+
+                bot.send_message(msg.chat.id, text)
+                    .reply_markup(super::keyboards::main_menu_keyboard())
+                    .await?;
+            }
             "Sides" => {
                 let ctx = bot_context.get().await?.unwrap_or_default();
 
@@ -411,7 +442,7 @@ async fn handle_start_state(
                                 Tap a side to turn it on/off.\n\
                                 Off stops opening new positions and closes \
                                 existing ones gradually.\n\
-                                ⚠️ Applies on the next 'Run bot'."
+                                ⚠️ Applies on the next 'Run bot' or 'Restart bot'."
                             ),
                         )
                         .reply_markup(super::keyboards::strategy_sides_keyboard(
@@ -460,7 +491,7 @@ async fn handle_start_state(
                                 📦 Current: {}\n\n\
                                 Tap an image to switch to it.\n\
                                 Both run the same engine line — only the binary differs.\n\
-                                ⚠️ Applies on the next 'Run bot'. A running task keeps \
+                                ⚠️ Applies on the next 'Run bot' or 'Restart bot'. A running task keeps \
                                 its current image until it is stopped and started again.",
                                 super::views::format_bot_runtime(b.runtime)
                             ),
