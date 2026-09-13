@@ -14,7 +14,9 @@ export const showcase: typeof en = {
   updated: (date) => `更新于 ${date} UTC`,
   runs: {
     title: "实盘运行",
-    lead: (min, max) => `公开机器人使用该配置连续运行至少 ${min} 天的每一段；超过 ${max} 段时只列最近的 ${max} 段。勾选即与回测画在一起。`,
+    lead: (max) =>
+      `使用过该配置的公开机器人，每个机器人的多段运行合在一起显示；超过 ${max} 个机器人时只列最近用过的 ${max} 个。勾选即与回测画在一起。`,
+    clearAll: "全部取消叠加",
     ongoing: "进行中",
     caption: (c) => `本金 ${c.cap} · ${c.start} → ${c.end} · ${c.days} 天 · ${c.ret}`,
   },

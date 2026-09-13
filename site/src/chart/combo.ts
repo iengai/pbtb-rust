@@ -39,7 +39,7 @@ export const MIN_SPAN_DAYS = 2;
 // At or below this the account was wiped out; nothing can be re-based on it.
 const DEAD_EPS = 1e-9;
 
-// The colours the runs take, in the order the runs are listed (newest first).
+// The colours the listed bots take, in list order (newest run first).
 // Kept apart from the backtest's accent blue and the balance's grey, and
 // legible on both themes.
 export const RUN_COLORS = ["#d97706", "#16a34a", "#db2777", "#7c3aed", "#0891b2"];
@@ -177,8 +177,9 @@ export function valueAt(view: Curve["view"], ts: number): number | null {
   return view[n - 1]!.pct;
 }
 
-// The runs drawn before the reader touches anything: the newest one, so the
-// chart opens with a comparison and not a tangle.
-export function initialSelection<T extends { key: string }>(runs: T[]): Set<string> {
-  return new Set(runs.length ? [runs[0]!.key] : []);
+// What is drawn before the reader touches anything: the first listed entry
+// (the bot with the newest run), so the chart opens with a comparison and not
+// a tangle.
+export function initialSelection<T extends { key: string }>(listed: T[]): Set<string> {
+  return new Set(listed.length ? [listed[0]!.key] : []);
 }

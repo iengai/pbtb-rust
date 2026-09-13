@@ -1,19 +1,15 @@
 // The config-centric reading of a showcase bot's curve: one run per span the
-// bot ran one config, long enough to mean something, re-based to its own
-// start. Derived here from the public artifact (points, switches, resets) so
-// the collector publishes one shape and the config page and the bot page read
-// the same file.
+// bot ran one config, re-based to its own start. Derived here from the public
+// artifact (points, switches, resets) so the collector publishes one shape and
+// the config page and the bot page read the same file.
 
 import type { ShowcaseBot } from "../data/static";
 import { type BotReturnSeries, type ViewPoint } from "./returnCurve";
 
 const DAY = 86400;
 
-// A span shorter than this is noise: a config tried for a week says nothing.
-export const MIN_RUN_DAYS = 30;
-
-// The config page shows the newest runs when a config was used many times.
-export const MAX_RUNS_PER_TEMPLATE = 5;
+// The config page shows the bots that ran a config most recently when many did.
+export const MAX_BOTS_PER_TEMPLATE = 5;
 
 // At or below this the account was wiped out; a run cannot start from it.
 const DEAD_EPS = 1e-9;
@@ -70,9 +66,9 @@ export function deriveRuns(bot: ShowcaseBot, now: number = bot.generated_at): Ru
 function runOf(bot: ShowcaseBot, points: ShowcaseBot["points"], template: string, span: Span, now: number): Run | null {
   const endTs = span.end ?? now;
   const days = Math.floor((endTs - span.start) / DAY);
-  if (days < MIN_RUN_DAYS) return null;
   const inside = points.filter((p) => p.ts >= span.start && p.ts <= endTs);
-  if (inside.length < 2) return null;
+  // A span with no daily close yet has nothing to draw.
+  if (inside.length === 0) return null;
   // The base is the close the span started from: the last point before a
   // switch, the reset day's own point after a re-funding (the day before held
   // the dust the deposit replaced).
@@ -92,12 +88,18 @@ function runOf(bot: ShowcaseBot, points: ShowcaseBot["points"], template: string
   };
 }
 
-// The newest runs of one config across the showcase bots.
-export function runsForTemplate(bots: ShowcaseBot[], template: string, limit = MAX_RUNS_PER_TEMPLATE): Run[] {
+/** Every run of one config on one bot, newest first. */
+export type BotRuns = { bot: Run["bot"]; runs: Run[] };
+
+// The showcase bots that ran one config, each with all its runs of it: a bot
+// that left the config and came back is one entry, not several. Ordered by
+// each bot's newest run, capped by bot.
+export function botsForTemplate(bots: ShowcaseBot[], template: string, limit = MAX_BOTS_PER_TEMPLATE): BotRuns[] {
   return bots
-    .flatMap((b) => deriveRuns(b))
-    .filter((r) => r.template_name === template)
-    .sort((a, b) => b.start - a.start)
+    .map((b) => ({ runs: deriveRuns(b).filter((r) => r.template_name === template) }))
+    .filter((g) => g.runs.length > 0)
+    .map(({ runs }) => ({ bot: runs[0]!.bot, runs }))
+    .sort((a, b) => b.runs[0]!.start - a.runs[0]!.start)
     .slice(0, limit);
 }
 
