@@ -4,8 +4,10 @@ import {
   DAY,
   MIN_SPAN_DAYS,
   PRESETS,
+  axisOf,
   clampSpan,
   domainOf,
+  fmtTick,
   initialSelection,
   presetOf,
   presetSpan,
@@ -101,6 +103,56 @@ describe("rebase", () => {
     expect(rebase([run], { from: 359 * DAY, to: 399 * DAY })).toEqual([]);
     const dead: ComboSeries = { id: "dead", label: "", color: "", points: [{ ts: 0, v: 0 }, { ts: DAY, v: 0 }] };
     expect(rebase([dead], { from: 0, to: DAY })).toEqual([]);
+  });
+});
+
+describe("axisOf", () => {
+  const view = (pcts: number[]) => ({ series: backtest, view: pcts.map((pct, ts) => ({ ts, pct })) });
+
+  it("starts at 0% with nothing below it, and pads above", () => {
+    for (const scale of ["log", "linear"] as const) {
+      const axis = axisOf([view([0, 50, 300])], scale);
+      expect(axis.ticks[0]).toBeCloseTo(0);
+      expect(axis.pos(0)).toBe(0);
+      expect(axis.pos(300)).toBeLessThan(1);
+      expect(axis.pos(300)).toBeGreaterThan(0.9);
+      expect(axis.ticks.at(-1)!).toBeGreaterThan(300);
+      expect(axisOf([view([0, 0])], scale).ticks[0]).toBe(0);
+    }
+  });
+
+  it("pads below only where a curve goes under 0%", () => {
+    const axis = axisOf([view([0, -20, 10])], "linear");
+    expect(axis.ticks[0]!).toBeLessThan(-20);
+    expect(axis.pos(0)).toBeGreaterThan(0);
+  });
+
+  it("spaces the log rows as equal multiples and the linear rows as equal steps", () => {
+    const log = axisOf([view([0, 3500])], "log").ticks.map((pct) => 1 + pct / 100);
+    const ratios = log.slice(1).map((m, i) => m / log[i]!);
+    for (const r of ratios) expect(r).toBeCloseTo(ratios[0]!, 6);
+    const lin = axisOf([view([0, 3500])], "linear").ticks;
+    const steps = lin.slice(1).map((v, i) => v - lin[i]!);
+    for (const s of steps) expect(s).toBeCloseTo(steps[0]!, 6);
+  });
+
+  it("clips a wiped account to the log floor", () => {
+    const axis = axisOf([view([0, -100])], "log");
+    expect(Number.isFinite(axis.pos(-100))).toBe(true);
+    expect(axis.pos(-100)).toBeGreaterThanOrEqual(0);
+    expect(axis.pos(-100)).toBeLessThan(axis.pos(0));
+  });
+
+  it("keeps 0% in view for curves that only lose or only gain", () => {
+    expect(axisOf([view([0, -5, -30])], "log").pos(0)).toBeLessThan(1);
+    expect(axisOf([view([0, 5, 30])], "log").pos(0)).toBe(0);
+  });
+
+  it("labels a row in whole percent from a hundred up", () => {
+    expect(fmtTick(3587.24)).toBe("+3587%");
+    expect(fmtTick(66.44)).toBe("+66.4%");
+    expect(fmtTick(-265.7)).toBe("-266%");
+    expect(fmtTick(0)).toBe("0.0%");
   });
 });
 
