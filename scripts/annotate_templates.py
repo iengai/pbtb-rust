@@ -38,7 +38,7 @@ Each run also re-derives what the config and the lineage decide (``style``,
 ``engine``, ``generation``, the sides in ``strategies``) and recomposes every
 title from the naming properties across the templates listed together, so a
 suffix appears or goes
-as templates are added and retired. Each bot's stored config, which copied
+as templates are added and archived. Each bot's stored config, which copied
 its template's titles and properties when it was applied, is restamped onto
 the current ones. Re-run it after either.
 
@@ -65,7 +65,7 @@ import sys
 from pathlib import Path
 
 from backtest_templates import write_index, write_json
-from rename_predefined import BUCKET, CATALOG, PREFIX, RETIRED_PREFIX, TABLE, aws, body_bytes
+from rename_predefined import ARCHIVED_PREFIX, BUCKET, CATALOG, PREFIX, TABLE, aws, body_bytes
 from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -79,10 +79,11 @@ LAB_OWN = ("original_name", "readable_id", "status", "notes")
 
 GENOME = "6501db3f96"
 
-# Offered to the operator's account only (`pbtb.audience: "operator"`): absent
-# from every listing a member or a visitor sees, still applicable by the
-# operator. Any other id is offered to everyone and carries no mark.
-OPERATOR_ONLY: frozenset[str] = frozenset({
+# Retired: offered to the operator's account only (`pbtb.audience:
+# "operator"`), absent from every listing a member or a visitor sees, still
+# applicable by the operator. Any other id is published, offered to everyone,
+# and carries no mark.
+RETIRED: frozenset[str] = frozenset({
     # the seven v7 lab generations
     "tpl-2vewmtjy", "tpl-35c6wt6w", "tpl-8bzdh8ay", "tpl-8ctkayqd", "tpl-mvgw3zk4",
     "tpl-tavc364d", "tpl-xhdfc2ws",
@@ -249,7 +250,7 @@ def annotate(raw: dict, readable: str, tid: str | None = None) -> dict:
     """`tid` is the id the audience is keyed by; it defaults to the id the
     block names."""
     meta = dict(raw.get("pbtb") or {})
-    if (tid or meta.get("name")) in OPERATOR_ONLY:
+    if (tid or meta.get("name")) in RETIRED:
         meta["audience"] = "operator"
     else:
         meta.pop("audience", None)
@@ -398,7 +399,7 @@ def main() -> int:
 
     artifacts = False
     metas: dict[str, dict] = {}
-    for prefix in (PREFIX, RETIRED_PREFIX):
+    for prefix in (PREFIX, ARCHIVED_PREFIX):
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], args.profile)
         keys = sorted(line.split()[-1] for line in listing.splitlines()
                       if line.strip().endswith(".json"))

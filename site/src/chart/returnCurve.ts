@@ -308,7 +308,7 @@ export type ChartLabels = {
 };
 
 // A period as drawn: named for the reader, and linking to the config's page
-// when it has one (a retired or private template has none).
+// when it has one (an archived or private template has none).
 export type DrawnPeriod = Period & { label: string; href: string | null };
 
 // `idPrefix` makes this drawing's element ids unique in the document; it

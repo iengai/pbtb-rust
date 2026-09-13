@@ -72,7 +72,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 BUCKET = "scalable-cluster-dev-bot-configs"
 PREFIX = "predefined/"
-RETIRED_PREFIX = "retired/"
+# The archived objects live under this key; a move to a prefix named for them
+# would cost each its version history.
+ARCHIVED_PREFIX = "retired/"
 TABLE = "scalable-cluster-dev-bots"
 
 # Our own markers, superseded by the `pbtb` block.
@@ -253,7 +255,7 @@ def to_id(name: str) -> str:
 
 def read_template(new_id: str, profile: str | None) -> dict:
     """The template's own `pbtb` block, wherever the object lives now."""
-    for prefix in (PREFIX, RETIRED_PREFIX):
+    for prefix in (PREFIX, ARCHIVED_PREFIX):
         try:
             body = json.loads(aws(["s3", "cp", f"s3://{BUCKET}/{prefix}{new_id}.json", "-"], profile))
         except subprocess.CalledProcessError:

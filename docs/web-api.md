@@ -98,7 +98,7 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
 | `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it: a return index plus realized PnL in the settlement coin (`realized_usdt` / `cum_realized_usdt` per point, `total_realized_usdt` overall), no balance; 404 until it has; 501 where no chart bucket is configured |
-| `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level, audience}]}`; nothing is hidden by level; `audience` is `everyone` or `operator`, and an `operator` one is listed to the operator's account only |
+| `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level, audience}]}`; nothing is hidden by level; `audience` is `everyone` (published) or `operator` (retired), and an `operator` one is listed to the operator's account only |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
 
 A template is addressed by its opaque id (`tpl-…`) and read by its `title` /
@@ -135,8 +135,8 @@ one, level 9 is unlimited; the count is over bots switched on (desired state),
 so a bot that is on but between tasks holds its slot, and starting a bot that
 is already on never trips it. A template may ask for a level
 (`pbtb.min_vip_level` in its JSON, absent = 0): applying one above the caller's
-is refused, listing and describing are not. A template may instead be the
-operator's alone (`pbtb.audience: "operator"`, absent = everyone): a member is
+is refused, listing and describing are not. A template may instead be retired,
+the operator's alone (`pbtb.audience: "operator"`, absent = everyone): a member is
 not listed it and is refused applying it; describing it is open to anyone with
 its id, since the showcase charts link to it. Levels are changed with
 `python scripts/ops/pbtb_ops.py set-vip`; lowering one stops nothing, it

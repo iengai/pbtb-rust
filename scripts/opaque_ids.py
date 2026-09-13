@@ -3,7 +3,7 @@
 
 ``bybit-mix10-1000u-bold-v8`` spelled out what the template was, so it went
 stale whenever something about the template turned out otherwise: the 2026
-crash window moved one template a whole profile, and every retirement left a
+crash window moved one template a whole profile, and archiving one left a
 sibling letter that distinguished nothing. From here a template is addressed by
 ``tpl-<8 characters>`` and described by the naming properties in ``pbtb`` (see
 template_naming.py).
@@ -42,7 +42,7 @@ from pathlib import Path
 
 from annotate_templates import LAB_KEY, curate, restamp_bots, trading
 from backtest_templates import write_index, write_json
-from rename_predefined import BUCKET, PREFIX, RETIRED_PREFIX, TABLE, aws, body_bytes
+from rename_predefined import ARCHIVED_PREFIX, BUCKET, PREFIX, TABLE, aws, body_bytes
 from template_naming import IDS, resolve, suffix
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -105,7 +105,7 @@ def migrate_templates(profile: str | None, apply: bool) -> tuple[dict[str, dict]
     """Returns id -> `pbtb` for every template, and whether an artifact moved."""
     metas: dict[str, dict] = {}
     artifacts = False
-    for prefix in (PREFIX, RETIRED_PREFIX):
+    for prefix in (PREFIX, ARCHIVED_PREFIX):
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], profile)
         keys = sorted(line.split()[-1] for line in listing.splitlines()
                       if line.strip().endswith(".json"))

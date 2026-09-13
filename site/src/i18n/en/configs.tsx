@@ -7,8 +7,8 @@ export const configs = {
   // window, so both pages mark it.
   liquidatedBadge: "liquidated",
   wipedOut: "wiped out",
-  // A template offered to the operator's account only.
-  internalBadge: "internal",
+  // A retired template: offered to the operator's account only.
+  retiredBadge: "retired",
   // A template's naming properties, shown as tags: the strategy family, keyed
   // by `pbtb.style`, and the lab iteration that produced the tuning.
   style: { grid: "Grid", martingale: "Martingale", ema_anchor: "EMA anchor" },
@@ -18,9 +18,11 @@ export const configs = {
     title: "Configs",
     lead: (shown: number, total: number, exchanges: string) =>
       `${shown} of ${total} strategy templates shown · backtested on ${exchanges || "exchange"} data · sorted by gain`,
+    // The operator's two catalogues; everyone else sees the published one alone.
+    tabs: { published: "Published", retired: "Retired" },
     allEngines: "All",
     templates: "templates",
-    empty: "No templates published yet.",
+    empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",
     backtestRange: (start: string, end: string, exchange: string) => `Backtest ${start} → ${end} · ${exchange}`,
   },
@@ -31,7 +33,7 @@ export const configs = {
       `Tuned on ${exchange} data · backtest ${start} → ${end} · ${coins} coin${coins === 1 ? "" : "s"}`,
     liquidatedNote:
       "the account was liquidated before the window ended; the metrics describe the run up to that point",
-    internalNote: "offered to the operator's account only",
+    retiredNote: "retired: offered to the operator's account only",
     applyCta: "Apply to a bot…",
     aboutTitle: "About this strategy",
     noDescription: "No description.",

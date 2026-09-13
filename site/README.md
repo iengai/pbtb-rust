@@ -163,9 +163,10 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
   engine, audience, exchange, coins, start, end, metrics}]`, where `name` is the
-  opaque template id and `audience` is `"operator"` on a template offered to
-  the operator's account only (the Configs list leaves it out unless `GET /me`
-  says the session is the operator's; its page stays reachable by link); `templates/<name>.json` — the same plus `starting_balance`,
+  opaque template id and `audience` is `"operator"` on a retired template,
+  offered to the operator's account only (the Configs page lists it under its
+  Retired tab when `GET /me` says the session is the operator's and leaves it
+  out otherwise; its page stays reachable by link); `templates/<name>.json` — the same plus `starting_balance`,
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `generated_at` the
   pipeline uses to skip unchanged templates. `metrics` follow passivbot's
