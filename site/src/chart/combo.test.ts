@@ -50,6 +50,11 @@ describe("domain and presets", () => {
     expect(PRESETS[presetOf(domain, domain)]!.k).toBe("All");
     expect(presetOf(domain, { from: 10 * DAY, to: 200 * DAY })).toBe(-1);
   });
+
+  it("names a domain shorter than every preset All", () => {
+    const short = { from: 0, to: 20 * DAY };
+    expect(PRESETS[presetOf(short, presetSpan(short, 30))]!.k).toBe("All");
+  });
 });
 
 describe("clampSpan", () => {

@@ -81,7 +81,7 @@ export function ConfigDetail() {
             </button>
           </div>
 
-          <ConfigChart template={data} />
+          <ConfigChart key={data.name} template={data} />
 
           <div className="two-col">
             <div className="stack">

@@ -19,11 +19,13 @@ Each backtest runs as a subprocess inside its passivbot checkout with the
 checkout's own virtualenv. A template whose artifact already carries the same
 ``source_sha``, engine and window end is skipped unless ``--force`` is given.
 
-``--end-date`` runs every template from its own start to that date instead of
-to its own ``backtest.end_date``; ``now`` is the last day with a complete
-candle set, two days back, the date passivbot itself resolves ``now`` to. The
-template in S3 is not touched: the date goes into the run's copy only, and
-into the artifact's ``end``.
+``--end-date`` runs every template from its own start to that date; ``now``
+is the last day with a complete candle set, two days back, the date passivbot
+itself resolves ``now`` to. Without it a template keeps the window end its
+artifact was last run to, or runs to its own ``backtest.end_date`` when it
+has no artifact yet, so a plain rerun after adding a template costs only the
+new one and never moves the others. The template in S3 is not touched: the
+date goes into the run's copy only, and into the artifact's ``end``.
 """
 
 from __future__ import annotations
@@ -104,11 +106,20 @@ BALANCE_COLUMNS = ("usd_total_balance", "balance")
 EQUITY_COLUMNS = ("usd_total_equity", "equity")
 
 
+def artifact_end(name: str) -> str | None:
+    """The window end the committed artifact was run to; None without one."""
+    try:
+        return json.loads((OUTPUT_DIR / f"{name}.json").read_text(encoding="utf-8")).get("end")
+    except (OSError, ValueError):
+        return None
+
+
 class Template:
     """One template file plus the metadata the site needs from it.
 
-    ``end_date`` is the window end the run uses: the template's own, or the
-    one ``--end-date`` names for every template."""
+    ``end_date`` is the window end the run uses: the one ``--end-date`` names
+    for every template, else the end its artifact was last run to, else the
+    template's own."""
 
     def __init__(self, path: Path, end_date: str | None = None):
         self.path = path
@@ -117,7 +128,7 @@ class Template:
         self.source_sha = hashlib.sha256(self.raw).hexdigest()
         self.config = json.loads(self.raw.decode("utf-8"))
         self.engine = detect_engine(self.config)
-        self.end_date = end_date or self.backtest.get("end_date")
+        self.end_date = end_date or artifact_end(self.name) or self.backtest.get("end_date")
 
     @property
     def backtest(self) -> dict:

@@ -65,12 +65,15 @@ export function presetSpan(domain: Span, days: number | null): Span {
   return { from: Math.max(domain.from, domain.to - days * DAY), to: domain.to };
 }
 
-// The preset whose span this is, or -1 for a span the brush chose.
+// The preset whose span this is, or -1 for a span the brush chose. The last
+// match wins: on a domain shorter than a preset that preset's span is the
+// whole domain, and "All" is the truthful name for it.
 export function presetOf(domain: Span, span: Span): number {
-  return PRESETS.findIndex((p) => {
-    const s = presetSpan(domain, p.days);
-    return s.from === span.from && s.to === span.to;
-  });
+  for (let i = PRESETS.length - 1; i >= 0; i--) {
+    const s = presetSpan(domain, PRESETS[i]!.days);
+    if (s.from === span.from && s.to === span.to) return i;
+  }
+  return -1;
 }
 
 // A span the brush proposes, made drawable: inside the domain, in order, and
