@@ -18,10 +18,11 @@ pub const DEFAULT_VIP_LEVEL: u8 = 0;
 
 /// What an account may do beyond its own tenant. `Operator` is the person who
 /// runs this deployment: the account whose bots may be put on the public
-/// showcase page. The API's authorization is the WorkOS org role of the same
-/// name (docs/workos.md); this is what a surface that holds no token, the
-/// Telegram bot, reads, and it is set by the operator's own hand
-/// (`pbtb_ops.py set-role`), never from a client.
+/// showcase page and the one offered the operator-only templates. Every
+/// surface gates those on this row attribute, read with the account (the
+/// Telegram sender, the API's and the MCP's principal); the WorkOS org role of
+/// the same name (docs/workos.md) governs a token's scopes only. It is set by
+/// the operator's own hand (`pbtb_ops.py set-role`), never from a client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Role {
     #[default]

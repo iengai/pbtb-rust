@@ -389,6 +389,7 @@ async fn whoami_reports_the_account_the_token_resolved_to() {
     );
     assert_eq!(out["user_id"], USER_ID.to_string());
     assert_eq!(out["vip_level"], 0);
+    assert_eq!(out["role"], "member");
     assert_eq!(out["scopes"], json!([SCOPE_READ, SCOPE_WRITE]));
     assert_eq!(
         out["telegram"],

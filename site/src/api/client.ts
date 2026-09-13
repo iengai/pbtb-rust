@@ -99,12 +99,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 /**
- * A 403 about the account's level rather than its token: the session is fine,
- * the action is not allowed. Rendered as an ordinary error, never as a refusal
- * that would send the user back to the login page.
+ * A 403 about the account's level or role rather than its token: the session
+ * is fine, the action is not allowed. Rendered as an ordinary error, never as
+ * a refusal that would send the user back to the login page.
  */
 export function isEntitlementRefusal(body: Record<string, unknown>): boolean {
-  return body.error === "insufficient_level" || body.error === "quota_exceeded";
+  return body.error === "insufficient_level" || body.error === "quota_exceeded" || body.error === "operator_only";
 }
 
 export const api = {
