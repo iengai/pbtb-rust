@@ -7,6 +7,7 @@ import type {
   BotDetail,
   BotSummary,
   Me,
+  RestartStatus,
   StartStatus,
   StopStatus,
   TemplateDescription,
@@ -126,6 +127,8 @@ export const api = {
     request<{ status: StartStatus; task_id?: string }>("POST", `/bots/${encodeURIComponent(id)}/start`),
   stopBot: (id: string) =>
     request<{ status: StopStatus; task_id?: string }>("POST", `/bots/${encodeURIComponent(id)}/stop`),
+  restartBot: (id: string) =>
+    request<{ status: RestartStatus; task_id?: string }>("POST", `/bots/${encodeURIComponent(id)}/restart`),
   setRisk: (id: string, long: number, short: number) =>
     request<{ status: "updated" }>("PUT", `/bots/${encodeURIComponent(id)}/risk`, { long, short }),
   setSide: (id: string, side: "long" | "short", enabled: boolean) =>
@@ -145,7 +148,7 @@ export const api = {
     request<TemplateDescription>("GET", `/templates/${encodeURIComponent(name)}`),
 };
 
-/** A 409 from start/stop that the server marks `retry: true`. */
+/** A 409 from start/stop/restart that the server marks `retry: true`. */
 export function isRetryConflict(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409 && e.body.retry === true;
 }

@@ -16,6 +16,7 @@ use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::identity::PROVIDER_TELEGRAM;
 use pbtb_rust::domain::runtime::{BotRuntimeRepository, RuntimePhase};
+use pbtb_rust::usecase::RESTART_REASON;
 use serde_json::json;
 
 const BOT_ID: &str = "alpha";
@@ -356,6 +357,52 @@ async fn stop_issues_a_stoptask_for_the_launched_task() {
     let stops = h.ecs.stops();
     assert_eq!(stops.len(), 1, "exactly one StopTask: {stops:?}");
     assert_eq!(stops[0].1, "task-1", "stopping the task that was launched");
+}
+
+#[tokio::test]
+async fn restart_stops_the_launched_task_and_leaves_the_bot_enabled() {
+    let h = harness!();
+    h.given_bot(a_bot()).await;
+    h.configs.put(a_config());
+
+    assert!(
+        h.send(callback(USER_ID, &format!("select_bot:{BOT_ID}")))
+            .await
+    );
+    assert!(h.send(text_message(USER_ID, "Run bot")).await);
+    assert!(h.send(text_message(USER_ID, "Restart bot")).await);
+
+    let stops = h.ecs.stops();
+    assert_eq!(stops.len(), 1, "exactly one StopTask: {stops:?}");
+    assert_eq!(stops[0].1, "task-1", "stopping the task that was launched");
+    assert_eq!(
+        stops[0].2, RESTART_REASON,
+        "the reason is what the reconcile Lambda relaunches on"
+    );
+    assert_eq!(
+        h.ecs.launches().len(),
+        1,
+        "the relaunch is the Lambda's, never this process's"
+    );
+
+    let bot =
+        pbtb_rust::domain::bot::BotRepository::find(h.bots.as_ref(), &USER_ID.to_string(), BOT_ID)
+            .await
+            .expect("read bot")
+            .expect("the bot");
+    assert!(bot.enabled, "a restart keeps desired state ON");
+    let runtime = h
+        .bots
+        .find_consistent(&USER_ID.to_string(), BOT_ID)
+        .await
+        .expect("read runtime")
+        .expect("a runtime row");
+    assert_eq!(runtime.phase, RuntimePhase::Stopping);
+    assert_eq!(runtime.task_id.as_deref(), Some("task-1"));
+    assert!(
+        h.transcript().await.contains("is restarting"),
+        "the reply says what happens next"
+    );
 }
 
 // The harness seeds the operator at VIP 0: one running bot, open templates only.

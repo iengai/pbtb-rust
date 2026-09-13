@@ -31,7 +31,7 @@ export const bots = {
     empty: "No bots yet. Add one to get started.",
     note:
       "Desired is what you asked for. Actual is the task ECS last reported. A bot that is Enabled but " +
-      "Stopped is restarted automatically.",
+      "Stopped comes back by itself after an out-of-memory stop or a Restart; after anything else, Run it.",
   },
 
   // --- BotDetail: header, chart, configuration and danger zone ---
@@ -50,6 +50,7 @@ export const bots = {
     taskObserved: (when: string) => `Task observed ${when}`,
     noTaskObserved: "No task observed yet",
     stopBot: "Stop bot",
+    restartBot: "Restart",
     runBot: "Run bot",
     returnTile: (window: string) => `Return · ${window}`,
     maxDrawdownTile: (window: string) => `Max drawdown · ${window}`,
@@ -76,7 +77,8 @@ export const bots = {
     noConfig: "No config yet. Choose one to make this bot runnable.",
     changeConfig: "Change config",
     runtime: "Runtime",
-    configHint: "Changes apply on the bot's next start. The running task keeps the config it started with.",
+    configHint:
+      "Changes apply on the bot's next start or Restart. The running task keeps the config it started with.",
     balance: "Balance",
     balanceHint: "Balance lookup is not available yet.",
     dangerZone: "Danger zone",
@@ -98,6 +100,16 @@ export const bots = {
     alreadyStopping: "The bot is already stopping.",
   },
 
+  // --- BotDetail: restart confirmation ---
+  restartModal: {
+    title: "Restart this bot?",
+    body:
+      "The task stops and comes back with the current config; the bot stays Enabled. Open positions stay " +
+      "on the exchange as they are.",
+    restarting: "Restart requested. The task stops, then reports Starting and Running.",
+    started: "The bot was not running; it is starting now.",
+  },
+
   // --- BotDetail: delete confirmation, typed against the bot id ---
   deleteModal: {
     body: (name: ReactNode) => (
@@ -117,25 +129,25 @@ export const bots = {
     warning: (name: ReactNode) => (
       <>
         Switching to <span className="mono">{name}</span> replaces the bot's strategy, sides, coins and risk
-        settings with the template's. It applies on the next start.
+        settings with the template's. It applies on the next start or Restart.
       </>
     ),
     apply: (name: string) => `Apply ${name}`,
-    applied: (name: string) => `Config ${name} applied; it takes effect on the next start.`,
+    applied: (name: string) => `Config ${name} applied; it takes effect on the next start or Restart.`,
   },
 
   // --- BotDetail: wallet exposure per side ---
   riskModal: {
     hint:
       "Wallet exposure limit per side. Leverage is derived as max(long, short) + 1. Applies on the next " +
-      "start.",
+      "start or Restart.",
     saved: (long: number, short: number) =>
       `Risk level set to long ${long.toFixed(2)} · short ${short.toFixed(2)}.`,
   },
 
   // --- BotDetail: enable or disable one side ---
   sidesModal: {
-    hint: "Enable or disable one side of the strategy. Applies on the next start.",
+    hint: "Enable or disable one side of the strategy. Applies on the next start or Restart.",
     saved: (long: boolean, short: boolean) =>
       `Sides set: long ${long ? "on" : "off"} · short ${short ? "on" : "off"}.`,
   },

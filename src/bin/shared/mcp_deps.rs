@@ -91,6 +91,32 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     let unbind_telegram_usecase = Arc::new(UnbindTelegramUseCase::new(identities));
     let bot_username = configs.telegram.bot_username.clone();
 
+    let start_bot_usecase = Arc::new(StartBotUseCase::new(
+        bots.clone(),
+        runtimes.clone(),
+        start_locks,
+        task_runner,
+        task_controller.clone(),
+        clock.clone(),
+        cluster_arn.clone(),
+        launch_targets,
+        container_name,
+    ));
+    let stop_bot_usecase = Arc::new(StopBotUseCase::new(
+        bots.clone(),
+        runtimes.clone(),
+        task_controller,
+        clock.clone(),
+        cluster_arn,
+    ));
+    let restart_bot_usecase = Arc::new(RestartBotUseCase::new(
+        bots.clone(),
+        runtimes.clone(),
+        stop_bot_usecase.clone(),
+        start_bot_usecase.clone(),
+        clock.clone(),
+    ));
+
     let mcp = mcp::Deps {
         list_bots_usecase: Arc::new(ListBotsUseCase::new(bots.clone())),
         delete_bot_usecase: Arc::new(DeleteBotUseCase::new(bots.clone(), api_keys)),
@@ -119,24 +145,9 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
             clock.clone(),
         )),
         get_bot_runtime_usecase: Arc::new(GetBotRuntimeUseCase::new(runtimes.clone())),
-        start_bot_usecase: Arc::new(StartBotUseCase::new(
-            bots.clone(),
-            runtimes.clone(),
-            start_locks,
-            task_runner,
-            task_controller.clone(),
-            clock.clone(),
-            cluster_arn.clone(),
-            launch_targets,
-            container_name,
-        )),
-        stop_bot_usecase: Arc::new(StopBotUseCase::new(
-            bots,
-            runtimes,
-            task_controller,
-            clock,
-            cluster_arn,
-        )),
+        start_bot_usecase,
+        stop_bot_usecase,
+        restart_bot_usecase,
         get_template_usecase,
         get_bot_returns_usecase,
         list_identities_usecase,

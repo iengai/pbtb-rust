@@ -55,12 +55,12 @@ export const configs: typeof en = {
     chooseBot: "选择一个机器人…",
     warning: (bot) => (
       <>
-        这会用模板的策略、方向、币种和风险设置覆盖 <b>{bot}</b> 现有的配置，并在该机器人下次启动时生效。
+        这会用模板的策略、方向、币种和风险设置覆盖 <b>{bot}</b> 现有的配置，并在该机器人下次启动或重启时生效。
       </>
     ),
     proceed: "继续",
     applyTo: (bot) => `应用到 ${bot}`,
-    done: (template, bot) => `已把 ${template} 应用到 ${bot}，下次启动时生效。`,
+    done: (template, bot) => `已把 ${template} 应用到 ${bot}，下次启动或重启时生效。`,
   },
 
   metric: {

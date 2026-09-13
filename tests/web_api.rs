@@ -204,6 +204,78 @@ async fn another_tenants_bot_is_indistinguishable_from_none() {
     assert_eq!(stop.status(), StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn restart_stops_the_task_and_leaves_the_bot_enabled() {
+    let h = harness!();
+    let bot = a_bot(USER, "alpha");
+    h.given_bot(bot.clone()).await;
+    h.configs.put(
+        pbtb_rust::domain::botconfig::BotConfig::from_template(
+            USER.to_string(),
+            bot.id.clone(),
+            &a_template("v7-template"),
+            NOW,
+        )
+        .expect("a config from the template"),
+    );
+    let api = h.http_api(TOKEN);
+
+    let start = api
+        .handle(request(
+            "POST",
+            &format!("/bots/{}/start", bot.id),
+            Some(TOKEN),
+            None,
+        ))
+        .await;
+    assert_eq!(start.status(), StatusCode::OK);
+
+    let restart = api
+        .handle(request(
+            "POST",
+            &format!("/bots/{}/restart", bot.id),
+            Some(TOKEN),
+            None,
+        ))
+        .await;
+    assert_eq!(
+        restart.status(),
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(restart.body())
+    );
+    assert_eq!(body(&restart)["status"], json!("restarting"));
+    assert_eq!(body(&restart)["task_id"], json!("task-1"));
+
+    let stops = h.ecs.stops();
+    assert_eq!(stops.len(), 1);
+    assert_eq!(stops[0].2, pbtb_rust::usecase::RESTART_REASON);
+    assert_eq!(h.ecs.launches().len(), 1, "the relaunch is the Lambda's");
+    let stored = pbtb_rust::domain::bot::BotRepository::find(h.bots.as_ref(), USER, &bot.id)
+        .await
+        .expect("read")
+        .expect("the bot");
+    assert!(stored.enabled, "a restart keeps desired state ON");
+
+    // While the task winds down a second restart is a 409 the console may retry.
+    let again = api
+        .handle(request(
+            "POST",
+            &format!("/bots/{}/restart", bot.id),
+            Some(TOKEN),
+            None,
+        ))
+        .await;
+    assert_eq!(again.status(), StatusCode::CONFLICT);
+    assert_eq!(body(&again)["status"], json!("stopping"));
+    assert_eq!(body(&again)["retry"], json!(true));
+    assert_eq!(
+        h.ecs.stops().len(),
+        1,
+        "a winding-down task is not stopped twice"
+    );
+}
+
 // ---------------------------------------------------------------- bots
 
 #[tokio::test]

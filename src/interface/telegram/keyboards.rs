@@ -18,6 +18,7 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         vec![
             KeyboardButton::new("Run bot"),
             KeyboardButton::new("Stop bot"),
+            KeyboardButton::new("Restart bot"),
             KeyboardButton::new("Unstuck"),
         ],
         vec![

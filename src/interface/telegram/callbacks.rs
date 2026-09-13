@@ -375,7 +375,7 @@ async fn handle_toggle_side(
         Ok(now_enabled) => {
             bot.answer_callback_query(&q.id)
                 .text(format!(
-                    "{} {} — applies on next 'Run bot'",
+                    "{} {} — applies on the next 'Run bot' or 'Restart bot'",
                     side,
                     if now_enabled { "enabled" } else { "disabled" }
                 ))
@@ -450,7 +450,7 @@ async fn handle_set_runtime(
         Ok(SetRuntimeOutcome::Updated { previous, runtime }) => {
             bot.answer_callback_query(&q.id)
                 .text(format!(
-                    "{previous} → {runtime} — applies on next 'Run bot'"
+                    "{previous} → {runtime} — applies on the next 'Run bot' or 'Restart bot'"
                 ))
                 .await?;
             Some(runtime)

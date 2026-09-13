@@ -194,7 +194,7 @@ async fn dispatch_command(
 const RUNTIME_USAGE: &str = "Usage: /runtime <bot_id> [py|rs]\n\n\
     • py — passivbot (Python), the default\n\
     • rs — pb-runner (Rust)\n\n\
-    The bot must be one of yours (see /list). A change applies on the next 'Run bot'.\n\
+    The bot must be one of yours (see /list). A change applies on the next 'Run bot' or 'Restart bot'.\n\
     The 'Runtime' menu button does the same thing for the selected bot.";
 
 /// `/runtime` handler body. The bot is looked up under the caller's own
@@ -234,7 +234,7 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
         ),
         Ok(SetRuntimeOutcome::Updated { previous, runtime }) => format!(
             "⚙️ Bot {bot_id} runtime: {previous} → {}\n\n\
-            ⚠️ Applies on the next 'Run bot'. A running task keeps its current image \
+            ⚠️ Applies on the next 'Run bot' or 'Restart bot'. A running task keeps its current image \
             until it is stopped and started again.",
             super::views::format_bot_runtime(runtime)
         ),

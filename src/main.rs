@@ -146,11 +146,18 @@ async fn main() -> anyhow::Result<()> {
         container_name,
     ));
     let stop_bot_usecase = Arc::new(StopBotUseCase::new(
-        bots_dyn,
-        runtimes_dyn,
+        bots_dyn.clone(),
+        runtimes_dyn.clone(),
         task_controller,
         clock.clone(),
         cluster_arn,
+    ));
+    let restart_bot_usecase = Arc::new(RestartBotUseCase::new(
+        bots_dyn,
+        runtimes_dyn,
+        stop_bot_usecase.clone(),
+        start_bot_usecase.clone(),
+        clock.clone(),
     ));
 
     // Construct dependencies
@@ -178,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
         // ECS actuation
         start_bot_usecase,
         stop_bot_usecase,
+        restart_bot_usecase,
     };
 
     interface::telegram::router::run(bot, deps, configs.telegram.site_url.clone()).await

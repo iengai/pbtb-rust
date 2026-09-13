@@ -69,3 +69,5 @@ export type TemplateDescription = {
 
 export type StartStatus = "started" | "already_running" | "already_starting";
 export type StopStatus = "stopped" | "not_running" | "already_stopping";
+/** `restarting`: the task stops and the reconcile Lambda relaunches it; `started`: nothing was running. */
+export type RestartStatus = "restarting" | "started";

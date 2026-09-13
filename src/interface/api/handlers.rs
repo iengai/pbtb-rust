@@ -15,7 +15,9 @@ use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::domain::user::Role;
 use crate::interface::describe;
 use crate::interface::mcp::auth::Principal;
-use crate::usecase::{AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
+use crate::usecase::{
+    AddOutcome, DeleteOutcome, RestartOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome,
+};
 
 pub(super) struct Handlers<'a> {
     pub deps: &'a Deps,
@@ -385,7 +387,52 @@ impl Handlers<'_> {
         Ok(respond(status, body))
     }
 
-    /// Set the per-side wallet exposure limits. Applies on the bot's next start.
+    /// Restart a bot with its current config: the task stops and the reconcile
+    /// Lambda launches the replacement once it is gone; desired state stays on.
+    pub async fn restart_bot(&self, bot_id: &str) -> ApiResult {
+        require(self.principal, WRITE)?;
+        let outcome = self
+            .deps
+            .mcp
+            .restart_bot_usecase
+            .execute(self.user_id(), self.vip_level(), bot_id)
+            .await
+            .map_err(|e| {
+                self.audit("restart_bot", bot_id, "error");
+                ApiError::from_domain("restarting the bot", e)
+            })?;
+        let (status, body) = match &outcome {
+            RestartOutcome::Restarting { task_id } => (
+                StatusCode::OK,
+                json!({ "status": "restarting", "task_id": task_id }),
+            ),
+            RestartOutcome::Started { task_id } => (
+                StatusCode::OK,
+                json!({ "status": "started", "task_id": task_id }),
+            ),
+            RestartOutcome::StartInProgress => (
+                StatusCode::CONFLICT,
+                json!({ "status": "start_in_progress", "retry": true }),
+            ),
+            RestartOutcome::Stopping => (
+                StatusCode::CONFLICT,
+                json!({ "status": "stopping", "retry": true }),
+            ),
+            RestartOutcome::BotNotFound => {
+                self.audit("restart_bot", bot_id, "bot_not_found");
+                return Err(ApiError::NotFound);
+            }
+        };
+        self.audit(
+            "restart_bot",
+            bot_id,
+            body["status"].as_str().unwrap_or("unknown"),
+        );
+        Ok(respond(status, body))
+    }
+
+    /// Set the per-side wallet exposure limits. Applies on the bot's next start
+    /// or restart.
     pub async fn set_risk(&self, bot_id: &str, body: RiskBody) -> ApiResult {
         require(self.principal, WRITE)?;
         self.find_bot(bot_id).await?;
@@ -402,7 +449,8 @@ impl Handlers<'_> {
         Self::ok(json!({ "status": "updated", "risk": { "long": body.long, "short": body.short } }))
     }
 
-    /// Enable or disable one side of the strategy. Applies on the next start.
+    /// Enable or disable one side of the strategy. Applies on the next start or
+    /// restart.
     pub async fn set_side(&self, bot_id: &str, body: SideBody) -> ApiResult {
         require(self.principal, WRITE)?;
         if body.side != "long" && body.side != "short" {
@@ -425,7 +473,8 @@ impl Handlers<'_> {
     }
 
     /// Choose which image the bot launches on within its engine line. Takes
-    /// effect on the next start; a running task keeps the binary it started with.
+    /// effect on the next start or restart; a running task keeps the binary it
+    /// started with.
     pub async fn set_runtime(&self, bot_id: &str, body: RuntimeBody) -> ApiResult {
         require(self.principal, WRITE)?;
         let runtime =
@@ -462,7 +511,8 @@ impl Handlers<'_> {
         Self::ok(body)
     }
 
-    /// Switch a bot to a configuration template. Applies on its next start.
+    /// Switch a bot to a configuration template. Applies on its next start or
+    /// restart.
     pub async fn apply_template(&self, bot_id: &str, body: TemplateBody) -> ApiResult {
         require(self.principal, WRITE)?;
         self.find_bot(bot_id).await?;
