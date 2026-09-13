@@ -14,7 +14,7 @@ export const showcase: typeof en = {
   updated: (date) => `更新于 ${date} UTC`,
   runs: {
     title: "实盘运行",
-    lead: (min, max) => `公开机器人使用该配置连续运行至少 ${min} 天的每一段，从起点重新起算；超过 ${max} 段时只显示最近的 ${max} 段。`,
+    lead: (min, max) => `公开机器人使用该配置连续运行至少 ${min} 天的每一段；超过 ${max} 段时只列最近的 ${max} 段。勾选即与回测画在一起。`,
     ongoing: "进行中",
     caption: (c) => `本金 ${c.cap} · ${c.start} → ${c.end} · ${c.days} 天 · ${c.ret}`,
   },

@@ -12,11 +12,18 @@ backtester that matches its engine line and writes, under ``site/templates``:
 Usage::
 
     python scripts/backtest_templates.py [--only NAME ...] [--engine v7|v8]
-        [--force] [--no-sync] [--pb-v8 DIR] [--pb-v7 DIR] [--cache-dir DIR]
+        [--end-date DATE|now] [--force] [--no-sync] [--pb-v8 DIR] [--pb-v7 DIR]
+        [--cache-dir DIR]
 
 Each backtest runs as a subprocess inside its passivbot checkout with the
 checkout's own virtualenv. A template whose artifact already carries the same
-``source_sha`` and engine is skipped unless ``--force`` is given.
+``source_sha``, engine and window end is skipped unless ``--force`` is given.
+
+``--end-date`` runs every template from its own start to that date instead of
+to its own ``backtest.end_date``; ``now`` is the last day with a complete
+candle set, two days back, the date passivbot itself resolves ``now`` to. The
+template in S3 is not touched: the date goes into the run's copy only, and
+into the artifact's ``end``.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -98,15 +105,19 @@ EQUITY_COLUMNS = ("usd_total_equity", "equity")
 
 
 class Template:
-    """One template file plus the metadata the site needs from it."""
+    """One template file plus the metadata the site needs from it.
 
-    def __init__(self, path: Path):
+    ``end_date`` is the window end the run uses: the template's own, or the
+    one ``--end-date`` names for every template."""
+
+    def __init__(self, path: Path, end_date: str | None = None):
         self.path = path
         self.name = path.stem
         self.raw = path.read_bytes()
         self.source_sha = hashlib.sha256(self.raw).hexdigest()
         self.config = json.loads(self.raw.decode("utf-8"))
         self.engine = detect_engine(self.config)
+        self.end_date = end_date or self.backtest.get("end_date")
 
     @property
     def backtest(self) -> dict:
@@ -176,14 +187,25 @@ def sync_templates(templates_dir: Path, profile: str) -> None:
     subprocess.run(cmd, check=True, env=env)
 
 
-def load_templates(templates_dir: Path) -> list[Template]:
+def load_templates(templates_dir: Path, end_date: str | None = None) -> list[Template]:
     templates = []
     for path in sorted(templates_dir.glob("*.json")):
         # The prefix itself is mirrored as a zero-byte object; it is not a config.
         if path.stat().st_size == 0:
             continue
-        templates.append(Template(path))
+        templates.append(Template(path, end_date))
     return templates
+
+
+def resolve_end_date(value: str | None) -> str | None:
+    """``now`` as passivbot resolves it (two days back, so the last day's
+    candles are complete), any other date as given, ``None`` untouched."""
+    if value is None:
+        return None
+    if value == "now":
+        day = datetime.now(timezone.utc).date() - timedelta(days=2)
+        return day.isoformat()
+    return datetime.fromisoformat(value).date().isoformat()
 
 
 def venv_python(pb_dir: Path) -> Path:
@@ -203,6 +225,7 @@ def artifact_is_current(template: Template) -> bool:
     return (
         existing.get("source_sha") == template.source_sha
         and existing.get("engine") == ENGINE_VERSION[template.engine]
+        and existing.get("end") == template.end_date
     )
 
 
@@ -215,6 +238,8 @@ def run_backtest(template: Template, pb_dir: Path, cache_dir: Path, timeout: flo
 
     config = json.loads(template.raw.decode("utf-8"))
     config.setdefault("backtest", {})["base_dir"] = run_dir.as_posix()
+    if template.end_date:
+        config["backtest"]["end_date"] = template.end_date
 
     log_dir = cache_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -345,7 +370,7 @@ def build_artifact(template: Template, result_dir: Path) -> dict:
         "exchange": template.exchange,
         "coins": template.coins,
         "start": template.backtest.get("start_date"),
-        "end": template.backtest.get("end_date"),
+        "end": template.end_date,
         "starting_balance": template.backtest.get("starting_balance"),
         # No description: the artifacts are public and the authors' notes name
         # leverage, position counts and exposure caps. The description reaches
@@ -383,6 +408,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", nargs="+", metavar="NAME", help="template names (file stems) to process")
     parser.add_argument("--engine", choices=("v7", "v8"), help="restrict to one engine line")
+    parser.add_argument("--end-date", metavar="DATE", help="run every template to this date (YYYY-MM-DD, or `now`) instead of its own window end")
     parser.add_argument("--force", action="store_true", help="rerun templates whose artifact is current")
     parser.add_argument("--sync", dest="sync", action="store_true", default=True, help="sync templates from S3 (default)")
     parser.add_argument("--no-sync", dest="sync", action="store_false", help="use the cached templates as-is")
@@ -401,7 +427,7 @@ def main(argv=None) -> int:
     if args.sync:
         sync_templates(templates_dir, args.profile)
 
-    templates = load_templates(templates_dir)
+    templates = load_templates(templates_dir, resolve_end_date(args.end_date))
     if args.only:
         wanted = set(args.only)
         unknown = wanted - {t.name for t in templates}

@@ -30,7 +30,6 @@ export const configs = {
     liquidatedNote:
       "the account was liquidated before the window ended; the metrics describe the run up to that point",
     applyCta: "Apply to a bot…",
-    equityTitle: "Backtest equity",
     aboutTitle: "About this strategy",
     noDescription: "No description.",
     setupTitle: "Setup",
@@ -42,6 +41,17 @@ export const configs = {
     engineValue: (version: string) => `passivbot ${version} · runs on py or rs`,
     metricsTitle: "Backtest metrics",
     metricsHint: "USD figures from analysis.json",
+  },
+
+  // The chart card: the backtest and the live runs on one chart.
+  chart: {
+    title: "Backtest and live runs",
+    aria: "backtest and live returns",
+    brushAria: "period",
+    hint: "Every curve starts at 0% at its first point inside the period. Pick a preset, or drag on the strip under the chart for any span.",
+    backtest: "Backtest equity",
+    balance: "Backtest balance",
+    notEnough: "Not enough backtest points to plot.",
   },
 
   apply: {

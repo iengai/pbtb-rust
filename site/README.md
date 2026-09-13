@@ -18,11 +18,12 @@ site/
     App.tsx             routes
     auth/               PKCE + OAuth (public client), session in sessionStorage
     api/                /api/v1 client, response types, load/action hooks, dev mock
-    chart/              return curve (windowing, re-basing, SVG), the showcase's runs, backtest equity chart
+    chart/              return curve (windowing, re-basing, SVG), the showcase's runs, the config page's
+                        combined chart (backtest + live runs over a chosen period, presets and a brush)
     components/         nav, pills/badges/tiles, banners, modal, icons
     data/               static JSON access (templates/, data/)
     i18n/               English + Simplified Chinese catalogs (see Languages below)
-    pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail (+ LiveRuns), Account,
+    pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail (+ ConfigChart), Account,
                         Returns, Showcase, ShowcaseBot
   templates/            strategy-template backtests (committed; see below)
   dist/                 build output (gitignored)
@@ -51,9 +52,9 @@ word order differs from English); rich text with inline markup (`<b>`, `<span>`)
 returning `ReactNode`, which is why catalog files are `.tsx`. Components read `t.<area>.<key>` via
 `useT()`.
 
-The pure modules — `chart/returnCurve.ts`, `chart/showcase.ts`, `chart/equitySvg.ts`, `pages/metrics.ts` — stay
+The pure modules — `chart/returnCurve.ts`, `chart/showcase.ts`, `chart/combo.ts`, `pages/metrics.ts` — stay
 language-free: they return structured data (an enum-like reason, numbers, timestamps) rather than
-sentences, and the React side (`ReturnChart.tsx`, `EquityChart.tsx`, the pages) resolves it through
+sentences, and the React side (`ReturnChart.tsx`, `ComboChart.tsx`, the pages) resolves it through
 `t`.
 
 The language is stored in `localStorage["pbtb.lang"]`; absent that, it defaults from
@@ -119,9 +120,9 @@ of verifying a JWT. What is left to lose to XSS is bounded by what the token
 is: five minutes, `aud` fixed to this API, `bots:read`/`bots:write`, and a
 refresh token that rotates — and an XSS on this origin could call the API as
 the user with or without a readable token. The bundle carries no third-party
-script, and the three `innerHTML` sites are the charts, which interpolate
-numbers and `escapeXml` every string that comes from data (labels, titles, the
-`data-href` attribute).
+script, and the two `innerHTML` sites are the return chart and its tooltip,
+which interpolate numbers and `escapeXml` every string that comes from data
+(labels, titles, the `data-href` attribute); the config page's chart is JSX.
 
 `/configs`, `/configs/:name`, `/p` and `/p/bots/:id` render without a token (static
 data). Every other page requires one; `/bots/:id` polls the API every 15 s. Return curves
@@ -182,13 +183,26 @@ template is reproducible from its own file — window, coins and exchange are
 inside it — which is why the pipeline reruns rather than mining passivbot's
 `backtests/` directory, whose runs are named by pid and timestamp with no link
 back to a config. It is CPU-bound and runs on a developer machine; a template
-whose artifact already carries the same `source_sha` and engine is skipped, so
-a rerun after adding or editing templates only costs the changed ones. Commit
-the resulting JSON.
+whose artifact already carries the same `source_sha`, engine and window end is
+skipped, so a rerun after adding or editing templates only costs the changed
+ones. `--end-date now` runs every template from its own start to the last
+complete day instead of to its own `backtest.end_date` (the template in S3 is
+not touched; the artifact's `end` says which), which is how the catalogue is
+brought up to date; the descriptions quote the artifact, so run
+`describe_templates.py --apply` after. Commit the resulting JSON.
 
 The `extreme`-profile templates come close to liquidation inside their window
 (`backtest_completion_ratio < 1`); the pages badge them rather than headline the
 pre-wipe gain.
+
+The config page draws the backtest's equity (balance dashed) and the live runs
+of that template on the showcase bots (`chart/showcase.ts`, the same runs as
+before) on one chart, `chart/combo.ts` + `chart/ComboChart.tsx`. Every curve
+arrives as an index and is re-based to 0% at its first point inside the chosen
+period, so a backtest and a run over the same days read as returns over those
+days; the period comes from the presets (anchored at the latest point any
+curve reaches) or the brush strip under the chart. The newest run is drawn
+first; the run list under the chart ticks the others on.
 
 ## Deploy
 

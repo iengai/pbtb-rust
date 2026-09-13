@@ -207,8 +207,17 @@ h1.lg { font-size: 22px; }
 .chart .period.on rect, .chart .period:hover rect { opacity: .22; }
 .chart .period a { cursor: pointer; }
 .chart .period a:hover text, .chart .period.on a text { text-decoration: underline; }
-.run { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border); }
-.run .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 14px; margin-bottom: 6px; }
+/* The config page's chart card: presets, the brush strip and the run list. */
+.presets { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; padding: 0 4px; }
+.presets .span { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.brush { display: block; width: 100%; height: auto; margin-top: 6px; touch-action: none; user-select: none; cursor: crosshair; }
+.brush .window { fill: var(--accent); opacity: .14; cursor: grab; }
+.brush .outline { fill: none; stroke: var(--accent); opacity: .6; pointer-events: none; }
+.brush .handle { fill: var(--accent); cursor: ew-resize; }
+.run-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
+.run-row label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.run-row .cap { margin-left: auto; }
+.swatch.dash { background: repeating-linear-gradient(90deg, var(--balance) 0 4px, transparent 4px 7px); }
 .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }

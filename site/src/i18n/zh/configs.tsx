@@ -22,7 +22,6 @@ export const configs: typeof en = {
     lead: (exchange, start, end, coins) => `基于 ${exchange} 数据调优 · 回测 ${start} → ${end} · ${coins} 个币种`,
     liquidatedNote: "账户在回测窗口结束前爆仓，以下指标只描述爆仓之前的表现",
     applyCta: "应用到机器人…",
-    equityTitle: "回测权益",
     aboutTitle: "关于该策略",
     noDescription: "暂无描述。",
     setupTitle: "设置",
@@ -34,6 +33,16 @@ export const configs: typeof en = {
     engineValue: (version) => `passivbot ${version} · 可在 py 或 rs 上运行`,
     metricsTitle: "回测指标",
     metricsHint: "USD 数值来自 analysis.json",
+  },
+
+  chart: {
+    title: "回测与实盘",
+    aria: "回测与实盘收益曲线",
+    brushAria: "期间",
+    hint: "每条曲线都从所选期间内自己的第一个点起算 0%。点选预设期间，或在图下方的缩略条上拖动选取任意区间。",
+    backtest: "回测权益",
+    balance: "回测余额",
+    notEnough: "回测数据点不足，暂时画不出曲线。",
   },
 
   apply: {
