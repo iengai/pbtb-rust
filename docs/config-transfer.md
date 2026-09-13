@@ -66,7 +66,7 @@ is the console's, `lab` is ours.
 - `description` — what a user reads about the template: the Telegram confirm
   and **State** views, and the console's template page beside the backtest
   chart. `scripts/describe_templates.py --apply` composes it from the site
-  backtest, the config's exposure, and the character and crash-window runs it
+  backtest, the config's exposure, and the character and stress-window runs it
   holds per template, then copies it onto the bots built from the template;
   run it after `backtest_templates.py` or after adding a template.
   `--description` on the transfer sets one until then; absent, a view shows `—`.

@@ -125,7 +125,8 @@ Budgets, checked by the verify gate: `AGENTS.md` â‰¤ 6 KB, `.claude/CLAUDE.md` â
 
 - A skill `description` says *when* to use the skill, not what it knows; the body's first paragraph says what the skill knows that the reader does not.
 - The always-loaded layer admits a fact on its second occurrence; the other layers on the first, when it cost more than half an hour or touched production.
-- A leaf that says when a script skips work names every input the check compares; a change that adds an input to the check edits that sentence in the same PR.
+- A leaf that says when a script skips or refuses a run names every input the check reads, including the ones that switch the check off; a change to the check edits that sentence in the same PR.
+- A leaf that describes a script's data table names the table's role, not a list of the kinds it holds today, unless it lists every kind.
 - A PR that changes behaviour updates the leaf, skill, or invariant that described the old behaviour (the PR template asks).
 - A row description in `docs/data-model.md` states every value a writer can leave behind, not only the one a reader defaults to; an ops-script writer counts, since it skips the use case's checks.
 - An ops write on a row under the tenant partition pins the row kind in its condition (a field only that kind carries), not only the partition: every row of the tenant shares the `pk`.

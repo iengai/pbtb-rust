@@ -17,10 +17,11 @@ that did not complete its window is a liquidation and is said so, with no
 multiple, as the site does. Basket, style and capital come from ``pbtb``. The
 direction and exposure come from the config: the sides passivbot trades, one
 with an exposure limit and positions to hold, whatever ``pbtb.strategies``
-declares. The character and the 🧪 windows come from PUBLIC. The 🧪 windows
-are the lab's separate runs over a crash, started on their own and so not the
-site backtest's path through the same dates; a site run that stops at
-2025-04-30 never met the 2025-10-10 crash at all.
+declares. The character and the 🧪 windows come from PUBLIC. The 🧪 windows are
+the lab's separate runs over one stretch each (a crash, a bear leg, or the
+months since a crash), started on their own. They differ from the site
+backtest over the same dates, which arrives there carrying whatever it gained
+or lost before.
 
 A template with no PUBLIC entry or no backtest artifact is left as it is. Bot
 configs built from a template are restamped with its description.
@@ -54,6 +55,7 @@ SIDES_ZH = {("long",): "多头", ("short",): "空头", ("long", "short"): "双�
 LIQUIDATED = "liquidated"
 
 CRASH_2025 = "2025-10-10 崩盘"
+BEAR_2026 = "2025-11-01～2026-03-01 熊市"
 CRASH_2026 = "2026-06 崩盘"
 SINCE_CRASH_2026 = "2026-06-06～09-04"
 
@@ -65,45 +67,67 @@ def window(label: str, drawdown: float | str, gain: float | None = None) -> dict
 
 PUBLIC: dict[str, dict] = {
     "tpl-2vewmtjy": {"character": "收益与回撤取中间档",
-                     "stress": [window(CRASH_2025, 0.239)]},
+                     "stress": [window(CRASH_2025, 0.239),
+                                window(BEAR_2026, 0.710, 0.055)]},
     "tpl-35c6wt6w": {"character": "收益优先",
-                     "stress": [window(CRASH_2025, 0.243)]},
+                     "stress": [window(CRASH_2025, 0.243),
+                                window(BEAR_2026, 0.758, -0.689)]},
     "tpl-3x8we339": {"character": "高敞口，止盈空间很薄、交易频繁，引擎版本不同结果差别很大",
                      "stress": [window(CRASH_2025, LIQUIDATED),
+                                window(BEAR_2026, 0.325, 0.895),
                                 window(SINCE_CRASH_2026, 0.116, 0.678)]},
     "tpl-5syk2duu": {"character": "盈利仓位多拿一段，收益优先",
-                     "stress": [window(CRASH_2025, 0.289), window(CRASH_2026, 0.229, 0.297)]},
+                     "stress": [window(CRASH_2025, 0.289),
+                                window(BEAR_2026, 0.684, -0.365),
+                                window(CRASH_2026, 0.229, 0.297)]},
     "tpl-8brpubqf": {"character": "收益优先",
                      "stress": [window(CRASH_2025, 0.243),
+                                window(BEAR_2026, 0.806, -0.383),
                                 window(SINCE_CRASH_2026, 0.063, 0.158)]},
-    "tpl-8bzdh8ay": {"character": "盈利仓位多拿一段，收益与回撤取中间档",
-                     "stress": [window(CRASH_2025, 0.250)]},
+    "tpl-8bzdh8ay": {"character": "盈利仓位多拿一段，收益优先",
+                     "stress": [window(CRASH_2025, 0.250),
+                                window(BEAR_2026, 0.572, 0.012)]},
     "tpl-8ctkayqd": {"character": "在八个币之间轮动，敞口低",
-                     "stress": [window(CRASH_2025, 0.348)]},
+                     "stress": [window(CRASH_2025, 0.348),
+                                window(BEAR_2026, 0.793, -0.534)]},
     "tpl-bzwt9jn2": {"character": "盈利仓位多拿一段，收益与回撤取中间档",
-                     "stress": [window(CRASH_2025, 0.248), window(CRASH_2026, 0.200, 0.262)]},
-    "tpl-fhhjk83e": {"character": "敞口在 XRP 模板里最低，偏保守"},
+                     "stress": [window(CRASH_2025, 0.248),
+                                window(BEAR_2026, 0.490, 0.184),
+                                window(CRASH_2026, 0.200, 0.262)]},
+    "tpl-fhhjk83e": {"character": "敞口在 XRP 模板里最低，偏保守",
+                     "stress": [window(BEAR_2026, 0.492, 0.195)]},
     "tpl-hfpuyzcm": {"character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
                      "stress": [window(CRASH_2025, LIQUIDATED),
+                                window(BEAR_2026, LIQUIDATED),
                                 window(SINCE_CRASH_2026, 0.053, 0.115)]},
-    "tpl-jwzxkxkh": {"character": "首仓占比大、加仓倍数低（浅网格）"},
-    "tpl-kypvfxgd": {"character": "自定义网格止盈，最多同时持 3 仓"},
+    "tpl-jwzxkxkh": {"character": "首仓占比大、加仓倍数低（浅网格）",
+                     "stress": [window(BEAR_2026, 0.916, 0.544)]},
+    "tpl-kypvfxgd": {"character": "自定义网格止盈，最多同时持 3 仓",
+                     "stress": [window(BEAR_2026, LIQUIDATED)]},
     "tpl-m5xse3az": {"character": "在八个币之间轮动，敞口低",
                      "stress": [window(CRASH_2025, 0.348),
+                                window(BEAR_2026, 0.790, -0.534),
                                 window("2026-06-28～09-04", 0.072, 0.110)]},
     "tpl-mvgw3zk4": {"character": "几乎不换币，回撤控制优先；横盘时回本可能要 226 天",
-                     "stress": [window(CRASH_2025, 0.014)]},
+                     "stress": [window(CRASH_2025, 0.014),
+                                window(BEAR_2026, 0.035, -0.012)]},
     "tpl-nkh4sfw4": {"character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
-                     "stress": [window(CRASH_2025, LIQUIDATED)]},
-    "tpl-rwqvrc6u": {"character": "高敞口、标准加仓"},
+                     "stress": [window(CRASH_2025, LIQUIDATED),
+                                window(BEAR_2026, 0.332, 0.805)]},
+    "tpl-rwqvrc6u": {"character": "高敞口、标准加仓",
+                     "stress": [window(BEAR_2026, LIQUIDATED)]},
     "tpl-san8qrvj": {"character": "为小资金调校，回撤低",
                      "stress": [window(CRASH_2025, 0.150),
+                                window(BEAR_2026, 0.085, 0.026),
                                 window(SINCE_CRASH_2026, 0.020, 0.023)]},
-    "tpl-sappt9w2": {"character": "高敞口，以移动止盈为主"},
-    "tpl-tavc364d": {"character": "换币不频繁，回撤较低",
-                     "stress": [window(CRASH_2025, 0.202)]},
+    "tpl-sappt9w2": {"character": "高敞口，以移动止盈为主",
+                     "stress": [window(BEAR_2026, LIQUIDATED)]},
+    "tpl-tavc364d": {"character": "换币不频繁",
+                     "stress": [window(CRASH_2025, 0.202),
+                                window(BEAR_2026, 0.505, 0.204)]},
     "tpl-xhdfc2ws": {"character": "换币不频繁",
                      "stress": [window(CRASH_2025, 0.155),
+                                window(BEAR_2026, 0.667, 0.229),
                                 window("2026-04-25～09-04", 0.369)]},
 }
 
