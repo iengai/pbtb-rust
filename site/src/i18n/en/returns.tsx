@@ -1,4 +1,4 @@
-// The return-curve page, plus every word the two SVG charts show: captions,
+// The return-curve page, plus every word the return chart shows: captions,
 // empty states, tooltip rows and axis ticks.
 export const returns = {
   title: "Return Curves",
@@ -49,12 +49,5 @@ export const returns = {
         `Account was already at zero when this ${range} window opened — no return to compute.`,
       wipedOutHint: "The capital was lost earlier in this bot's history.",
     },
-  },
-  // The backtest equity chart, shown on a template's page.
-  equity: {
-    aria: "backtest equity",
-    notEnough: "Not enough backtest points to plot.",
-    equity: "Equity",
-    balance: "Balance",
   },
 };

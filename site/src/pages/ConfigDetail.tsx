@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
-import { EquityChart } from "../chart/EquityChart";
 import {
   Badge,
   Chips,
@@ -17,7 +16,7 @@ import {
 } from "../components/ui";
 import { staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
-import { LiveRuns } from "./LiveRuns";
+import { ConfigChart } from "./ConfigChart";
 import { metricRows, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
@@ -82,14 +81,7 @@ export function ConfigDetail() {
             </button>
           </div>
 
-          <div className="card tight" style={{ marginBottom: 18 }}>
-            <div className="card-title" style={{ marginBottom: 8, padding: "0 4px" }}>
-              {t.configs.detail.equityTitle}
-            </div>
-            <EquityChart points={data.points} />
-          </div>
-
-          <LiveRuns template={data.name} />
+          <ConfigChart template={data} />
 
           <div className="two-col">
             <div className="stack">

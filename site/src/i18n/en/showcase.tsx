@@ -15,7 +15,7 @@ export const showcase = {
   runs: {
     title: "Live runs",
     lead: (min: number, max: number) =>
-      `Every span of at least ${min} days a showcase bot ran this config, re-based to its start; the ${max} most recent when there are more.`,
+      `Every span of at least ${min} days a showcase bot ran this config; the ${max} most recent when there are more. Tick a run to draw it with the backtest.`,
     ongoing: "ongoing",
     caption: (c: { cap: string; start: string; end: string; days: number; ret: string }) =>
       `capital ${c.cap} · ${c.start} → ${c.end} · ${c.days} days · ${c.ret}`,

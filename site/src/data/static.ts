@@ -5,9 +5,11 @@
 // absent in a checkout that never ran `npm run fixtures`). A signed-in
 // account's own return curves are not here: they come through the API.
 
-import type { EquityPoint } from "../chart/equitySvg";
-
 const BASE = import.meta.env.BASE_URL;
+
+// One row of a backtest curve: equity and balance, each normalized to 100 at
+// the backtest start.
+export type EquityPoint = { ts: number; equity: number; balance: number };
 
 export type TemplateSummary = {
   name: string;

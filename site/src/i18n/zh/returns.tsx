@@ -47,10 +47,4 @@ export const returns: typeof en = {
       wipedOutHint: "本金在这个机器人更早的历史里已经亏光。",
     },
   },
-  equity: {
-    aria: "回测权益曲线",
-    notEnough: "回测数据点不足，暂时画不出曲线。",
-    equity: "权益",
-    balance: "余额",
-  },
 };
