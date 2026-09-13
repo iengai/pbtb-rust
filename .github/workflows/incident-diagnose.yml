@@ -14,8 +14,9 @@ name: incident-diagnose
 # nothing but that script. The GitHub token never enters the harness.
 #
 # Two ways in. A person opening or labelling an issue `incident` runs it
-# when they have write access to the repo (an outsider's issue does not
-# start it). The incident-intake workflow files its issues with the
+# when they have write access to the repo, and so does the local agent
+# App whose user id is the repository variable LOCAL_AGENT_USER_ID (an
+# outsider's issue does not start it). The incident-intake workflow files its issues with the
 # repository token, which raises no `issues` event by design, so it
 # dispatches this workflow by number instead.
 #
@@ -59,7 +60,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (contains(github.event.issue.labels.*.name, 'incident') &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+       (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) ||
+        (vars.LOCAL_AGENT_USER_ID != '' && format('{0}', github.event.issue.user.id) == vars.LOCAL_AGENT_USER_ID)))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # One diagnosis per issue at a time; a second trigger waits its turn.

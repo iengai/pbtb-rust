@@ -31,6 +31,10 @@ name: issue-fix
 # runner and the model key: nothing that outlives the run beyond what the
 # key can spend, and the key is one a person rotates.
 #
+# An issue or comment by the local agent App counts as a member's when the
+# repository variable LOCAL_AGENT_USER_ID holds the App bot's numeric user
+# id (docs/agents.md § Local agents); unset, it counts as an outsider's.
+#
 # Starts when the `agent:fix` label lands on an issue (only triage access
 # and above can label, so the label is the authorization, whoever wrote the
 # issue) and its "How far the agent may go" field grants a PR (the field,
@@ -133,6 +137,7 @@ jobs:
           ANTHROPIC_MODEL: ${{ vars.LLM_MODEL || 'deepseek-flash' }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          LOCAL_AGENT_USER_ID: ${{ vars.LOCAL_AGENT_USER_ID }}
         run: |
           set -euo pipefail
           args=""
@@ -184,5 +189,6 @@ jobs:
           GH_TOKEN: ${{ secrets.FIX_PUBLISH_TOKEN || github.token }}
           PUBLISH_AS: ${{ secrets.FIX_PUBLISH_TOKEN && 'person' || 'bot' }}
           GH_REPO: ${{ github.repository }}
+          LOCAL_AGENT_USER_ID: ${{ vars.LOCAL_AGENT_USER_ID }}
           FIX_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: python3 scripts/ops/fix_issue.py publish --issue "$ISSUE" --in "$RUNNER_TEMP/fix"

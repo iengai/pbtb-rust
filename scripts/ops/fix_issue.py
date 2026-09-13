@@ -79,6 +79,19 @@ REVIEW_BUDGET_S = 10 * 60
 # the push and the comment to still happen.
 LOOP_BUDGET_S = 55 * 60
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+
+
+def trusted(association: str, user_id: object) -> bool:
+    """A member of the repository, or the local agent App, which GitHub never reports as one.
+
+    The App is matched by its numeric user id (the repository variable
+    LOCAL_AGENT_USER_ID; unset trusts nobody), never by login: the login reads
+    `x[bot]` over REST but `x` over GraphQL, a name any user can register.
+    """
+    agent = os.environ.get("LOCAL_AGENT_USER_ID", "").strip()
+    return association in TRUSTED or (bool(agent) and str(user_id) == agent)
+
+
 GATE = "bash .claude/skills/verify/scripts/gate.sh --host"
 
 # Paths the model may not write. Everything here is either an execution
@@ -254,14 +267,29 @@ def red_then_green(runs: list[dict]) -> tuple[str, str] | None:
     return None
 
 
+def repo_name() -> str:
+    return os.environ.get("GH_REPO") or h.gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
+
+
+def issue_comments(issue: int) -> list[dict]:
+    """The issue's comments over REST, which carries each author's numeric id."""
+    pages = json.loads(h.gh("api", "--paginate", "--slurp", f"repos/{repo_name()}/issues/{issue}/comments?per_page=100"))
+    return [c for page in pages for c in page]
+
+
+def trusted_comments(comments: list[dict]) -> list[dict]:
+    return [c for c in comments if trusted(c.get("author_association", ""), (c.get("user") or {}).get("id"))]
+
+
 def fix(title: str, body: str, comments: list[dict], *, settings: Path, env: dict) -> tuple[str, list[str]]:
     # The repo is public: anyone can comment, and a comment is the one place an
-    # outsider's text could reach the tools. Only collaborators' comments go in.
-    trusted = [c for c in comments if c.get("authorAssociation") in TRUSTED]
-    thread = "\n\n".join(f"--- comment by {c.get('author', {}).get('login', '?')} ---\n{h.clip(c.get('body') or '', 6_000)}"
-                         for c in trusted[-6:])
-    if len(trusted) < len(comments):
-        thread += f"\n\n({len(comments) - len(trusted)} comment(s) by non-collaborators not shown)"
+    # outsider's text could reach the tools. Only comments by a member or the
+    # local agent App go in (`trusted`).
+    kept = trusted_comments(comments)
+    thread = "\n\n".join(f"--- comment by {(c.get('user') or {}).get('login', '?')} ---\n{h.clip(c.get('body') or '', 6_000)}"
+                         for c in kept[-6:])
+    if len(kept) < len(comments):
+        thread += f"\n\n({len(comments) - len(kept)} comment(s) by non-collaborators not shown)"
     prompt = f"Issue: {title}\n\n{body}\n\n{thread}".strip()
     # The working tree after the run is whatever the work left, a spent turn
     # budget included; the branch is made from it.
@@ -355,13 +383,17 @@ def held_for(tier: str, staged: list[str]) -> tuple[str, str]:
     return tier, ""
 
 
-def resolve_tier(issue: int, body: str) -> tuple[str, str]:
+def author_of(repo: str, issue: int) -> tuple[str, object]:
+    got = json.loads(h.gh("api", f"repos/{repo}/issues/{issue}", "--jq", "{a: .author_association, id: .user.id}"))
+    return got["a"], got["id"]
+
+
+def resolve_tier(issue: int, body: str, author=author_of) -> tuple[str, str]:
     """The tier the run works at, and a note when it is not the one asked for."""
     tier, note = tier_field(body), ""
     if tier_allows_merge(tier):
-        repo = os.environ.get("GH_REPO") or h.gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner").strip()
-        assoc = h.gh("api", f"repos/{repo}/issues/{issue}", "--jq", ".author_association").strip()
-        if assoc not in TRUSTED:
+        assoc, user_id = author(repo_name(), issue)
+        if not trusted(assoc, user_id):
             note = f"The issue asks for *{tier}*, but its author is outside the repository ({assoc}); held at *{HELD_TIER[tier]}*."
             tier = HELD_TIER[tier]
     return tier, note
@@ -418,7 +450,8 @@ def run(a: argparse.Namespace) -> int:
     if git("status", "--porcelain").strip():
         sys.exit("the checkout is not clean")
 
-    issue = json.loads(h.gh("issue", "view", str(a.issue), "--json", "title,body,comments"))
+    issue = json.loads(h.gh("issue", "view", str(a.issue), "--json", "title,body"))
+    comments = issue_comments(a.issue)
     tier, tier_note = resolve_tier(a.issue, issue.get("body") or "")
     # Nothing after this point needs the token, and the harness's commands
     # inherit its environment; the token leaves it here.
@@ -433,7 +466,7 @@ def run(a: argparse.Namespace) -> int:
 
     runs_log, settings, env = h.prepare(out, Path(__file__), bash=("cargo", "git", "bash", "python", "python3"),
                                         edits=True, deny_globs=DENY, bash_timeout_s=RUN_TIMEOUT_S)
-    answer, trail = fix(title, body, issue.get("comments") or [], settings=settings, env=env)
+    answer, trail = fix(title, body, comments, settings=settings, env=env)
     runs = read_runs(runs_log)
     trail.append(h.logged_note(runs_log))
     result.update(model=env["ANTHROPIC_MODEL"], answer=answer, trail=trail)
