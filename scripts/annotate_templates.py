@@ -90,6 +90,10 @@ RETIRED: frozenset[str] = frozenset({
     # the six v7 xrp one-offs
     "tpl-fhhjk83e", "tpl-jwzxkxkh", "tpl-kypvfxgd", "tpl-nkh4sfw4", "tpl-rwqvrc6u",
     "tpl-sappt9w2",
+    # v8 mix10/mix8 tunings that fail the lab's bear-leg gate (drawdown <= 0.50 started
+    # 2025-10-25 and 2025-11-01, to 2026-03-01) at their capital: the lab's NOTES.md,
+    # "round-15 熊市感知优化" (ref rows), and results/round15/harvest_*.log
+    "tpl-5syk2duu", "tpl-8brpubqf", "tpl-bzwt9jn2", "tpl-m5xse3az",
 })
 ORIGINAL = {readable: old for old, (readable, _, _) in CATALOG.items()}
 
