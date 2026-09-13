@@ -1,21 +1,22 @@
 ---
 name: pbtb-ship
-description: Get a change onto main: branch naming, the verify gate, the review passes, rebasing a stale PR, push / PR / merge with the right GitHub account. Use on commit, push, review, open or update a PR, merge, a CONFLICTING PR, and before running git push, gh pr create or gh pr merge yourself.
+description: Get a change onto main: branch naming, the verify gate, the review passes, rebasing a stale PR, push / PR / merge as the local agent App. Use on commit, push, review, open or update a PR, merge, a CONFLICTING PR, and before running git push, gh pr create or gh pr merge yourself.
 ---
 
 # pbtb ship
 
-## Accounts (the #1 source of friction)
+## Identity
 
-- Two GitHub accounts are logged in on this machine. The **repo owner
-  account** (`gh repo view --json owner -q .owner.login`; here `iengai`) is the
-  default and the only one with push rights and the `workflow` scope; the other
-  gets a 403 on push and a "workflow scope" error on dispatch.
-- Before any `git push`, `gh pr create/merge/comment`, `gh workflow run`,
-  `gh secret set`: confirm with `gh auth status` that `iengai` is active. If it
-  is not, `gh auth switch --user iengai` and stay there; do not switch back.
-- Never combine an account switch with a parallel background command that also
-  switches; the active account is process-global.
+- A session acts on GitHub as the local agent App, `pbtb-local-agent[bot]`
+  (docs/agents.md § Local agents): plain `git commit`, `git push`,
+  `gh pr create/merge/comment` and `gh workflow run` are the bot's, with no
+  account to pick. When one fails to authenticate, or the hook refuses it for
+  a missing identity, run `python scripts/ops/agent_identity.py status`; it
+  names the check that does not hold.
+- The person's accounts are not the session's: `gh auth switch/login/token`
+  and `git credential` are refused. What the App is not granted (`gh secret
+  set`, `gh variable set`, rulesets, repository settings) goes to the owner as
+  the exact command to run in their own terminal.
 
 ## Branch and commits
 

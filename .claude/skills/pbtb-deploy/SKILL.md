@@ -14,12 +14,12 @@ definition of "in sync".
 
 | Component | Mechanism | Account / tool |
 |---|---|---|
-| telebot binary | `gh workflow run telebot-deploy.yml --ref main -f tag=latest -f passivbot_revisions=latest` (image built automatically by `telebot-build` on push to main) | `iengai` (the default gh account; the only one with `workflow` scope) |
-| restart lambda code | `gh workflow run lambda-deploy.yml --ref main` | iengai |
-| collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | iengai |
+| telebot binary | `gh workflow run telebot-deploy.yml --ref main -f tag=latest -f passivbot_revisions=latest` (image built automatically by `telebot-build` on push to main) | the local agent App (docs/agents.md § Local agents) |
+| restart lambda code | `gh workflow run lambda-deploy.yml --ref main` | local agent App |
+| collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | local agent App |
 | lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | `AWS_PROFILE=dev` |
 | passivbot image | `python scripts/build_passivbot_image.py --tag vX.Y.Z-arm64 --no-wait`, then `pbtb_ops.py codebuild-log <build-id>` | dev profile; source at `E:/projects/passivbot` checked out at that tag |
-| web console (site) | `gh workflow run pages-publish.yml --ref main` (also on every push to main touching `site/`, and at 01:40 UTC daily after the collector, to pick up `public/`; needs the secret `AWS_PAGES_PUBLISH_ROLE_ARN` from the `pages-publish-ci.tf` output) | iengai |
+| web console (site) | `gh workflow run pages-publish.yml --ref main` (also on every push to main touching `site/`, and at 01:40 UTC daily after the collector, to pick up `public/`; needs the secret `AWS_PAGES_PUBLISH_ROLE_ARN` from the `pages-publish-ci.tf` output) | local agent App |
 
 ## The coupling rule (read twice)
 

@@ -1,9 +1,18 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(~/.config/pbtb-agent/**)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/ops/agent_identity.py\" refresh"
+          },
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.py\""

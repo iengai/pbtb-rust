@@ -33,6 +33,7 @@ IDENTIFIERS = [
     ("scalable-cluster-dev", "<PROJECT>-<ENV>"),
     ("scalable-cluster", "<PROJECT>"),
     ("ap-northeast-1", "<REGION>"),
+    ("pbtb-local-agent", "<LOCAL_AGENT_APP>"),
     ("iengai", "<DEPLOY_ACCOUNT>"),
     ("nat-instance", "<NAT_INSTANCE_TAG>"),
     ("E:/projects/passivbot", "<PASSIVBOT_SRC_DIR>"),
@@ -59,6 +60,7 @@ an angle-bracket placeholder.
 |---|---|
 | `<OWNER>/<REPO>` | the GitHub repository the skills live in |
 | `<DEPLOY_ACCOUNT>` | the gh account with push rights and `workflow` scope |
+| `<LOCAL_AGENT_APP>` | the GitHub App local agent sessions act as |
 | `<AWS_ACCOUNT_ID>`, `<REGION>` | AWS account / region |
 | `<PROJECT>`, `<ENV>` | resource-name prefix, e.g. `myproj` + `dev` -> `myproj-dev-cluster` |
 | `<NAT_INSTANCE_TAG>` | `Name` tag of the EC2 host that runs the Telegram bot |
