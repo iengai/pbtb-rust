@@ -2,33 +2,43 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { LangSwitch, useT } from "../i18n/locale";
 
+// The header every page shares. Signed out it offers only what needs no
+// account (the catalogue, the showcase, the sign-in) and its brand link lands
+// on the showcase; signed in, the account's pages and Bots as home.
 export function Layout() {
   const { session } = useAuth();
   const t = useT();
   const who = session?.claims.email ?? session?.claims.sub ?? null;
+  const on = ({ isActive }: { isActive: boolean }) => (isActive ? "on" : "");
   return (
     <>
       <header className="nav">
-        <NavLink to="/bots" className="nav-brand">
+        <NavLink to={session ? "/bots" : "/p"} className="nav-brand">
           <div className="logo" />
           <div className="name">PBTB Console</div>
         </NavLink>
         <nav className="nav-links">
-          <NavLink to="/bots" className={({ isActive }) => (isActive ? "on" : "")}>
-            {t.common.nav.bots}
-          </NavLink>
-          <NavLink to="/configs" className={({ isActive }) => (isActive ? "on" : "")}>
+          {session && (
+            <NavLink to="/bots" className={on}>
+              {t.common.nav.bots}
+            </NavLink>
+          )}
+          <NavLink to="/configs" className={on}>
             {t.common.nav.configs}
           </NavLink>
-          <NavLink to="/returns" className={({ isActive }) => (isActive ? "on" : "")}>
-            {t.common.nav.returns}
-          </NavLink>
-          <NavLink to="/p" className={({ isActive }) => (isActive ? "on" : "")}>
+          {session && (
+            <NavLink to="/returns" className={on}>
+              {t.common.nav.returns}
+            </NavLink>
+          )}
+          <NavLink to="/p" className={on}>
             {t.common.nav.showcase}
           </NavLink>
-          <NavLink to="/account" className={({ isActive }) => (isActive ? "on" : "")}>
-            {t.common.nav.account}
-          </NavLink>
+          {session && (
+            <NavLink to="/account" className={on}>
+              {t.common.nav.account}
+            </NavLink>
+          )}
         </nav>
         <div className="nav-user">
           <LangSwitch />

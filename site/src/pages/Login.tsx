@@ -3,20 +3,15 @@ import { useAuth } from "../auth/AuthProvider";
 import { configured } from "../auth/oauth";
 import { Google } from "../components/icons";
 import { Notice } from "../components/ui";
-import { LangSwitch, useT } from "../i18n/locale";
+import { useT } from "../i18n/locale";
 
 export function Login() {
   const { session, reason, login } = useAuth();
   const t = useT();
   if (session) return <Navigate to="/bots" replace />;
   return (
-    <div className="login-wrap">
+    <div className="login-wrap framed">
       <div className="login">
-        <div className="brand">
-          <div className="logo" />
-          <div className="name">PBTB Console</div>
-          <LangSwitch />
-        </div>
         <div>
           <h1>{t.auth.signIn}</h1>
           <div className="lead">{t.auth.lead}</div>

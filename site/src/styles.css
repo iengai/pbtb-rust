@@ -232,6 +232,8 @@ h1.lg { font-size: 22px; }
 
 /* ---- login ---- */
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--panel); padding: 20px; }
+/* The sign-in card inside the framed page: the header above it is the brand. */
+.login-wrap.framed { min-height: 0; background: transparent; padding: 48px 0; }
 .login { width: 400px; max-width: 100%; display: flex; flex-direction: column; gap: 20px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 32px; }
 .login .brand { display: flex; align-items: center; gap: 10px; }
 .login .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); }
