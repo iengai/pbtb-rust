@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pbtb_ops import aws, cfg, ssm, utc  # noqa: E402
+import agent_identity  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 TFDIR = ROOT / "terraform" / "envs" / "dev"
@@ -51,7 +52,6 @@ STANDBY_TAG = "scalable-cluster-dev-nat-standby"
 STANDBY_ADDR = "module.network.aws_instance.nat_standby[0]"
 EIP_TAG = "scalable-cluster-dev-nat-eip"
 DEPLOY_WORKFLOW = "telebot-deploy.yml"
-GH_OWNER = "iengai"  # the only account with push/dispatch rights on this repo
 
 TF = shutil.which("terraform") or "terraform"
 GH = shutil.which("gh") or "gh"
@@ -232,22 +232,36 @@ def assert_forwards(instance: str, a):
     say(f"{instance} forwards: cloud-init done, ip_forward=1, MASQUERADE present")
 
 
-def gh_active_account() -> str:
-    """The gh account currently in use.
+def gh_ready() -> str:
+    """Who gh dispatches telebot-deploy as, once it is sure that one can; Abort otherwise.
 
-    Two accounts are logged in on this machine and only the repo owner can
-    dispatch a workflow, so the switch has to be made and then undone -- leaving
-    the wrong one active breaks the next unrelated gh call.
+    In an agent session that is the local agent App: its token is refreshed
+    here, so a dispatch right after has most of an hour, and its installation
+    has to grant actions: write. In a person's terminal it is their active gh
+    account, which has to be able to push. A Claude Code session without the
+    identity env is refused: its gh would act as the person, unseen by the hook.
     """
-    out = run([GH, "auth", "status"])
-    account = ""
-    for line in out.splitlines():
-        m = re.search(r"account (\S+)", line)
-        if m:
-            account = m.group(1)
-        elif "Active account: true" in line and account:
-            return account
-    return ""
+    try:
+        if agent_identity.session_has_identity():
+            if agent_identity.refresh() == agent_identity.PLACEHOLDER:
+                raise Abort(f"no agent token could be minted (see {agent_identity.LOG})")
+            rec = agent_identity.app_record()
+            bearer = agent_identity.app_jwt(rec["app_id"], agent_identity.KEY.read_bytes())
+            inst = agent_identity.api("GET", f"/repos/{agent_identity.REPO}/installation", bearer=bearer)
+            if (inst.get("permissions") or {}).get("actions") != "write":
+                raise Abort(f"the {rec['slug']} installation does not grant actions: write")
+            return rec["bot_login"]
+        if os.environ.get("CLAUDECODE"):
+            raise Abort("a Claude Code session without the agent identity would dispatch as the person; "
+                        "run `python scripts/ops/agent_identity.py env` in this checkout first")
+        login = run([GH, "api", "user", "--jq", ".login"]).strip()
+        if run([GH, "api", f"repos/{agent_identity.REPO}", "--jq", ".permissions.push"]).strip() != "true":
+            raise Abort(f"the active gh account {login} cannot push to {agent_identity.REPO}, so it cannot dispatch")
+        return login
+    except Abort:
+        raise
+    except Exception as e:  # noqa: BLE001 -- a GitHub or key error is a gate saying no
+        raise Abort(f"cannot confirm gh can dispatch: {type(e).__name__}: {e}") from e
 
 
 def gh_run_ids() -> list[str]:
@@ -299,32 +313,26 @@ def step6_telebot_up(a):
 
     # user_data deliberately carries no app config, so the new host has no
     # /etc/telebot/telebot.env and telebot cannot come up on its own.
-    was_active = gh_active_account()
-    if was_active != GH_OWNER:
-        run([GH, "auth", "switch", "--user", GH_OWNER])
-    try:
-        before_ids = gh_run_ids()
-        run([GH, "workflow", "run", DEPLOY_WORKFLOW, "--ref", "main",
-             "-f", "tag=latest", "-f", "passivbot_revisions=latest"], cwd=ROOT)
-        say("dispatched telebot-deploy, waiting for the run to appear")
-        run_id = ""
-        for _ in range(20):
-            time.sleep(5)
-            new_ids = [i for i in gh_run_ids() if i not in before_ids]
-            if new_ids:
-                run_id = new_ids[0]
-                break
-        if not run_id:
-            raise Abort("telebot-deploy was dispatched but no new run appeared within 100s")
-        say(f"watching run {run_id}")
-        subprocess.run([GH, "run", "watch", run_id, "--exit-status"], cwd=ROOT)
-        got = json.loads(run([GH, "run", "view", run_id, "--json", "conclusion"], cwd=ROOT))
-        if got["conclusion"] != "success":
-            raise Abort(f"telebot-deploy run {run_id} concluded {got['conclusion']}")
-        say("telebot-deploy succeeded")
-    finally:
-        if was_active and was_active != GH_OWNER:
-            run([GH, "auth", "switch", "--user", was_active])
+    say(f"dispatching telebot-deploy as {gh_ready()}")
+    before_ids = gh_run_ids()
+    run([GH, "workflow", "run", DEPLOY_WORKFLOW, "--ref", "main",
+         "-f", "tag=latest", "-f", "passivbot_revisions=latest"], cwd=ROOT)
+    say("dispatched telebot-deploy, waiting for the run to appear")
+    run_id = ""
+    for _ in range(20):
+        time.sleep(5)
+        new_ids = [i for i in gh_run_ids() if i not in before_ids]
+        if new_ids:
+            run_id = new_ids[0]
+            break
+    if not run_id:
+        raise Abort("telebot-deploy was dispatched but no new run appeared within 100s")
+    say(f"watching run {run_id}")
+    subprocess.run([GH, "run", "watch", run_id, "--exit-status"], cwd=ROOT)
+    got = json.loads(run([GH, "run", "view", run_id, "--json", "conclusion"], cwd=ROOT))
+    if got["conclusion"] != "success":
+        raise Abort(f"telebot-deploy run {run_id} concluded {got['conclusion']}")
+    say("telebot-deploy succeeded")
 
     out = ssm(primary, ["docker ps --filter name=telebot --format '{{.Status}}'"], a)
     if not out.strip().startswith("Up"):
@@ -378,6 +386,16 @@ def main():
     say(f"preflight: {len(before)} bot task(s) RUNNING")
     for tid, started in sorted(before.items()):
         say(f"  {tid[:8]}  started {utc(started)}")
+    if a.start <= 6:
+        # Step 6 is the one step that needs GitHub, and telebot is down from
+        # step 5 until it succeeds: find out now, before anything is applied.
+        try:
+            say(f"preflight: gh dispatches telebot-deploy as {gh_ready()}")
+        except Abort as e:
+            print(f"\nABORTED in preflight, nothing applied: {e}\n"
+                  "Fix it and run again (python scripts/ops/agent_identity.py status in an agent session).",
+                  file=sys.stderr)
+            raise SystemExit(1)
     if a.dry_run:
         say("dry-run: rehearsing step 1 only")
 

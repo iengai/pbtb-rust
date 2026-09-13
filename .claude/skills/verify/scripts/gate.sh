@@ -156,7 +156,11 @@ fi
 OUT=$(python .claude/hooks/guard-shell.py --self-test 2>&1); RC=$?
 gate hook-guard-shell $RC; [ $RC -ne 0 ] && show "$OUT" "^FAIL"
 
-# 9. knowledge budgets (docs/conventions.md § Knowledge placement): the files
+# 9. the ops scripts' offline tests (the fix agent's trust rule among them).
+OUT=$(python -m unittest discover -s scripts/ops/tests 2>&1); RC=$?
+gate ops-tests $RC; [ $RC -ne 0 ] && show "$OUT" "^(FAIL|ERROR)"
+
+# 10. knowledge budgets (docs/conventions.md § Knowledge placement): the files
 # every session loads, the review policy (applied whole, so kept short) and
 # every skill description have a byte ceiling, and a
 # change to the row layout or the infra is a prompt to re-read the leaf that

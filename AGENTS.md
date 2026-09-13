@@ -17,7 +17,7 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 | Domain/usecase/infra/interface design, the start lock, desired-vs-observed state | [docs/architecture.md](docs/architecture.md) |
 | DynamoDB / S3 schema | [docs/data-model.md](docs/data-model.md) |
 | Building, testing, running locally, configuration | [docs/development.md](docs/development.md) |
-| Code style, comments, git/branch/commit rules; the CI agents | [docs/conventions.md](docs/conventions.md) · [docs/agents.md](docs/agents.md) |
+| Code style, comments, git/branch/commit rules; the CI agents, the local agent identity | [docs/conventions.md](docs/conventions.md) · [docs/agents.md](docs/agents.md) |
 | Where a fact belongs: AGENTS.md vs docs vs skill vs hook | [docs/conventions.md#knowledge-placement](docs/conventions.md#knowledge-placement) |
 | MCP tool surface (what it exposes and what it deliberately does not) | [docs/mcp.md](docs/mcp.md) |
 | Web console REST API (`/api/v1`; what it exposes and what it never returns) | [docs/web-api.md](docs/web-api.md) |
