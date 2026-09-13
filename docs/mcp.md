@@ -38,7 +38,7 @@ is key entry and signup; what this has and the web does not is `get_bot_config`.
 
 | Tool | Scope | Notes |
 | --- | --- | --- |
-| `whoami` | `bots:read` | the account the token resolved to: level, scopes, linked identities |
+| `whoami` | `bots:read` | the account the token resolved to: level, role, scopes, linked identities |
 | `list_bots` | `bots:read` | id, name, exchange, desired state, runtime, observed phase |
 | `get_bot_status` | `bots:read` | observed phase, task id, restart generation |
 | `describe_bot` | `bots:read` | one bot: desired and observed state, and its config *described* |

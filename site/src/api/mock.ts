@@ -255,9 +255,9 @@ export function installMock(): void {
     listTemplates: () =>
       delay({
         templates: [
-          { name: "tpl-bzwt9jn2", title: "10-coin basket · Balanced · $1k · BZWT", min_vip_level: 0 },
-          { name: "tpl-8ctkayqd", title: "8-coin basket · Bold · $300 · 8CTK", min_vip_level: 0 },
-          { name: "tpl-san8qrvj", title: "3-coin basket · Steady · $100", min_vip_level: 3 },
+          { name: "tpl-bzwt9jn2", title: "10-coin basket · Balanced · $1k · BZWT", min_vip_level: 0, audience: "everyone" },
+          { name: "tpl-8ctkayqd", title: "8-coin basket · Bold · $300 · 8CTK", min_vip_level: 0, audience: "operator" },
+          { name: "tpl-san8qrvj", title: "3-coin basket · Steady · $100", min_vip_level: 3, audience: "everyone" },
         ],
       }),
     getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null, min_vip_level: 0 }),

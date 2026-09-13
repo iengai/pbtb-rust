@@ -216,6 +216,7 @@ impl BotTools {
         Self::ok(json!({
             "user_id": principal.user_id,
             "vip_level": principal.vip_level,
+            "role": principal.role.as_str(),
             "scopes": scopes,
             "telegram": telegram,
             "identities": identities
