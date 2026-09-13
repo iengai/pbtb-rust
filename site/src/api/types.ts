@@ -43,14 +43,22 @@ export type BotDetail = BotSummary & {
 export type Me = {
   user_id: string;
   vip_level: number;
+  /** `operator` may apply and is listed the operator-only templates; every other account is a member. */
+  role: "member" | "operator";
   scopes: string[];
   /** The bound Telegram user id, or null. */
   telegram: string | null;
   identities: { provider: string; subject: string }[];
 };
 
-/** A template as the chooser lists it: `min_vip_level` is the lowest level that may apply it. */
-export type TemplateListing = { name: string; title: string | null; min_vip_level: number };
+/** A template as the chooser lists it: `min_vip_level` is the lowest level that may apply it,
+ *  `audience` says whether everyone or the operator's account alone is offered it. */
+export type TemplateListing = {
+  name: string;
+  title: string | null;
+  min_vip_level: number;
+  audience: "everyone" | "operator";
+};
 
 export type TemplateDescription = {
   name: string;

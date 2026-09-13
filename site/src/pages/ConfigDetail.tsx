@@ -26,6 +26,11 @@ export function ConfigDetail() {
   const { session } = useAuth();
   const navigate = useNavigate();
   const { data, error, loading, reload } = useLoad(() => staticData.template(name), `template:${name}`);
+  const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
+  // An operator-only template is applied by the operator's account alone; the
+  // page shows everyone the backtest and offers the apply to no one else.
+  const internal = data?.audience === "operator";
+  const canApply = !internal || me.data?.role === "operator";
   const [applying, setApplying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -60,6 +65,7 @@ export function ConfigDetail() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <h1>{templateTitle(data, lang)}</h1>
                 <TemplateTags tpl={data} />
+                {internal && <Badge>{t.configs.internalBadge}</Badge>}
                 <Badge>{engineLabel(data.engine)}</Badge>
                 {sides.map((s) => (
                   <Badge key={s}>{s}</Badge>
@@ -70,15 +76,18 @@ export function ConfigDetail() {
                 <span className="mono">{data.name}</span> ·{" "}
                 {t.configs.detail.lead(data.exchange, data.start, data.end, data.coins.length)}
                 {wipedOut(data.metrics) && ` · ${t.configs.detail.liquidatedNote}`}
+                {internal && ` · ${t.configs.detail.internalNote}`}
               </div>
             </div>
-            <button
-              type="button"
-              className="btn primary"
-              onClick={() => (session ? setApplying(true) : navigate("/"))}
-            >
-              {t.configs.detail.applyCta}
-            </button>
+            {canApply && (
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => (session ? setApplying(true) : navigate("/"))}
+              >
+                {t.configs.detail.applyCta}
+              </button>
+            )}
           </div>
 
           <ConfigChart key={data.name} template={data} />

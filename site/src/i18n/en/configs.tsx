@@ -7,6 +7,8 @@ export const configs = {
   // window, so both pages mark it.
   liquidatedBadge: "liquidated",
   wipedOut: "wiped out",
+  // A template offered to the operator's account only.
+  internalBadge: "internal",
   // A template's naming properties, shown as tags: the strategy family, keyed
   // by `pbtb.style`, and the lab iteration that produced the tuning.
   style: { grid: "Grid", martingale: "Martingale", ema_anchor: "EMA anchor" },
@@ -29,6 +31,7 @@ export const configs = {
       `Tuned on ${exchange} data · backtest ${start} → ${end} · ${coins} coin${coins === 1 ? "" : "s"}`,
     liquidatedNote:
       "the account was liquidated before the window ended; the metrics describe the run up to that point",
+    internalNote: "offered to the operator's account only",
     applyCta: "Apply to a bot…",
     aboutTitle: "About this strategy",
     noDescription: "No description.",

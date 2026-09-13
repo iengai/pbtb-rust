@@ -82,7 +82,7 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | Route | Scope | Telegram equivalent | Notes |
 | --- | --- | --- | --- |
 | `POST /signup` | — | — | verified subject in, account out: 201 `created` / 200 `existing`, `{user_id, vip_level}` |
-| `GET /me` | read | — | `{user_id, vip_level, scopes, telegram, identities:[{provider, subject}]}`; `telegram` is the bound Telegram id or `null` |
+| `GET /me` | read | — | `{user_id, vip_level, role, scopes, telegram, identities:[{provider, subject}]}`; `role` is `member` or `operator`; `telegram` is the bound Telegram id or `null` |
 | `POST /me/telegram/bind-ticket` | write | — | `{token, url, expires_in}`: a one-time `/start` payload for the bot; `url` is the `https://t.me/<bot>?start=` deep link when `APP__TELEGRAM__BOT_USERNAME` is set |
 | `DELETE /me/telegram` | write | `/unlink` | releases the caller's bound Telegram id so another can be bound; the `workos` identity has no release route |
 | `GET /bots` | read | List | `{bots:[…]}`, each with observed `phase` |
@@ -94,11 +94,11 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `PUT /bots/{id}/risk` | write | Risk level | `{long, short}` wallet exposure limits; out-of-range → 400 |
 | `PUT /bots/{id}/sides` | write | Sides | `{side: "long"\|"short", enabled}` |
 | `PUT /bots/{id}/runtime` | write | Runtime | `{runtime: "py"\|"rs"}` |
-| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start; 403 `insufficient_level` for a template above the caller's level |
+| `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start; 403 `insufficient_level` for a template above the caller's level, 403 `operator_only` for an operator-only template unless the account is the operator's |
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
 | `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it: a return index plus realized PnL in the settlement coin (`realized_usdt` / `cum_realized_usdt` per point, `total_realized_usdt` overall), no balance; 404 until it has; 501 where no chart bucket is configured |
-| `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level}]}`; nothing is hidden by level |
+| `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level, audience}]}`; nothing is hidden by level; `audience` is `everyone` or `operator`, and an `operator` one is listed to the operator's account only |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
 
 A template is addressed by its opaque id (`tpl-…`) and read by its `title` /
@@ -119,8 +119,8 @@ the VPC behind the NAT, which is its own piece of work.
 
 Errors: `400 {error}` for the caller's own input (including the validation
 errors a use case raises, verbatim), `403 {error, message, …}` for what the
-account's level does not allow (`quota_exceeded {limit}`,
-`insufficient_level {required, current}` — `error` is a code, `message` the
+account's level or role does not allow (`quota_exceeded {limit}`,
+`insufficient_level {required, current}`, `operator_only` — `error` is a code, `message` the
 same in words; the site keeps the session on these, unlike the token refusals
 above), `404 {error:"not found"}`, `409 {status,…}` for a write the bot's state
 does not admit right now, and `500`/`503 {error, retryable}` for a use-case
@@ -135,7 +135,10 @@ one, level 9 is unlimited; the count is over bots switched on (desired state),
 so a bot that is on but between tasks holds its slot, and starting a bot that
 is already on never trips it. A template may ask for a level
 (`pbtb.min_vip_level` in its JSON, absent = 0): applying one above the caller's
-is refused, listing and describing are not. Levels are changed with
+is refused, listing and describing are not. A template may instead be the
+operator's alone (`pbtb.audience: "operator"`, absent = everyone): a member is
+not listed it and is refused applying it; describing it is open to anyone with
+its id, since the showcase charts link to it. Levels are changed with
 `python scripts/ops/pbtb_ops.py set-vip`; lowering one stops nothing, it
 only refuses the next start past the new ceiling.
 

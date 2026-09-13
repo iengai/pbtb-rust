@@ -63,13 +63,14 @@ pub(crate) fn config(config: &BotConfig) -> Value {
     })
 }
 
-/// A template as the chooser lists it: its id, its title and the level it asks
-/// for.
+/// A template as the chooser lists it: its id, its title, the level it asks
+/// for and whom it is offered to.
 pub(crate) fn listing(listing: &TemplateListing) -> Value {
     json!({
         "name": listing.name,
         "title": listing.title,
         "min_vip_level": listing.min_vip_level,
+        "audience": if listing.operator_only { "operator" } else { "everyone" },
     })
 }
 

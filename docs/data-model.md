@@ -145,11 +145,13 @@ Bucket: {project}-{env}-bot-configs
   under its top-level `pbtb` object: `title` / `title_zh`, what a reader is
   shown it as; the naming properties they are composed from (`universe`,
   `capital_usdt`, `style`, `profile`, `generation`, `engine`); `exchange`,
-  `description`, `strategies`; and `min_vip_level`, the
-  lowest account level that may apply it (absent = open to all). An operator
-  edits the object to change the gate, no deploy needed. Beside it, `lab` is
-  the strategy lab's record of the tuning (run, seeds, genome, verdicts); no
-  surface reads it and a bot's copy of the template drops it.
+  `description`, `strategies`; `min_vip_level`, the lowest account level
+  that may apply it (absent = open to all); and `audience`, `"operator"` on a
+  template offered to the operator's account only (absent = everyone; a
+  member is not listed it and may not apply it). An operator edits the object
+  to change either gate, no deploy needed. Beside it, `lab` is the strategy
+  lab's record of the tuning (run, seeds, genome, verdicts); no surface reads
+  it and a bot's copy of the template drops it.
 - `retired/` — a template that is no longer offered. `S3TemplateRepository::list`
   scans `predefined/` only, so an object here is absent from the Telegram
   chooser, the API and the site while its content and version history stay

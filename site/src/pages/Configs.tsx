@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
+import { useAuth } from "../auth/AuthProvider";
 import {
   Badge,
   Chips,
@@ -17,17 +19,24 @@ import { fmtGain, fmtMetric, wipedOut } from "./metrics";
 
 export function Configs() {
   const t = useT();
+  const { session } = useAuth();
   const { data, error, loading, reload } = useLoad(() => staticData.templates(), "templates");
+  // Whose catalogue this is: the operator's account is offered every template,
+  // anyone else (a member, a visitor, a session the API knows no account for)
+  // the public ones.
+  const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
+  const operator = me.data?.role === "operator";
   const [engine, setEngine] = useState<string>("all");
 
-  const engines = useMemo(
-    () => Array.from(new Set((data ?? []).map((tpl) => tpl.engine))).sort().reverse(),
-    [data],
+  const offered = useMemo(
+    () => (data ?? []).filter((tpl) => operator || tpl.audience !== "operator"),
+    [data, operator],
   );
+  const engines = useMemo(() => Array.from(new Set(offered.map((tpl) => tpl.engine))).sort().reverse(), [offered]);
   const shown = useMemo(() => {
-    const list = (data ?? []).filter((tpl) => engine === "all" || tpl.engine === engine);
+    const list = offered.filter((tpl) => engine === "all" || tpl.engine === engine);
     return list.sort((a, b) => (b.metrics.gain ?? 0) - (a.metrics.gain ?? 0));
-  }, [data, engine]);
+  }, [offered, engine]);
   const exchanges = Array.from(new Set(shown.map((tpl) => tpl.exchange))).join(", ");
 
   return (
@@ -35,7 +44,7 @@ export function Configs() {
       <div className="page-head">
         <div>
           <h1>{t.configs.list.title}</h1>
-          <div className="sub">{data ? t.configs.list.lead(shown.length, data.length, exchanges) : " "}</div>
+          <div className="sub">{data ? t.configs.list.lead(shown.length, offered.length, exchanges) : " "}</div>
         </div>
         <div className="ranges" role="tablist">
           <button type="button" className={`range${engine === "all" ? " on" : ""}`} onClick={() => setEngine("all")}>
@@ -73,6 +82,7 @@ function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
     <Link to={`/configs/${encodeURIComponent(tpl.name)}`} className="tcard">
       <div className="head">
         <div className="name">{templateTitle(tpl, lang)}</div>
+        {tpl.audience === "operator" && <Badge>{t.configs.internalBadge}</Badge>}
         {wiped && <Badge>{t.configs.liquidatedBadge}</Badge>}
         <TemplateTags tpl={tpl} />
         <Badge>{engineLabel(tpl.engine)}</Badge>

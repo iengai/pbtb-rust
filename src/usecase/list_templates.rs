@@ -1,15 +1,17 @@
 use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::error::DomainError;
+use crate::domain::user::Role;
 use std::sync::Arc;
 
 /// One template as a chooser shows it: its id, the title a reader picks it by,
-/// and the level it asks for, so a surface can mark what the caller cannot
-/// apply yet without hiding it.
+/// the level it asks for, so a surface can mark what the caller cannot apply
+/// yet without hiding it, and whether it is the operator's alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateListing {
     pub name: String,
     pub title: Option<String>,
     pub min_vip_level: u8,
+    pub operator_only: bool,
 }
 
 pub struct ListTemplatesUseCase {
@@ -23,17 +25,25 @@ impl ListTemplatesUseCase {
         }
     }
 
-    /// Every template, whatever the caller's level: the list is a catalogue,
-    /// and seeing what a higher level unlocks is part of what it is for. The
-    /// level sits inside each template's file, so the listing reads each one;
-    /// the catalogue is a handful of objects and this is a per-click read.
-    pub async fn execute(&self) -> Result<Vec<TemplateListing>, DomainError> {
+    /// Every template the caller may be offered. A level hides nothing: the
+    /// list is a catalogue, and seeing what a higher level unlocks is part of
+    /// what it is for. A template addressed to the operator is another matter:
+    /// no member could ever apply it, so it is left out unless `role` is the
+    /// operator's. Both marks sit inside each template's file, so the listing
+    /// reads each one; the catalogue is a handful of objects and this is a
+    /// per-click read.
+    pub async fn execute(&self, role: Role) -> Result<Vec<TemplateListing>, DomainError> {
         let mut listings = Vec::new();
         for name in self.template_repository.list().await? {
             let template = self.template_repository.get(&name).await?;
+            let operator_only = template.is_operator_only();
+            if operator_only && !role.is_operator() {
+                continue;
+            }
             listings.push(TemplateListing {
                 title: template.title().map(str::to_owned),
                 min_vip_level: template.min_vip_level(),
+                operator_only,
                 name,
             });
         }
@@ -75,32 +85,66 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn the_listing_carries_each_templates_title_and_level_and_hides_none() {
-        let uc = ListTemplatesUseCase::new(Arc::new(Templates(vec![
+    fn catalogue() -> Arc<Templates> {
+        Arc::new(Templates(vec![
             template("open", json!({ "pbtb": {} })),
             template(
                 "gated",
                 json!({ "pbtb": { "min_vip_level": 5, "title": "Gated" } }),
             ),
-        ])));
+            template(
+                "internal",
+                json!({ "pbtb": { "audience": "operator", "title": "Internal" } }),
+            ),
+        ]))
+    }
 
-        let listed = uc.execute().await.expect("list");
+    fn open() -> TemplateListing {
+        TemplateListing {
+            name: "open".to_string(),
+            title: None,
+            min_vip_level: 0,
+            operator_only: false,
+        }
+    }
+
+    fn gated() -> TemplateListing {
+        TemplateListing {
+            name: "gated".to_string(),
+            title: Some("Gated".to_string()),
+            min_vip_level: 5,
+            operator_only: false,
+        }
+    }
+
+    fn internal() -> TemplateListing {
+        TemplateListing {
+            name: "internal".to_string(),
+            title: Some("Internal".to_string()),
+            min_vip_level: 0,
+            operator_only: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_member_is_listed_no_operator_only_template() {
+        let uc = ListTemplatesUseCase::new(catalogue());
+
+        let listed = uc.execute(Role::Member).await.expect("list");
 
         assert_eq!(
             listed,
-            vec![
-                TemplateListing {
-                    name: "open".to_string(),
-                    title: None,
-                    min_vip_level: 0
-                },
-                TemplateListing {
-                    name: "gated".to_string(),
-                    title: Some("Gated".to_string()),
-                    min_vip_level: 5
-                },
-            ]
+            vec![open(), gated()],
+            "a level hides nothing; the operator's template is not offered"
         );
+    }
+
+    #[tokio::test]
+    async fn the_operator_is_listed_every_template() {
+        let uc = ListTemplatesUseCase::new(catalogue());
+
+        let listed = uc.execute(Role::Operator).await.expect("list");
+
+        assert_eq!(listed, vec![open(), gated(), internal()]);
     }
 }

@@ -162,8 +162,10 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 `dist/404.html` so GitHub Pages resolves deep links through the SPA router.
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
-  engine, exchange, coins, start, end, metrics}]`, where `name` is the opaque
-  template id; `templates/<name>.json` — the same plus `starting_balance`,
+  engine, audience, exchange, coins, start, end, metrics}]`, where `name` is the
+  opaque template id and `audience` is `"operator"` on a template offered to
+  the operator's account only (the Configs list leaves it out unless `GET /me`
+  says the session is the operator's; its page stays reachable by link); `templates/<name>.json` — the same plus `starting_balance`,
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `generated_at` the
   pipeline uses to skip unchanged templates. `metrics` follow passivbot's

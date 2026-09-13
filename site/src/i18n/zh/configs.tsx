@@ -3,6 +3,7 @@ import { configs as en } from "../en/configs";
 export const configs: typeof en = {
   liquidatedBadge: "回测中爆仓",
   wipedOut: "已爆仓",
+  internalBadge: "内部",
   style: { grid: "网格", martingale: "马丁格尔", ema_anchor: "EMA 锚定" },
   generation: (n) => `第 ${n} 代`,
 
@@ -21,6 +22,7 @@ export const configs: typeof en = {
     template: "模板",
     lead: (exchange, start, end, coins) => `基于 ${exchange} 数据调优 · 回测 ${start} → ${end} · ${coins} 个币种`,
     liquidatedNote: "账户在回测窗口结束前爆仓，以下指标只描述爆仓之前的表现",
+    internalNote: "仅运营者账户可用",
     applyCta: "应用到机器人…",
     aboutTitle: "关于该策略",
     noDescription: "暂无描述。",

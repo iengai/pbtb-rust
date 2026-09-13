@@ -18,6 +18,7 @@ use pbtb_rust::domain::botconfig::{BotConfig, BotType};
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
 use pbtb_rust::domain::engine::Runtime;
 use pbtb_rust::domain::exchange::Exchange;
+use pbtb_rust::domain::user::Role;
 use pbtb_rust::interface::mcp::{
     Authenticator, BotTools, LocalOperator, Principal, SCOPE_CONFIG_READ, SCOPE_READ, SCOPE_WRITE,
 };
@@ -114,6 +115,7 @@ impl Authenticator for ReadOnly {
             user_id: USER_ID.to_string(),
             scopes: HashSet::from([SCOPE_READ.to_string()]),
             vip_level: 0,
+            role: Role::Member,
         })
     }
 }
@@ -128,6 +130,7 @@ impl Authenticator for BotsOnly {
             user_id: USER_ID.to_string(),
             scopes: HashSet::from([SCOPE_READ.to_string(), SCOPE_WRITE.to_string()]),
             vip_level: 0,
+            role: Role::Member,
         })
     }
 }
