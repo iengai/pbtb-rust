@@ -675,17 +675,21 @@ impl StartLockRepository for DynamoBotRepository {
         // duplicate STOPPED events serialize per item — the first clears task_id,
         // so the rest fail the condition. A conditional failure means the stopped
         // task is no longer current (already replaced/stopped); the caller treats
-        // any non-`Acquired` outcome as "nothing to restart".
+        // any non-`Acquired` outcome as "nothing to restart". A `stopping` row is
+        // admitted because a restart's own StopTask stamps one, and the STOPPED
+        // event is ECS saying that very task is gone; a stale-reclaim CAS racing
+        // this one is serialized on the same item, so exactly one wins.
         let res = self.client
             .update_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(BotItem::construct_pk(user_id)))
             .key("sk", AttributeValue::S(BotECSTaskMetadata::construct_sk(bot_id)))
             .update_expression("SET #st = :starting, task_updated_at = :now, task_id = :empty, task_current_version = if_not_exists(task_current_version, :zero) + :one")
-            .condition_expression("task_id = :stopped AND (#st = :running OR #st = :starting)")
+            .condition_expression("task_id = :stopped AND (#st = :running OR #st = :starting OR #st = :stopping)")
             .expression_attribute_names("#st", "status")
             .expression_attribute_values(":starting", AttributeValue::S("starting".to_string()))
             .expression_attribute_values(":running", AttributeValue::S("running".to_string()))
+            .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string()))
             .expression_attribute_values(":stopped", AttributeValue::S(stopped_task_id.to_string()))
             .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
             .expression_attribute_values(":empty", AttributeValue::S(String::new()))

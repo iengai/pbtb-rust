@@ -60,21 +60,31 @@ impl StopBotUseCase {
 
         // Desired state OFF first — this is what stops the reconcile Lambda from
         // restarting the task when its STOPPED event arrives.
-        let now = self.clock.now();
-        bot.disable(now);
+        bot.disable(self.clock.now());
         self.bots.save(&bot).await?;
 
+        self.wind_down(user_id, bot_id, "stopped by user via telebot")
+            .await
+    }
+
+    /// Stop the bot's current task, leaving desired state as it is. `reason`
+    /// rides on the ECS `StopTask` and comes back as the STOPPED event's
+    /// `stoppedReason`, which is how the reconcile Lambda tells a restart's stop
+    /// (relaunched) from a user's (final); see `stop_task::RESTART_REASON`.
+    pub(in crate::usecase) async fn wind_down(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        reason: &str,
+    ) -> Result<StopOutcome, DomainError> {
+        let now = self.clock.now();
         let runtime = self.runtimes.find_consistent(user_id, bot_id).await?;
         match runtime {
             Some(rt) if matches!(rt.phase, RuntimePhase::Running | RuntimePhase::Starting) => {
                 let version = rt.version;
                 match rt.task_id {
                     Some(task_id) => {
-                        match self
-                            .stopper
-                            .stop(&self.cluster_arn, &task_id, "stopped by user via telebot")
-                            .await
-                        {
+                        match self.stopper.stop(&self.cluster_arn, &task_id, reason).await {
                             Ok(()) => {
                                 // Stamp observed Stopping so the UI shows the wind-down
                                 // and a racing Run sees `stopping` rather than a stale
@@ -255,6 +265,7 @@ mod tests {
     #[derive(Default)]
     struct MockStopper {
         stopped: Mutex<Vec<String>>,
+        reasons: Mutex<Vec<String>>,
         /// When true, `stop` returns an error (simulating an ECS StopTask failure).
         fail_stop: bool,
         /// Liveness answer; defaults to `Gone` to match the common case.
@@ -262,11 +273,12 @@ mod tests {
     }
     #[async_trait]
     impl TaskController for MockStopper {
-        async fn stop(&self, _cluster_arn: &str, task_id: &str, _reason: &str) -> Result<()> {
+        async fn stop(&self, _cluster_arn: &str, task_id: &str, reason: &str) -> Result<()> {
             if self.fail_stop {
                 return Err(anyhow::anyhow!("ecs stop_task failed"));
             }
             self.stopped.lock().unwrap().push(task_id.to_string());
+            self.reasons.lock().unwrap().push(reason.to_string());
             Ok(())
         }
         async fn liveness(&self, _cluster_arn: &str, _task_id: &str) -> Result<TaskLiveness> {
@@ -341,6 +353,11 @@ mod tests {
         assert_eq!(
             *stopper.stopped.lock().unwrap(),
             vec!["task-xyz".to_string()]
+        );
+        assert_eq!(
+            *stopper.reasons.lock().unwrap(),
+            vec!["stopped by user via telebot".to_string()],
+            "a user's stop never carries the restart reason"
         );
     }
 
