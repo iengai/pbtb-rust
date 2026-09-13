@@ -307,6 +307,7 @@ impl TokenVerifier for OAuthTokens {
             user_id: user.id,
             scopes: scopes_from(&claims.scope, claims.permissions.as_deref()),
             vip_level: user.vip_level,
+            role: user.role,
         })
     }
 

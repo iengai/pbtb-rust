@@ -12,6 +12,7 @@ use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
 use crate::domain::engine::Runtime;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
+use crate::domain::user::Role;
 use crate::interface::describe;
 use crate::interface::mcp::auth::Principal;
 use crate::usecase::{AddOutcome, DeleteOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome};
@@ -73,6 +74,10 @@ impl Handlers<'_> {
         self.principal.vip_level
     }
 
+    fn role(&self) -> Role {
+        self.principal.role
+    }
+
     /// Record a write with everything an audit needs: who, what, which bot, and
     /// how it ended. Emitted after the call so the outcome is real, not intended.
     fn audit(&self, route: &str, bot_id: &str, outcome: &str) {
@@ -109,6 +114,7 @@ impl Handlers<'_> {
         Self::ok(json!({
             "user_id": self.user_id(),
             "vip_level": self.principal.vip_level,
+            "role": self.principal.role.as_str(),
             "scopes": scopes,
             "telegram": telegram,
             "identities": identities
@@ -463,7 +469,13 @@ impl Handlers<'_> {
         self.deps
             .mcp
             .apply_template_usecase
-            .execute(self.user_id(), self.vip_level(), bot_id, &body.name)
+            .execute(
+                self.user_id(),
+                self.vip_level(),
+                self.role(),
+                bot_id,
+                &body.name,
+            )
             .await
             .map_err(|e| {
                 self.audit("apply_template", bot_id, "error");
@@ -493,14 +505,15 @@ impl Handlers<'_> {
     // ---------------------------------------------------------------- templates
 
     /// Every template with the level it asks for. Nothing is hidden by level:
-    /// what a higher level unlocks is part of the catalogue.
+    /// what a higher level unlocks is part of the catalogue. A template
+    /// addressed to the operator is listed to the operator's account only.
     pub async fn list_templates(&self) -> ApiResult {
         require(self.principal, READ)?;
         let templates = self
             .deps
             .mcp
             .list_templates_usecase
-            .execute()
+            .execute(self.role())
             .await
             .map_err(|e| ApiError::from_domain("listing templates", e))?;
         Self::ok(

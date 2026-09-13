@@ -346,14 +346,15 @@ impl BotTools {
 
     /// The configuration templates a bot can be switched to, each with its
     /// title and the VIP level it asks for (`apply_template` refuses one above
-    /// the caller's).
+    /// the caller's). A template addressed to the operator is listed to the
+    /// operator's account only.
     #[tool(annotations(read_only_hint = true))]
     pub async fn list_templates(&self) -> Result<CallToolResult, McpError> {
-        self.principal(SCOPE_READ)?;
+        let principal = self.principal(SCOPE_READ)?;
         let templates = self
             .deps
             .list_templates_usecase
-            .execute()
+            .execute(principal.role)
             .await
             .map_err(|e| failed("listing templates", e))?;
         let templates: Vec<Value> = templates
@@ -514,6 +515,7 @@ impl BotTools {
             .execute(
                 &principal.user_id,
                 principal.vip_level,
+                principal.role,
                 &args.bot_id,
                 &args.template_name,
             )

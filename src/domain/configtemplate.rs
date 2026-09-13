@@ -31,6 +31,19 @@ impl ConfigTemplate {
             .unwrap_or(0)
     }
 
+    /// Whether the template is addressed to the operator's account alone:
+    /// `pbtb.audience` is the string `"operator"`. Absent, or any other value,
+    /// means everyone. Like the level it lives in the template file, so the
+    /// operator sets it by editing the object in S3 without a deploy. Reading
+    /// a template is never gated; listing and applying it are.
+    pub fn is_operator_only(&self) -> bool {
+        self.config_data
+            .get("pbtb")
+            .and_then(|m| m.get("audience"))
+            .and_then(|v| v.as_str())
+            == Some("operator")
+    }
+
     /// What a chooser shows the template as (`pbtb.title`): the name is an
     /// opaque id that says nothing about it. `None` on a template without one.
     pub fn title(&self) -> Option<&str> {
@@ -83,6 +96,26 @@ mod tests {
             template(json!({ "pbtb": { "min_vip_level": -1 } })).min_vip_level(),
             0
         );
+    }
+
+    #[test]
+    fn the_audience_defaults_to_everyone() {
+        assert!(!template(json!({})).is_operator_only());
+        assert!(!template(json!({ "pbtb": {} })).is_operator_only());
+        assert!(
+            !template(json!({ "pbtb": { "audience": "member" } })).is_operator_only(),
+            "the mark is the operator or everyone; any other word is everyone"
+        );
+        assert!(!template(json!({ "pbtb": { "audience": 1 } })).is_operator_only());
+        assert!(
+            !template(json!({ "audience": "operator" })).is_operator_only(),
+            "the mark is ours, and ours lives under pbtb"
+        );
+    }
+
+    #[test]
+    fn the_audience_operator_reads_the_pbtb_block() {
+        assert!(template(json!({ "pbtb": { "audience": "operator" } })).is_operator_only());
     }
 
     #[test]

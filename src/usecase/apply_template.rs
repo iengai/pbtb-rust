@@ -5,6 +5,7 @@ use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchRepository};
 use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::entitlement;
 use crate::domain::error::DomainError;
+use crate::domain::user::Role;
 use crate::usecase::engine_routing::EngineTaskDefinitions;
 use std::sync::Arc;
 
@@ -36,18 +37,20 @@ impl ApplyTemplateUseCase {
         }
     }
 
-    /// `vip_level` is the caller's, as their account row reads at this request;
-    /// a template above it is refused before anything is built.
+    /// `vip_level` and `role` are the caller's, as their account row reads at
+    /// this request; a template above the level, or addressed to the operator,
+    /// is refused before anything is built.
     pub async fn execute(
         &self,
         user_id: &str,
         vip_level: u8,
+        role: Role,
         bot_id: &str,
         template_name: &str,
     ) -> Result<(), DomainError> {
         // 1. Build the bot config from the template (sets live.user internally).
         let bot_config = self
-            .preview(user_id, vip_level, bot_id, template_name)
+            .preview(user_id, vip_level, role, bot_id, template_name)
             .await?;
 
         // 2. Save bot config to S3: {user_id}/{bot_id}.json
@@ -83,13 +86,14 @@ impl ApplyTemplateUseCase {
     /// confirmation preview (coins, exposure, strategy, description). `live.user`
     /// is set exactly as the real apply, so the preview matches what gets saved.
     ///
-    /// The level gate sits here too: the preview is what the user confirms, so
-    /// a template their level cannot apply is refused at the first tap rather
-    /// than after they have read and agreed to it.
+    /// The level and audience gates sit here too: the preview is what the user
+    /// confirms, so a template they cannot apply is refused at the first tap
+    /// rather than after they have read and agreed to it.
     pub async fn preview(
         &self,
         user_id: &str,
         vip_level: u8,
+        role: Role,
         bot_id: &str,
         template_name: &str,
     ) -> Result<BotConfig, DomainError> {
@@ -100,6 +104,9 @@ impl ApplyTemplateUseCase {
                 required,
                 current: vip_level,
             });
+        }
+        if template.is_operator_only() && !role.is_operator() {
+            return Err(DomainError::OperatorOnly);
         }
         let now = self.clock.now();
         let config =
@@ -278,7 +285,9 @@ mod tests {
         let switches = Arc::new(Switches::default());
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "7=arn:7");
 
-        uc.execute(USER, TOP, BOT, "steady").await.expect("apply");
+        uc.execute(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect("apply");
 
         let saved = configs
             .0
@@ -303,7 +312,9 @@ mod tests {
             "7=arn:7",
         );
 
-        uc.execute(USER, TOP, BOT, "steady").await.expect("apply");
+        uc.execute(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect("apply");
 
         let events = switches.recorded.lock().unwrap().clone();
         assert_eq!(events.len(), 1);
@@ -323,7 +334,7 @@ mod tests {
         });
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "7=arn:7");
 
-        uc.execute(USER, TOP, BOT, "steady")
+        uc.execute(USER, TOP, Role::Member, BOT, "steady")
             .await
             .expect("the switch itself succeeded, so the user's action must not fail");
 
@@ -340,7 +351,7 @@ mod tests {
         let (uc, configs) = usecase(a_template(), Some(a_bot(Runtime::Py)), switches, "8=arn:8");
 
         let err = uc
-            .execute(USER, TOP, BOT, "steady")
+            .execute(USER, TOP, Role::Member, BOT, "steady")
             .await
             .expect_err("a config that could never launch must not be applied");
 
@@ -366,7 +377,7 @@ mod tests {
         );
 
         let err = uc
-            .execute(USER, TOP, BOT, "steady")
+            .execute(USER, TOP, Role::Member, BOT, "steady")
             .await
             .expect_err("no rs image is registered for this line");
         assert!(err.to_string().contains("rs"), "{err}");
@@ -377,7 +388,7 @@ mod tests {
         let switches = Arc::new(Switches::default());
         let (uc, configs) = usecase(a_template(), None, switches, "7=arn:7py");
 
-        uc.execute(USER, TOP, BOT, "steady")
+        uc.execute(USER, TOP, Role::Member, BOT, "steady")
             .await
             .expect("the default runtime is py, which is registered");
         assert!(configs.0.lock().unwrap().is_some());
@@ -400,7 +411,7 @@ mod tests {
         );
 
         let err = uc
-            .execute(USER, 2, BOT, "steady")
+            .execute(USER, 2, Role::Member, BOT, "steady")
             .await
             .expect_err("VIP 2 may not apply a VIP 3 template");
         assert!(
@@ -417,7 +428,7 @@ mod tests {
         assert!(switches.recorded.lock().unwrap().is_empty());
 
         let err = uc
-            .preview(USER, 2, BOT, "steady")
+            .preview(USER, 2, Role::Member, BOT, "steady")
             .await
             .expect_err("the preview is what the user confirms, so it is gated too");
         assert!(matches!(err, DomainError::InsufficientLevel { .. }));
@@ -433,10 +444,68 @@ mod tests {
             "7=arn:7",
         );
 
-        uc.execute(USER, 3, BOT, "steady")
+        uc.execute(USER, 3, Role::Member, BOT, "steady")
             .await
             .expect("the gate is met at the level itself");
         assert!(configs.0.lock().unwrap().is_some());
+    }
+
+    fn an_operator_only_template() -> ConfigTemplate {
+        let mut template = a_template();
+        template.config_data["pbtb"] = json!({ "audience": "operator" });
+        template
+    }
+
+    #[tokio::test]
+    async fn refused_when_a_member_applies_an_operator_only_template() {
+        let switches = Arc::new(Switches::default());
+        let (uc, configs) = usecase(
+            an_operator_only_template(),
+            Some(a_bot(Runtime::Py)),
+            switches.clone(),
+            "7=arn:7",
+        );
+
+        let err = uc
+            .execute(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect_err("the top level is still a member");
+        assert!(matches!(err, DomainError::OperatorOnly), "{err}");
+        assert!(
+            configs.0.lock().unwrap().is_none(),
+            "the template's bytes are not written"
+        );
+        assert!(switches.recorded.lock().unwrap().is_empty());
+
+        let err = uc
+            .preview(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect_err("the preview is what the user confirms, so it is gated too");
+        assert!(matches!(err, DomainError::OperatorOnly));
+    }
+
+    #[tokio::test]
+    async fn the_operator_applies_an_operator_only_template() {
+        let switches = Arc::new(Switches::default());
+        let (uc, configs) = usecase(
+            an_operator_only_template(),
+            Some(a_bot(Runtime::Py)),
+            switches,
+            "7=arn:7",
+        );
+
+        uc.execute(USER, 0, Role::Operator, BOT, "steady")
+            .await
+            .expect("the audience is a role, not a level");
+        assert_eq!(
+            configs
+                .0
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|c| c.template_name.as_str()),
+            Some("steady")
+        );
     }
 
     #[tokio::test]
@@ -449,7 +518,10 @@ mod tests {
             "7=arn:7",
         );
 
-        let preview = uc.preview(USER, TOP, BOT, "steady").await.expect("preview");
+        let preview = uc
+            .preview(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect("preview");
 
         assert_eq!(preview.config_data["live"]["user"], BOT);
         assert!(

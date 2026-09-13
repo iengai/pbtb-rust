@@ -28,18 +28,19 @@ is the console's, `lab` is ours.
 
 ```json
 "pbtb": {
-  "name": "tpl-bzwt9jn2",
-  "title": "10-coin basket · Balanced · $1k · BZWT",
-  "title_zh": "十币组合 · 平衡 · $1k · BZWT",
+  "name": "tpl-35c6wt6w",
+  "title": "10-coin basket · Bold · $700 · 35C6",
+  "title_zh": "十币组合 · 进取 · $700 · 35C6",
   "universe": "mix10",
-  "capital_usdt": 1000,
+  "capital_usdt": 700,
   "style": "grid",
-  "profile": "balanced",
-  "generation": 7,
-  "engine": "v8",
+  "profile": "bold",
+  "generation": 5,
+  "engine": "v7",
+  "audience": "operator",
   "exchange": "bybit",
   "description": "…",
-  "strategies": [{ "name": "tpl-bzwt9jn2", "side": "long" }]
+  "strategies": [{ "name": "tpl-35c6wt6w", "side": "long" }]
 }
 ```
 
@@ -48,6 +49,14 @@ is the console's, `lab` is ours.
   composed from the naming properties.
 - `universe`, `capital_usdt`, `style`, `profile`, `generation`, `engine` — the
   naming properties (see below).
+- `audience` — `"operator"` addresses the template to the operator's account:
+  it is absent from every listing a member or a visitor sees (the Telegram
+  chooser, MCP `list_templates`, `GET /templates`, the site's Configs list)
+  and a member's apply is refused (`operator_only`), while the operator is
+  offered it and its site page stays reachable by link. Absent means everyone.
+  `min_vip_level` (absent = 0) is the other gate, on level rather than role:
+  applying above it is refused, listing is not. `annotate_templates.py`
+  stamps the audience from its `OPERATOR_ONLY` set and strips it elsewhere.
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.

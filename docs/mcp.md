@@ -44,13 +44,13 @@ is key entry and signup; what this has and the web does not is `get_bot_config`.
 | `describe_bot` | `bots:read` | one bot: desired and observed state, and its config *described* |
 | `get_bot_config` | `config:read` | the stored passivbot config, parameters included |
 | `get_bot_returns` | `bots:read` | the daily collector's return series; a tool error where no chart bucket is configured |
-| `list_templates` | `bots:read` | `{name, title, min_vip_level}` each; nothing is hidden by level |
+| `list_templates` | `bots:read` | `{name, title, min_vip_level, audience}` each; nothing is hidden by level; a template whose `audience` is `operator` is listed to the operator's account only |
 | `describe_template` | `bots:read` | one template described, never its parameters |
 | `issue_telegram_bind_ticket` | `bots:write` | a one-time link binding a Telegram account to the caller's own; only the account holder may open it |
 | `unbind_telegram` | `bots:write` | releases the caller's bound Telegram id |
 | `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent; refused past the level's running-bot ceiling |
 | `stop_bot` | `bots:write` | idempotent |
-| `apply_template` | `bots:write` | applies on the bot's next start; refused for a template above the caller's level |
+| `apply_template` | `bots:write` | applies on the bot's next start; refused for a template above the caller's level, and for an operator-only one unless the account is the operator's |
 | `set_risk_level` | `bots:write` | per-side wallet exposure limits |
 | `set_strategy_side` | `bots:write` | enable/disable one side |
 | `set_bot_runtime` | `bots:write` | `py` (passivbot) or `rs` (pb-runner) |

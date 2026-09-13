@@ -18,6 +18,9 @@ export type TemplateSummary = {
   style?: string | null;
   generation?: number | null;
   engine: string;
+  /** `operator`: offered to the operator's account only; the list leaves it out for anyone else,
+   *  its page stays reachable by link. Absent or null: everyone. */
+  audience?: "operator" | null;
   exchange: string;
   coins: string[];
   start: string;

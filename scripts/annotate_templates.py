@@ -72,12 +72,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 LAB_KEY = "lab"
 OURS = ("pbtb", LAB_KEY)
-LEAD = ("name", "title", "title_zh", *FACETS)
-ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "strategies")
+LEAD = ("name", "title", "title_zh", *FACETS, "audience")
+ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "strategies", "audience")
 # What annotate writes into `lab` itself, beside the lineage.
 LAB_OWN = ("original_name", "readable_id", "status", "notes")
 
 GENOME = "6501db3f96"
+
+# Offered to the operator's account only (`pbtb.audience: "operator"`): absent
+# from every listing a member or a visitor sees, still applicable by the
+# operator. Any other id is offered to everyone and carries no mark.
+OPERATOR_ONLY: frozenset[str] = frozenset({
+    # the seven v7 lab generations
+    "tpl-2vewmtjy", "tpl-35c6wt6w", "tpl-8bzdh8ay", "tpl-8ctkayqd", "tpl-mvgw3zk4",
+    "tpl-tavc364d", "tpl-xhdfc2ws",
+    # the six v7 xrp one-offs
+    "tpl-fhhjk83e", "tpl-jwzxkxkh", "tpl-kypvfxgd", "tpl-nkh4sfw4", "tpl-rwqvrc6u",
+    "tpl-sappt9w2",
+})
 ORIGINAL = {readable: old for old, (readable, _, _) in CATALOG.items()}
 
 
@@ -229,8 +241,18 @@ def sides_of(meta: dict) -> str:
                     for e in meta.get("strategies") or [] if isinstance(e, dict)) or "—"
 
 
-def annotate(raw: dict, readable: str) -> dict:
+def audience_of(meta: dict) -> str:
+    return "operator" if meta.get("audience") == "operator" else "everyone"
+
+
+def annotate(raw: dict, readable: str, tid: str | None = None) -> dict:
+    """`tid` is the id the audience is keyed by; it defaults to the id the
+    block names."""
     meta = dict(raw.get("pbtb") or {})
+    if (tid or meta.get("name")) in OPERATOR_ONLY:
+        meta["audience"] = "operator"
+    else:
+        meta.pop("audience", None)
     previous = raw.get(LAB_KEY) or {}
 
     notes = previous.get("notes") or meta.get("description") or ""
@@ -277,7 +299,7 @@ def ordered(meta: dict) -> dict:
 
 def curate(group: dict[str, dict]) -> dict[str, dict]:
     """id -> the annotated body, for templates listed together."""
-    out = {tid: annotate(raw, readable_of(raw, tid)) for tid, raw in group.items()}
+    out = {tid: annotate(raw, readable_of(raw, tid), tid) for tid, raw in group.items()}
     for tid, (title, title_zh) in titles({t: b["pbtb"] for t, b in out.items()}).items():
         out[tid]["pbtb"]["title"] = title
         out[tid]["pbtb"]["title_zh"] = title_zh
@@ -398,12 +420,14 @@ def main() -> int:
             if block.get("branch"):
                 family += f"/{block['branch']}"
             mark = " (current)" if new == old else ""
-            print(f"  {tid:34} {family:28} {out['pbtb'].get('title', '')}"
-                  f" {block.get('status', '')}{mark}")
+            print(f"  {tid:34} {family:28} {audience_of(out['pbtb']):9}"
+                  f" {out['pbtb'].get('title', '')} {block.get('status', '')}{mark}")
             was = group[tid].get("pbtb") or {}
             if sides_of(out["pbtb"]) != sides_of(was):
                 print(f"    sides {sides_of(was)} -> {sides_of(out['pbtb'])}"
                       " (what the config trades)")
+            if audience_of(out["pbtb"]) != audience_of(was):
+                print(f"    audience {audience_of(was)} -> {audience_of(out['pbtb'])}")
             # The artifact carries the template's naming fields, which can lag
             # the template while its S3 bytes are current.
             if prefix == PREFIX:

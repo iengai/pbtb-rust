@@ -126,6 +126,7 @@ let bots: BotDetail[] = [
 const me: Me = {
   user_id: "5351234539",
   vip_level: 9,
+  role: "operator",
   scopes: ["bots:read", "bots:write"],
   telegram: "5351234539",
   identities: [

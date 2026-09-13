@@ -246,7 +246,7 @@ async fn handle_start_state(
                 }
 
                 // Get available templates
-                match deps.list_templates_usecase.execute().await {
+                match deps.list_templates_usecase.execute(sender.role).await {
                     Ok(templates) => {
                         if templates.is_empty() {
                             bot.send_message(

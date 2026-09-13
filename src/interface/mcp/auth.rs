@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use async_trait::async_trait;
 use subtle::ConstantTimeEq;
 
-use crate::domain::user::MAX_VIP_LEVEL;
+use crate::domain::user::{MAX_VIP_LEVEL, Role};
 
 /// Who is calling, resolved from the transport's credentials before any tool
 /// runs.
@@ -19,6 +19,9 @@ pub struct Principal {
     /// The account's level, read with the account so every surface gates on
     /// the same number without a second lookup.
     pub vip_level: u8,
+    /// The account's role, read from the same row: what the operator alone is
+    /// offered (an operator-only template) is decided on it.
+    pub role: Role,
 }
 
 pub const SCOPE_READ: &str = "bots:read";
@@ -29,9 +32,9 @@ pub const SCOPE_WRITE: &str = "bots:write";
 pub const SCOPE_CONFIG_READ: &str = "config:read";
 
 impl Principal {
-    /// A principal holding every scope and the top level. The stdio
-    /// transport's only caller is the operator who started the process, and the
-    /// shared bearer stands for the deployment's own account.
+    /// A principal holding every scope, the top level and the operator's
+    /// role. The stdio transport's only caller is the operator who started the
+    /// process, and the shared bearer stands for the deployment's own account.
     pub fn full(user_id: impl Into<String>) -> Self {
         Self {
             user_id: user_id.into(),
@@ -41,6 +44,7 @@ impl Principal {
                 SCOPE_CONFIG_READ.to_string(),
             ]),
             vip_level: MAX_VIP_LEVEL,
+            role: Role::Operator,
         }
     }
 
@@ -207,6 +211,7 @@ mod tests {
             user_id: "u".into(),
             scopes: HashSet::from([SCOPE_READ.to_string()]),
             vip_level: 0,
+            role: Role::Member,
         };
         assert!(p.has(SCOPE_READ));
         assert!(!p.has(SCOPE_WRITE));

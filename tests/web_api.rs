@@ -21,6 +21,7 @@ use http::{Request, Response, StatusCode, header};
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
 use pbtb_rust::domain::identity::{IdentityRepository, PROVIDER_TELEGRAM};
+use pbtb_rust::domain::user::Role;
 use pbtb_rust::interface::mcp::{AuthError, Principal, TokenVerifier};
 use pbtb_rust::usecase::{BindOutcome, BindTelegramUseCase};
 use serde_json::{Value, json};
@@ -94,15 +95,18 @@ fn read_only(user_id: &str) -> Arc<dyn TokenVerifier> {
         user_id: user_id.to_string(),
         scopes: HashSet::from(["bots:read".to_string()]),
         vip_level: 0,
+        role: Role::Member,
     }))
 }
 
-/// Both scopes at a given level: the way to test what a level may do.
+/// Both scopes at a given level, as a member: the way to test what a level
+/// may do.
 fn at_level(user_id: &str, vip_level: u8) -> Arc<dyn TokenVerifier> {
     Arc::new(Fixed(Principal {
         user_id: user_id.to_string(),
         scopes: HashSet::from(["bots:read".to_string(), "bots:write".to_string()]),
         vip_level,
+        role: Role::Member,
     }))
 }
 
@@ -437,7 +441,8 @@ async fn a_template_is_described_never_dumped() {
         json!([{
             "name": "v7-template",
             "title": "10-coin basket · Balanced · $1k",
-            "min_vip_level": 0
+            "min_vip_level": 0,
+            "audience": "everyone"
         }])
     );
 
@@ -480,7 +485,8 @@ async fn a_template_above_the_callers_level_is_refused_but_never_hidden() {
         json!([{
             "name": "gated",
             "title": "10-coin basket · Balanced · $1k",
-            "min_vip_level": 3
+            "min_vip_level": 3,
+            "audience": "everyone"
         }]),
         "the catalogue shows what a higher level unlocks"
     );
@@ -521,6 +527,78 @@ async fn a_template_above_the_callers_level_is_refused_but_never_hidden() {
         "{}",
         String::from_utf8_lossy(applied.body())
     );
+}
+
+#[tokio::test]
+async fn the_templates_listing_offers_an_operator_only_template_to_the_operator_alone() {
+    let h = harness!();
+    let mut internal = a_template("internal");
+    internal.config_data["pbtb"]["audience"] = json!("operator");
+    h.templates.add(internal);
+    h.templates.add(a_template("open"));
+    h.given_bot(a_bot(USER, "abot")).await;
+    let apply = || {
+        request(
+            "POST",
+            "/bots/abot/template",
+            Some(TOKEN),
+            Some(json!({ "name": "internal" })),
+        )
+    };
+
+    let member = h.http_api_with(at_level(USER, 9));
+    assert_eq!(
+        body(&member.handle(get("/me")).await)["role"],
+        json!("member")
+    );
+    let listed = body(&member.handle(get("/templates")).await);
+    assert_eq!(
+        listed["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("open")],
+        "the top level is still a member: {listed}"
+    );
+    let described = member.handle(get("/templates/internal")).await;
+    assert_eq!(described.status(), StatusCode::OK, "reading is never gated");
+    let refused = member.handle(apply()).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(body(&refused)["error"], json!("operator_only"));
+    assert!(
+        h.configs.get_saved(USER, "abot").is_none(),
+        "a refused apply leaves no config behind"
+    );
+
+    // The shared bearer stands for the deployment's own account.
+    let operator = h.http_api(TOKEN);
+    assert_eq!(
+        body(&operator.handle(get("/me")).await)["role"],
+        json!("operator")
+    );
+    let listed = body(&operator.handle(get("/templates")).await);
+    assert_eq!(
+        listed["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| (t["name"].clone(), t["audience"].clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (json!("internal"), json!("operator")),
+            (json!("open"), json!("everyone")),
+        ]
+    );
+    let applied = operator.handle(apply()).await;
+    assert_eq!(
+        applied.status(),
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(applied.body())
+    );
+    assert!(h.configs.get_saved(USER, "abot").is_some());
 }
 
 #[tokio::test]
@@ -580,6 +658,7 @@ async fn me_describes_the_account_and_its_telegram_binding() {
         "the harness binds the operator's own id"
     );
     assert!(me["vip_level"].is_number());
+    assert_eq!(me["role"], json!("operator"));
     assert!(
         me["identities"]
             .as_array()

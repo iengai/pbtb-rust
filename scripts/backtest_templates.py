@@ -378,6 +378,8 @@ def build_artifact(template: Template, result_dir: Path) -> dict:
         "style": template.pbtb.get("style"),
         "generation": template.pbtb.get("generation"),
         "engine": ENGINE_VERSION[template.engine],
+        # `"operator"` on a template offered to the operator's account only.
+        "audience": template.pbtb.get("audience"),
         "exchange": template.exchange,
         "coins": template.coins,
         "start": template.backtest.get("start_date"),
@@ -402,8 +404,8 @@ def write_json(path: Path, data) -> None:
 def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
-        "name", "title", "title_zh", "style", "generation", "engine", "exchange", "coins",
-        "start", "end", "metrics",
+        "name", "title", "title_zh", "style", "generation", "engine", "audience", "exchange",
+        "coins", "start", "end", "metrics",
     )
     rows = []
     for path in sorted(OUTPUT_DIR.glob("*.json")):
