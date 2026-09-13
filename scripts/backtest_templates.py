@@ -12,12 +12,13 @@ backtester that matches its engine line and writes, under ``site/templates``:
 Usage::
 
     python scripts/backtest_templates.py [--only NAME ...] [--engine v7|v8]
-        [--end-date DATE|now] [--force] [--no-sync] [--pb-v8 DIR] [--pb-v7 DIR]
-        [--cache-dir DIR]
+        [--end-date DATE|now] [--ohlcv-source-dir DIR] [--force] [--no-sync]
+        [--pb-v8 DIR] [--pb-v7 DIR] [--cache-dir DIR]
 
 Each backtest runs as a subprocess inside its passivbot checkout with the
 checkout's own virtualenv. A template whose artifact already carries the same
-``source_sha``, engine and window end is skipped unless ``--force`` is given.
+``source_sha``, engine, window end and candle directory is skipped unless
+``--force`` is given.
 
 ``--end-date`` runs every template from its own start to that date; ``now``
 is the last day with a complete candle set, two days back, the date passivbot
@@ -26,6 +27,20 @@ artifact was last run to, or runs to its own ``backtest.end_date`` when it
 has no artifact yet, so a plain rerun after adding a template costs only the
 new one and never moves the others. The template in S3 is not touched: the
 date goes into the run's copy only, and into the artifact's ``end``.
+
+A run reads candles from its ``backtest.ohlcv_source_dir`` when one is set
+(the mainstream templates name ``caches/ohlcv_padded``, whose alts end
+2025-10-28 and BTC and XRP 2025-11-18; the XRP templates that set none read
+passivbot's own data), and passivbot does not fail when the window runs past
+the end of that directory: the run completes without the candles past its last
+day, and ``backtest_completion_ratio`` still reports the whole window. When a
+run has a candle directory and a window end, the script checks before running
+that the directory holds a shard for every coin through the day before that
+end, and fails the template when it does not; a run with no candle directory
+is not checked. ``--ohlcv-source-dir`` points every run's copy at another
+directory (relative to each passivbot checkout), which is how a window is run
+past the end of ``caches/ohlcv_padded``; the artifact records the directory
+its run read, so a rerun with a different one is not skipped.
 """
 
 from __future__ import annotations
@@ -104,6 +119,21 @@ METRIC_KEYS: dict[str, tuple[str, ...]] = {
 # balance_and_equity.csv.gz column candidates, first present wins.
 BALANCE_COLUMNS = ("usd_total_balance", "balance")
 EQUITY_COLUMNS = ("usd_total_equity", "equity")
+
+
+def source_dir_gap(source_dir: Path, exchange: str, coins: list[str], end_date: str) -> str | None:
+    """Why ``source_dir`` cannot back a run to ``end_date``, or None when every
+    coin has a daily shard through the day before it. Shards are
+    ``<source_dir>/<exchange>/1m/<COIN>_<quote>_<settle>/<YYYY-MM-DD>.npy``."""
+    last_needed = (datetime.fromisoformat(end_date).date() - timedelta(days=1)).isoformat()
+    for coin in coins:
+        dirs = sorted((source_dir / exchange / "1m").glob(f"{coin}_*"))
+        days = sorted(p.stem for d in dirs for p in d.glob("*.npy"))
+        if not days:
+            return f"{source_dir} holds no {exchange} 1m shards for {coin}"
+        if days[-1] < last_needed:
+            return f"{source_dir} ends {days[-1]} for {coin}, before the window end {end_date}"
+    return None
 
 
 def artifact_end(name: str) -> str | None:
@@ -225,7 +255,12 @@ def venv_python(pb_dir: Path) -> Path:
     return pb_dir / ".venv" / "bin" / "python"
 
 
-def artifact_is_current(template: Template) -> bool:
+def candle_dir(template: Template, source_dir: str | None) -> str | None:
+    """The candle directory a run reads: the override, else the template's own."""
+    return source_dir or template.backtest.get("ohlcv_source_dir")
+
+
+def artifact_is_current(template: Template, source_dir: str | None = None) -> bool:
     out = OUTPUT_DIR / f"{template.name}.json"
     if not out.exists():
         return False
@@ -237,11 +272,20 @@ def artifact_is_current(template: Template) -> bool:
         existing.get("source_sha") == template.source_sha
         and existing.get("engine") == ENGINE_VERSION[template.engine]
         and existing.get("end") == template.end_date
+        and existing.get("ohlcv_source_dir") == candle_dir(template, source_dir)
     )
 
 
-def run_backtest(template: Template, pb_dir: Path, cache_dir: Path, timeout: float) -> tuple[Path, str]:
+def run_backtest(
+    template: Template, pb_dir: Path, cache_dir: Path, timeout: float, source_dir: str | None = None
+) -> tuple[Path, str]:
     """Run one template through passivbot; return the result directory and the attempt label that produced it."""
+    source = candle_dir(template, source_dir)
+    if source and template.end_date:
+        gap = source_dir_gap(pb_dir / source, template.exchange or "bybit", template.coins, template.end_date)
+        if gap:
+            raise RuntimeError(gap)
+
     run_dir = cache_dir / "runs" / template.name
     if run_dir.exists():
         shutil.rmtree(run_dir)
@@ -251,6 +295,8 @@ def run_backtest(template: Template, pb_dir: Path, cache_dir: Path, timeout: flo
     config.setdefault("backtest", {})["base_dir"] = run_dir.as_posix()
     if template.end_date:
         config["backtest"]["end_date"] = template.end_date
+    if source_dir:
+        config["backtest"]["ohlcv_source_dir"] = source_dir
 
     log_dir = cache_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -366,7 +412,7 @@ def load_points(result_dir: Path) -> list[dict]:
     ]
 
 
-def build_artifact(template: Template, result_dir: Path) -> dict:
+def build_artifact(template: Template, result_dir: Path, source_dir: str | None = None) -> dict:
     analysis = json.loads((result_dir / "analysis.json").read_text(encoding="utf-8"))
     return {
         "name": template.name,
@@ -385,6 +431,8 @@ def build_artifact(template: Template, result_dir: Path) -> dict:
         "start": template.backtest.get("start_date"),
         "end": template.end_date,
         "starting_balance": template.backtest.get("starting_balance"),
+        # The candle directory the run read, relative to the passivbot checkout.
+        "ohlcv_source_dir": candle_dir(template, source_dir),
         # No description: the artifacts are public and the authors' notes name
         # leverage, position counts and exposure caps. The description reaches
         # a signed-in user through the API instead.
@@ -422,6 +470,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--only", nargs="+", metavar="NAME", help="template names (file stems) to process")
     parser.add_argument("--engine", choices=("v7", "v8"), help="restrict to one engine line")
     parser.add_argument("--end-date", metavar="DATE", help="run every template to this date (YYYY-MM-DD, or `now`) instead of its own window end")
+    parser.add_argument("--ohlcv-source-dir", metavar="DIR", help="candle directory every run reads instead of the template's own, relative to each passivbot checkout")
     parser.add_argument("--force", action="store_true", help="rerun templates whose artifact is current")
     parser.add_argument("--sync", dest="sync", action="store_true", default=True, help="sync templates from S3 (default)")
     parser.add_argument("--no-sync", dest="sync", action="store_false", help="use the cached templates as-is")
@@ -457,15 +506,17 @@ def main(argv=None) -> int:
     summary: list[tuple[str, str, float, str]] = []
     for template in templates:
         engine = ENGINE_VERSION[template.engine]
-        if not args.force and artifact_is_current(template):
+        if not args.force and artifact_is_current(template, args.ohlcv_source_dir):
             summary.append((template.name, engine, 0.0, "skipped"))
             print(f"[skip] {template.name} ({engine}) artifact is current")
             continue
         print(f"[run ] {template.name} ({engine}) ...", flush=True)
         started = time.time()
         try:
-            result_dir, attempt = run_backtest(template, pb_dirs[template.engine], cache_dir, args.timeout)
-            artifact = build_artifact(template, result_dir)
+            result_dir, attempt = run_backtest(
+                template, pb_dirs[template.engine], cache_dir, args.timeout, args.ohlcv_source_dir
+            )
+            artifact = build_artifact(template, result_dir, args.ohlcv_source_dir)
             write_json(OUTPUT_DIR / f"{template.name}.json", artifact)
             status = "ok" if attempt == "verbatim" else f"ok ({attempt})"
         except Exception as exc:  # a failed template must not abort the run

@@ -185,15 +185,26 @@ template is reproducible from its own file — window, coins and exchange are
 inside it — which is why the pipeline reruns rather than mining passivbot's
 `backtests/` directory, whose runs are named by pid and timestamp with no link
 back to a config. It is CPU-bound and runs on a developer machine; a template
-whose artifact already carries the same `source_sha`, engine and window end is
-skipped, so a rerun after adding or editing templates only costs the changed
-ones. `--end-date now` runs every template from its own start to the last
-complete day (the template in S3 is not touched; the artifact's `end` says
-which), which is how the catalogue is brought up to date; without the flag a
-template keeps the end its artifact was run to, and only a template with no
-artifact yet runs to its own `backtest.end_date`. The descriptions quote the
-artifact, so run `describe_templates.py --apply` after. Commit the resulting
-JSON.
+whose artifact already carries the same `source_sha`, engine, window end and
+candle directory (`ohlcv_source_dir`, the one its run read) is skipped, so a
+rerun after adding or editing templates only costs the changed ones.
+`--end-date now` runs every template from its own start to the last complete
+day (the template in S3 is not touched; the artifact's `end` says which),
+which is how the catalogue is brought up to date; without the flag a template
+keeps the end its artifact was run to, and only a template with no artifact
+yet runs to its own `backtest.end_date`. The mainstream templates read candles
+from `caches/ohlcv_padded` (their `backtest.ohlcv_source_dir`), whose alts end
+2025-10-28 and BTC and XRP 2025-11-18; the XRP templates that set no directory
+read passivbot's own data. A window past the padded data needs
+`--ohlcv-source-dir` naming a directory that covers it (on the developer
+machine `caches/ohlcv_combined`, kept current by the strategy lab's
+`fetch_live_ohlcv.py`); the flag applies to every template, the XRP ones
+included. When a run has a candle directory, from the template or the flag,
+and that directory stops before the day before the window end, the template
+fails instead of running: passivbot completes such a run without the missing
+candles and reports the window as complete. A template with no candle
+directory is not checked. The descriptions quote the artifact, so run
+`describe_templates.py --apply` after. Commit the resulting JSON.
 
 The `extreme`-profile templates come close to liquidation inside their window
 (`backtest_completion_ratio < 1`); the pages badge them rather than headline the
