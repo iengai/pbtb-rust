@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { useLoad } from "../api/hooks";
-import { fmtDate, fmtSignedPct } from "../chart/returnCurve";
+import { useRangeLabel } from "../chart/ReturnChart";
+import { DEFAULT_RANGE, RANGES, fmtDate, fmtSignedPct } from "../chart/returnCurve";
+import { headline } from "../chart/showcase";
 import { Chevron } from "../components/icons";
 import { ErrorBanner, Loading, Sparkline } from "../components/ui";
 import { staticData } from "../data/static";
@@ -8,11 +10,20 @@ import { useT } from "../i18n/locale";
 
 // The public listing: the operator's showcase bots, from the static index
 // the collector publishes. No token, no money — percentages and a link to
-// each bot's copy-trading page on the exchange.
+// each bot's copy-trading page on the exchange. Each row reads the bot's full
+// series so its figure and trend are the default window's, as on the bot page.
 export function Showcase() {
   const t = useT();
-  const { data, error, loading, reload } = useLoad(() => staticData.showcase(), "showcase");
-  const bots = data?.bots ?? [];
+  const rangeLabel = useRangeLabel();
+  const range = RANGES[DEFAULT_RANGE]!;
+  const { data, error, loading, reload } = useLoad(async () => {
+    const index = await staticData.showcase();
+    if (!index) return null;
+    const series = await Promise.all(index.bots.map((b) => staticData.showcaseBot(b.id)));
+    return { index, heads: series.map((s) => (s ? headline(s) : null)) };
+  }, "showcase");
+  const bots = data?.index.bots ?? [];
+  const heads = data?.heads ?? [];
 
   return (
     <>
@@ -29,13 +40,14 @@ export function Showcase() {
         <div className="table showcase">
           <div className="th">
             <div>{t.showcase.col.bot}</div>
-            <div>{t.showcase.col.trend}</div>
-            <div>{t.showcase.col.current}</div>
+            <div>{t.showcase.col.trend(range.days ?? 0)}</div>
+            <div>{t.returns.tile.return(range.k)}</div>
             <div />
             <div />
           </div>
-          {bots.map((b) => {
-            const up = b.current_return_pct >= 0;
+          {bots.map((b, i) => {
+            const head = heads[i] ?? null;
+            const up = (head?.ret ?? 0) >= 0;
             const to = `/p/bots/${encodeURIComponent(b.id)}`;
             return (
               <div key={b.id} className="tr">
@@ -46,10 +58,16 @@ export function Showcase() {
                   <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{b.exchange.toUpperCase()}</div>
                 </div>
                 <div className="hide-sm">
-                  <Sparkline pts={b.spark.map((v, i) => ({ ts: i, v }))} up={up} />
+                  <Sparkline pts={(head?.view ?? []).map((p) => ({ ts: p.ts, v: p.return_pct }))} up={up} />
                 </div>
-                <div className="tnum" style={{ fontWeight: 600, color: up ? "var(--pnl)" : "var(--pnl-neg)" }}>
-                  {fmtSignedPct(b.current_return_pct)}
+                <div
+                  className="tnum"
+                  style={{ fontWeight: 600, color: head ? (up ? "var(--pnl)" : "var(--pnl-neg)") : "var(--muted)" }}
+                >
+                  {head ? fmtSignedPct(head.ret) : "—"}
+                  {head?.label.kind === "sinceRefunding" && (
+                    <div style={{ fontSize: 12, fontWeight: 400, color: "var(--muted)" }}>{rangeLabel(head.label)}</div>
+                  )}
                 </div>
                 <div style={{ fontSize: 13 }}>
                   <a href={b.public_url} target="_blank" rel="noopener noreferrer">
@@ -66,7 +84,7 @@ export function Showcase() {
       )}
       {data && (
         <div className="note">
-          {t.showcase.disclaimer} · {t.showcase.updated(fmtDate(data.generated_at))}
+          {t.showcase.disclaimer} · {t.showcase.updated(fmtDate(data.index.generated_at))}
         </div>
       )}
     </>

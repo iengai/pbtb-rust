@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useLoad } from "../api/hooks";
 import { ChartCaption, RangeSelector, ReturnChart, useRangeLabel } from "../chart/ReturnChart";
 import { DEFAULT_RANGE, fmtDate, fmtPct, fmtSignedPct, selectWindow } from "../chart/returnCurve";
-import { asSeries } from "../chart/showcase";
+import { asSeries, headline } from "../chart/showcase";
 import { Badge, Crumbs, ErrorBanner, Loading } from "../components/ui";
 import { staticData } from "../data/static";
 import { useT } from "../i18n/locale";
@@ -18,6 +18,7 @@ export function ShowcaseBot() {
   const { data, error, loading, reload } = useLoad(() => staticData.showcaseBot(pid), `showcase:${pid}`);
   const win = data ? selectWindow(asSeries(data), range) : null;
   const ok = win?.kind === "ok" ? win : null;
+  const head = data ? headline(data) : null;
 
   return (
     <>
@@ -38,7 +39,11 @@ export function ShowcaseBot() {
                 <Badge>{data.exchange.toUpperCase()}</Badge>
               </div>
               <div className="sub" style={{ marginTop: 4 }}>
-                {t.showcase.currentReturn}: {fmtSignedPct(data.current_return_pct)} ·{" "}
+                {head && (
+                  <>
+                    {t.returns.tile.return(rangeLabel(head.label))}: {fmtSignedPct(head.ret)} ·{" "}
+                  </>
+                )}
                 {t.showcase.updated(fmtDate(data.generated_at))}
               </div>
             </div>
