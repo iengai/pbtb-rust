@@ -216,7 +216,7 @@ h1.lg { font-size: 22px; }
 .brush .handle { fill: var(--accent); cursor: ew-resize; }
 .run-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 14px; padding: 8px 0; border-top: 1px solid var(--border); }
 .run-row label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
-.run-row .cap { margin-left: auto; }
+.run-row .run-segs { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; padding-left: 32px; font-size: 13px; }
 .swatch.dash { background: repeating-linear-gradient(90deg, var(--balance) 0 4px, transparent 4px 7px); }
 .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }

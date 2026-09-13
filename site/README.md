@@ -220,8 +220,9 @@ days; the period comes from the presets (anchored at the latest point any
 curve reaches) or the brush strip under the chart. The y-axis is log by
 default (rows at equal multiples of the period's first point, labelled in %,
 0% always in view and padded below only where a curve goes under it) with a
-Linear toggle. The newest run is drawn first; the run list under the chart
-ticks the others on.
+Linear toggle. The bot with the newest run is drawn first, all its spans on
+the config in its colour; the bot list under the chart ticks the others on,
+and "untick all" clears them.
 
 ## Deploy
 
