@@ -18,10 +18,9 @@ multiple, as the site does. Basket, style and capital come from ``pbtb``. The
 direction and exposure come from the config: the sides passivbot trades, one
 with an exposure limit and positions to hold, whatever ``pbtb.strategies``
 declares. The character and the 🧪 windows come from PUBLIC. The 🧪 windows are
-the lab's separate runs over one stretch each (a crash, a bear leg, or the
-months since a crash), started on their own. They differ from the site
-backtest over the same dates, which arrives there carrying whatever it gained
-or lost before.
+the lab's separate runs over one stretch each, started on their own. They
+differ from the site backtest over the same dates, which arrives there
+carrying whatever it gained or lost before.
 
 A template with no PUBLIC entry or no backtest artifact is left as it is. Bot
 configs built from a template are restamped with its description.
@@ -58,6 +57,7 @@ CRASH_2025 = "2025-10-10 崩盘"
 BEAR_2026 = "2025-11-01～2026-03-01 熊市"
 CRASH_2026 = "2026-06 崩盘"
 SINCE_CRASH_2026 = "2026-06-06～09-04"
+SINCE_JUL_2026 = "2026-07-15～09-11"
 
 
 def window(label: str, drawdown: float | str, gain: float | None = None) -> dict:
@@ -72,6 +72,10 @@ PUBLIC: dict[str, dict] = {
     "tpl-35c6wt6w": {"character": "收益优先",
                      "stress": [window(CRASH_2025, 0.243),
                                 window(BEAR_2026, 0.758, -0.689)]},
+    "tpl-3dqk7fam": {"character": "熊市段训练过，熊市两个起跑日都赚钱；本金 $300 时崩盘段回撤达 95%，$500 起才扛得住",
+                     "stress": [window(CRASH_2025, 0.217),
+                                window(BEAR_2026, 0.325, 0.225),
+                                window(SINCE_JUL_2026, 0.055, 0.066)]},
     "tpl-3x8we339": {"character": "高敞口，止盈空间很薄、交易频繁，引擎版本不同结果差别很大",
                      "stress": [window(CRASH_2025, LIQUIDATED),
                                 window(BEAR_2026, 0.325, 0.895),
@@ -90,6 +94,10 @@ PUBLIC: dict[str, dict] = {
     "tpl-8ctkayqd": {"character": "在八个币之间轮动，敞口低",
                      "stress": [window(CRASH_2025, 0.348),
                                 window(BEAR_2026, 0.793, -0.534)]},
+    "tpl-9fw5sgfr": {"character": "熊市段训练过，套得越深越晚补仓、止盈跟得紧，$300 到 $1k 表现一致",
+                     "stress": [window(CRASH_2025, 0.260),
+                                window(BEAR_2026, 0.285, 0.610),
+                                window(SINCE_JUL_2026, 0.067, 0.048)]},
     "tpl-agy2juuf": {"character": "盈利仓位多拿一段，收益优先",
                      "stress": [window(CRASH_2025, 0.250),
                                 window(BEAR_2026, 0.466, 0.123),
