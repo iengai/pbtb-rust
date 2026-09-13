@@ -5,7 +5,7 @@
 // the same file.
 
 import type { ShowcaseBot } from "../data/static";
-import { type BotReturnSeries, type ChartWindow, type ViewPoint, maxDrawdownOf } from "./returnCurve";
+import { type BotReturnSeries, type ViewPoint } from "./returnCurve";
 
 const DAY = 86400;
 
@@ -99,31 +99,6 @@ export function runsForTemplate(bots: ShowcaseBot[], template: string, limit = M
     .filter((r) => r.template_name === template)
     .sort((a, b) => b.start - a.start)
     .slice(0, limit);
-}
-
-// A run as the chart draws it: its own points and nothing else. One config
-// by definition, so no band; no money; no caption (the card carries the
-// run's own line).
-export function runWindow(run: Run): ChartWindow {
-  const view = run.points;
-  const last = view[view.length - 1]!;
-  return {
-    kind: "ok",
-    view,
-    switches: [],
-    periods: [],
-    reset: null,
-    stats: {
-      label: { kind: "total" },
-      ret: last.return_pct,
-      peak: view.reduce((m, p) => Math.max(m, p.return_pct), -Infinity),
-      maxDrawdown: maxDrawdownOf(view),
-      days: view.length,
-      pnl: null,
-      totalPnl: null,
-    },
-    caption: null,
-  };
 }
 
 // "$500", "$1k", "$1.5k", "$20k": the collector's rounded capital, in the

@@ -186,18 +186,20 @@ back to a config. It is CPU-bound and runs on a developer machine; a template
 whose artifact already carries the same `source_sha`, engine and window end is
 skipped, so a rerun after adding or editing templates only costs the changed
 ones. `--end-date now` runs every template from its own start to the last
-complete day instead of to its own `backtest.end_date` (the template in S3 is
-not touched; the artifact's `end` says which), which is how the catalogue is
-brought up to date; the descriptions quote the artifact, so run
-`describe_templates.py --apply` after. Commit the resulting JSON.
+complete day (the template in S3 is not touched; the artifact's `end` says
+which), which is how the catalogue is brought up to date; without the flag a
+template keeps the end its artifact was run to, and only a template with no
+artifact yet runs to its own `backtest.end_date`. The descriptions quote the
+artifact, so run `describe_templates.py --apply` after. Commit the resulting
+JSON.
 
 The `extreme`-profile templates come close to liquidation inside their window
 (`backtest_completion_ratio < 1`); the pages badge them rather than headline the
 pre-wipe gain.
 
 The config page draws the backtest's equity (balance dashed) and the live runs
-of that template on the showcase bots (`chart/showcase.ts`, the same runs as
-before) on one chart, `chart/combo.ts` + `chart/ComboChart.tsx`. Every curve
+of that template on the showcase bots (`chart/showcase.ts`) on one chart,
+`chart/combo.ts` + `chart/ComboChart.tsx`. Every curve
 arrives as an index and is re-based to 0% at its first point inside the chosen
 period, so a backtest and a run over the same days read as returns over those
 days; the period comes from the presets (anchored at the latest point any

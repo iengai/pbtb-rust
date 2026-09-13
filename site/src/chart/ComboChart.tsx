@@ -93,7 +93,6 @@ export function ComboChart({ series, span }: { series: ComboSeries[]; span: Span
   const curves = useMemo(() => rebase(series, span), [series, span]);
   const { vmin, vmax, y } = useMemo(() => yScale(curves), [curves]);
   const x = xOf(span);
-  const toTs = tOf(span);
   const month = useMemo(
     () => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short", timeZone: "UTC" }),
     [lang],
@@ -117,9 +116,12 @@ export function ComboChart({ series, span }: { series: ComboSeries[]; span: Span
         .filter((r): r is { c: Curve; v: number } => r.v != null)
     : [];
 
+  // The handlers sit on the plot rect, so the pointer's fraction of the
+  // rect's own box is its fraction of the span.
   const move = (e: MouseEvent<SVGRectElement>) => {
-    const vx = Math.min(M.l + PW, Math.max(M.l, viewX(e)));
-    setHover({ ts: Math.min(span.to, Math.max(span.from, toTs(vx))), cx: e.clientX, cy: e.clientY });
+    const rect = e.currentTarget.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    setHover({ ts: span.from + f * (span.to - span.from), cx: e.clientX, cy: e.clientY });
   };
 
   return (

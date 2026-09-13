@@ -48,13 +48,16 @@ export function ConfigChart({ template }: { template: TemplateBacktest }) {
     ],
     [template.points, t],
   );
+  // A run's points are indexed from the close before its switch; that base
+  // is the series' first point, so a period opening before the run re-bases
+  // it where the caption does.
   const live = useMemo<ComboSeries[]>(
     () =>
       runs.map((r) => ({
         id: r.key,
         label: r.run.bot.name,
         color: r.color,
-        points: r.run.points.map((p) => ({ ts: p.ts, v: 1 + p.return_pct / 100 })),
+        points: [{ ts: r.run.start, v: 1 }, ...r.run.points.map((p) => ({ ts: p.ts, v: 1 + p.return_pct / 100 }))],
       })),
     [runs],
   );
