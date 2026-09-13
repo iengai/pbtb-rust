@@ -30,7 +30,8 @@ the lambda gets it baked at `terraform apply`, telebot gets it from
 When a change alters the *shape* of the env a binary reads (a renamed or new
 `APP__*` key), the old binary with the new env — or the new binary with the old
 env — fails at config load. Sequence such changes back-to-back, and know the
-window: between the apply and `lambda-deploy`, OOM auto-restarts silently stop.
+window: between the apply and `lambda-deploy`, OOM auto-restarts silently stop
+and a Restart leaves its bot Enabled · Stopped.
 
 ```
 merge → (telebot-build runs) → scoped terraform apply → telebot-deploy → lambda-deploy

@@ -55,7 +55,7 @@ both so you spend your time on the actual cause.
 | Telegram shows `❌ … (ref: xxxxxxxx)` | [playbook: telegram-ref](references/symptom-playbooks.md#telegram-ref) |
 | The bot answers nothing, or answers some presses and not others | [playbook: telegram-no-reply](references/symptom-playbooks.md#telegram-no-reply) |
 | A bot is not running / keeps restarting / "Run" does nothing | [playbook: bot-not-running](references/symptom-playbooks.md#bot-not-running) |
-| A bot stopped (OOM) and was not restarted | [playbook: no-auto-restart](references/symptom-playbooks.md#no-auto-restart) |
+| A bot stopped (OOM) or was Restarted, and did not come back | [playbook: no-auto-restart](references/symptom-playbooks.md#no-auto-restart) |
 | GitHub Actions or CodeBuild is red | [playbook: ci-red](references/symptom-playbooks.md#ci-red) |
 | A deployed binary or env is behind what main says | [playbook: deployed-behind-main](references/symptom-playbooks.md#deployed-behind-main) |
 | A return curve is stale, or the console shows wrong data | [playbook: site-stale](references/symptom-playbooks.md#site-stale) |

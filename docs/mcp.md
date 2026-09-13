@@ -50,14 +50,16 @@ is key entry and signup; what this has and the web does not is `get_bot_config`.
 | `unbind_telegram` | `bots:write` | releases the caller's bound Telegram id |
 | `start_bot` | `bots:write` | claims the DynamoDB start lock; idempotent; refused past the level's running-bot ceiling |
 | `stop_bot` | `bots:write` | idempotent |
-| `apply_template` | `bots:write` | applies on the bot's next start; refused for a template above the caller's level, and for an operator-only one unless the account is the operator's |
+| `restart_bot` | `bots:write` | `restarting` (the task stops; the reconcile Lambda relaunches it, desired state stays on) / `started` (nothing was running) / `start_in_progress`, `stopping` (both `retry`); not idempotent |
+| `apply_template` | `bots:write` | applies on the bot's next start or restart; refused for a template above the caller's level, and for an operator-only one unless the account is the operator's |
 | `set_risk_level` | `bots:write` | per-side wallet exposure limits |
 | `set_strategy_side` | `bots:write` | enable/disable one side |
 | `set_bot_runtime` | `bots:write` | `py` (passivbot) or `rs` (pb-runner) |
 | `delete_bot` | `bots:write` | destructive; `confirm` must equal `bot_id` |
 
-Config changes take effect on a bot's next start. A running task keeps the
-config and the binary it started with.
+Config changes take effect on a bot's next start or restart. A running task
+keeps the config and the binary it started with; `restart_bot` is how a change
+is applied to one.
 
 A refusal by level is a tool error in words (`🔒 …`), never redacted: the
 ceiling or the level asked for is what the caller acts on. The table is
