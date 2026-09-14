@@ -7,15 +7,16 @@
 //! DynamoDB Local (see `super::dynamo`).
 
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use pbtb_rust::domain::bot::{ApiKeyRepository, Bot};
 use pbtb_rust::domain::botconfig::{BotConfig, BotConfigRepository};
 use pbtb_rust::domain::clock::Clock;
 use pbtb_rust::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository};
-use pbtb_rust::domain::error::DomainError;
+use pbtb_rust::domain::error::{DomainError, Retryability};
 use pbtb_rust::domain::returncurve::ReturnCurveRepository;
+use pbtb_rust::domain::showcase::{Published, ShowcasePublisher};
 use pbtb_rust::usecase::{TaskController, TaskLiveness, TaskRunner};
 
 /// A clock frozen at a known instant, so timestamps in assertions are exact
@@ -300,3 +301,63 @@ impl TaskRunner for FailingEcs {
 }
 
 pub type SharedEcs = Arc<RecordingEcs>;
+
+/// The showcase publisher, recording what it was asked to do. `add_curve`
+/// marks a bot as having a collected curve; `fail_with` makes every later
+/// call fail with that retryability.
+#[derive(Default)]
+pub struct InMemoryShowcasePublisher {
+    curves: Mutex<HashSet<(String, String)>>,
+    calls: Mutex<Vec<String>>,
+    fault: Mutex<Option<Retryability>>,
+}
+
+impl InMemoryShowcasePublisher {
+    pub fn add_curve(&self, user_id: &str, bot_id: &str) {
+        self.curves
+            .lock()
+            .unwrap()
+            .insert((user_id.to_string(), bot_id.to_string()));
+    }
+
+    pub fn fail_with(&self, retry: Retryability) {
+        *self.fault.lock().unwrap() = Some(retry);
+    }
+
+    /// Every call so far, as `publish <bot_id>` / `withdraw <bot_id>`.
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn record(&self, call: &str, bot: &Bot) -> Result<(), DomainError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("{call} {}", bot.id));
+        match *self.fault.lock().unwrap() {
+            Some(retry) => Err(DomainError::repository_with(
+                "writing the public showcase",
+                retry,
+                std::io::Error::other("the fake is failing"),
+            )),
+            None => Ok(()),
+        }
+    }
+}
+
+#[async_trait]
+impl ShowcasePublisher for InMemoryShowcasePublisher {
+    async fn publish(&self, bot: &Bot) -> Result<Published, DomainError> {
+        self.record("publish", bot)?;
+        let key = (bot.user_id.clone(), bot.id.clone());
+        Ok(if self.curves.lock().unwrap().contains(&key) {
+            Published::Live
+        } else {
+            Published::NoCurveYet
+        })
+    }
+
+    async fn withdraw(&self, bot: &Bot) -> Result<(), DomainError> {
+        self.record("withdraw", bot)
+    }
+}

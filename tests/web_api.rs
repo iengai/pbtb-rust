@@ -749,7 +749,7 @@ async fn the_operator_retires_and_publishes_a_template() {
 }
 
 #[tokio::test]
-async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
+async fn the_showcase_switch_publishes_and_withdraws_and_keeps_the_link() {
     use pbtb_rust::domain::bot::BotRepository;
 
     let h = harness!();
@@ -759,6 +759,7 @@ async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
     h.given_bot(linked).await;
     h.given_bot(a_bot(USER, "plain")).await;
     h.given_bot(a_bot(SOMEONE_ELSE, "theirs")).await;
+    h.showcase.add_curve(USER, "linked");
     let set = |bot: &str, public: bool| {
         request(
             "PUT",
@@ -781,10 +782,9 @@ async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
         "the operator's own bots, and no one else's"
     );
 
-    let hidden = operator.handle(set("linked", false)).await;
     assert_eq!(
-        body(&hidden),
-        json!({ "status": "updated", "public": false })
+        body(&operator.handle(set("linked", false)).await),
+        json!({ "status": "updated", "public": false, "published": false })
     );
     let row = h.bots.find(USER, "linked").await.unwrap().unwrap();
     assert!(!row.on_showcase());
@@ -795,8 +795,13 @@ async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
     );
 
     assert_eq!(
+        body(&operator.handle(set("linked", true)).await),
+        json!({ "status": "updated", "public": true, "published": true })
+    );
+    assert_eq!(
         body(&operator.handle(set("plain", true)).await),
-        json!({ "status": "updated", "public": true })
+        json!({ "status": "updated", "public": true, "published": false }),
+        "no curve collected for it yet"
     );
     assert!(
         h.bots
@@ -834,6 +839,49 @@ async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
             .unwrap()
             .unwrap()
             .on_showcase()
+    );
+    assert_eq!(
+        h.showcase.calls(),
+        ["withdraw linked", "publish linked", "publish plain"],
+        "another tenant's bot and a member's refusal publish nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_showcase_publish_fault_after_the_save_keeps_the_row_and_its_retryability() {
+    use pbtb_rust::domain::bot::BotRepository;
+    use pbtb_rust::domain::error::Retryability;
+
+    let h = harness!();
+    h.given_bot(a_bot(USER, "plain")).await;
+    let show = || {
+        request(
+            "PUT",
+            "/bots/plain/showcase",
+            Some(TOKEN),
+            Some(json!({ "public": true })),
+        )
+    };
+    let operator = h.http_api(TOKEN);
+
+    h.showcase.fail_with(Retryability::Transient);
+    let transient = operator.handle(show()).await;
+    assert_eq!(transient.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body(&transient)["retryable"], json!(true));
+    assert_eq!(
+        h.bots.find(USER, "plain").await.unwrap().unwrap().showcase,
+        Some(true),
+        "the choice is saved before the publish"
+    );
+
+    h.showcase.fail_with(Retryability::Permanent);
+    let permanent = operator.handle(show()).await;
+    assert_eq!(permanent.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body(&permanent)["retryable"], json!(false));
+    assert_eq!(
+        h.showcase.calls(),
+        ["publish plain", "publish plain"],
+        "an unchanged choice still reconciles"
     );
 }
 

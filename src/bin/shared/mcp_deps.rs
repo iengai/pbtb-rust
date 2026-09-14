@@ -13,7 +13,7 @@ use pbtb_rust::infra::client::{
 };
 use pbtb_rust::infra::{
     DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3ReturnCurveRepository,
-    S3TemplateRepository,
+    S3ShowcaseStore, S3TemplateRepository,
 };
 use pbtb_rust::interface::{api, mcp};
 use pbtb_rust::usecase::*;
@@ -55,7 +55,7 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     let get_bot_returns_usecase = configs.chart.as_ref().map(|chart| {
         let curves: Arc<dyn domain::ReturnCurveRepository> =
             Arc::new(S3ReturnCurveRepository::new(
-                s3_client,
+                s3_client.clone(),
                 chart.bucket_name.clone(),
                 chart.key_prefix.clone(),
             ));
@@ -63,6 +63,12 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     });
 
     let clock = Arc::new(SystemClock);
+    // The showcase switch publishes to the same chart bucket; where none is
+    // configured it saves the choice alone.
+    let showcase_publisher = configs.chart.as_ref().map(|chart| {
+        Arc::new(S3ShowcaseStore::new(s3_client, chart, clock.clone()))
+            as Arc<dyn domain::ShowcasePublisher>
+    });
     let bots: Arc<dyn domain::BotRepository> = bot_repository.clone();
     let runtimes: Arc<dyn domain::BotRuntimeRepository> = bot_repository.clone();
     let start_locks: Arc<dyn domain::StartLockRepository> = bot_repository.clone();
@@ -84,7 +90,11 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     let get_template_usecase = Arc::new(GetTemplateUseCase::new(templates.clone()));
     let set_template_audience_usecase =
         Arc::new(SetTemplateAudienceUseCase::new(templates.clone()));
-    let showcase_usecase = Arc::new(BotShowcaseUseCase::new(bots.clone(), clock.clone()));
+    let showcase_usecase = Arc::new(BotShowcaseUseCase::new(
+        bots.clone(),
+        clock.clone(),
+        showcase_publisher,
+    ));
     let list_identities_usecase = Arc::new(ListIdentitiesUseCase::new(identities.clone()));
     let users: Arc<dyn domain::UserRepository> = bot_repository.clone();
     let tickets: Arc<dyn domain::LinkTicketRepository> = bot_repository.clone();

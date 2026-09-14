@@ -8,6 +8,7 @@ use lambda_runtime::{Error, LambdaEvent, tracing};
 use pbtb_rust::domain::Bot;
 use pbtb_rust::domain::configswitch::ConfigSwitchRepository;
 use pbtb_rust::domain::exchange::Exchange;
+use pbtb_rust::domain::showcase::{PublicBotSeries, is_published, public_id};
 use pbtb_rust::domain::user::UserRepository;
 
 use crate::AppState;
@@ -58,22 +59,14 @@ pub(crate) async fn function_handler(
     // others. A fetch fault is never turned into an empty/partial JSON write.
     let (mut ok, mut failed, mut skipped) = (0u32, 0u32, 0u32);
     let mut operators = Operators::default();
-    let mut public = Vec::new();
-    // The public files to leave in place: every bot the scan lists as on the
-    // showcase, built this run or not. A fault on a still-public bot (a
-    // throttle, an S3 hiccup) keeps yesterday's file; a bot taken off the
-    // showcase, or that lost its role or its row, is not in this set and
-    // loses its file.
-    let mut keep = HashSet::new();
+    // The showcase artifact of every operator bot built this run, shown or not.
+    let mut built = Vec::new();
     for bot in &bots {
-        match process_bot(&state, bot, now_ms, &mut operators, &mut public).await {
+        match process_bot(&state, bot, now_ms, &mut operators, &mut built).await {
             Ok(true) => ok += 1,
             Ok(false) => skipped += 1,
             Err(e) => {
                 failed += 1;
-                if bot.on_showcase() {
-                    keep.insert(public_object(&bot.user_id, &bot.id));
-                }
                 tracing::warn!(
                     bot_id = %bot.id,
                     exchange = %bot.exchange.as_str(),
@@ -86,7 +79,7 @@ pub(crate) async fn function_handler(
     // The public side comes after every private write, so a fault here leaves
     // the owners' curves refreshed and fails the run loudly: a missing grant on
     // the public prefix must never read as "nothing to publish".
-    let published = publish(&state, &public, keep, now_ms / 1000)
+    let (written, removed) = publish(&state, &built, &mut operators)
         .await
         .map_err(|e| Error::from(format!("Failed to publish the showcase artifacts: {e:#}")))?;
 
@@ -95,16 +88,12 @@ pub(crate) async fn function_handler(
         ok,
         skipped,
         failed,
-        public = public.len(),
-        removed = published,
+        showcase = built.len(),
+        public = written,
+        removed,
         "return-curve collection finished"
     );
     Ok(())
-}
-
-/// The public object a bot is published at, relative to the public prefix.
-fn public_object(user_id: &str, bot_id: &str) -> String {
-    format!("bots/{}.json", model::public_id(user_id, bot_id))
 }
 
 /// Which accounts are the operator's, looked up once per account and run.
@@ -129,17 +118,17 @@ impl Operators {
 /// written, `Ok(false)` when the bot was skipped (unsupported exchange or no
 /// stored keys), `Err` on a real fetch/write fault.
 ///
-/// A bot the operator has put on the showcase also yields its showcase
-/// artifact, built from the stored state whether or not today's fetch
-/// succeeded: a Bybit fault leaves yesterday's public curve in place rather
-/// than a hole on the page. The operator lookup comes after the private
-/// writes, so a fault in it never costs the owner the day's series.
+/// A bot on the operator's account also yields its showcase artifact, shown or
+/// not, built from the stored state whether or not today's fetch succeeded: a
+/// Bybit fault leaves yesterday's curve in place rather than a hole on the
+/// page. The operator lookup comes after the private writes, so a fault in it
+/// never costs the owner the day's series.
 async fn process_bot(
     state: &AppState,
     bot: &Bot,
     now_ms: i64,
     operators: &mut Operators,
-    public: &mut Vec<model::PublicBotSeries>,
+    built: &mut Vec<PublicBotSeries>,
 ) -> anyhow::Result<bool> {
     // Bybit-only today; other exchanges plug in later as new adapters that
     // produce the same neutral `BotReturnSeries`.
@@ -197,8 +186,8 @@ async fn process_bot(
         .context("read config switches")?;
 
     if let Some(e) = fetch_fault {
-        // Yesterday's public curve stands in for today's.
-        push_public(
+        // Yesterday's curve stands in for today's.
+        collect_showcase(
             state,
             bot,
             operators,
@@ -206,7 +195,7 @@ async fn process_bot(
             &switches,
             &bot_state.days,
             now_ms,
-            public,
+            built,
         )
         .await?;
         return Err(e);
@@ -230,7 +219,7 @@ async fn process_bot(
         .await
         .context("write series")?;
 
-    push_public(
+    collect_showcase(
         state,
         bot,
         operators,
@@ -238,16 +227,18 @@ async fn process_bot(
         &switches,
         &bot_state.days,
         now_ms,
-        public,
+        built,
     )
     .await?;
     Ok(true)
 }
 
-/// Add the bot's showcase artifact when it has one: on the showcase, on the
-/// operator's account. The account is read only for a bot on the showcase.
+/// Keep the bot's showcase artifact where the showcase switch publishes it
+/// from, when the bot is on the operator's account, and hand it to the run's
+/// publish. A hidden bot's artifact is kept too, so showing it on the console
+/// needs no run.
 #[allow(clippy::too_many_arguments)]
-async fn push_public(
+async fn collect_showcase(
     state: &AppState,
     bot: &Bot,
     operators: &mut Operators,
@@ -255,62 +246,74 @@ async fn push_public(
     switches: &[pbtb_rust::domain::configswitch::ConfigSwitchEvent],
     days: &[model::DayAgg],
     now_ms: i64,
-    public: &mut Vec<model::PublicBotSeries>,
+    built: &mut Vec<PublicBotSeries>,
 ) -> anyhow::Result<()> {
-    let operator = if bot.on_showcase() {
-        operators.is_operator(state, &bot.user_id).await?
-    } else {
-        false
-    };
-    if model::is_published(bot, operator) {
-        public.push(model::PublicBotSeries::new(
-            bot,
-            returns,
-            switches,
-            days,
-            now_ms / 1000,
-        ));
+    let operator = operators.is_operator(state, &bot.user_id).await?;
+    if let Some(series) =
+        model::showcase_artifact(bot, operator, returns, switches, days, now_ms / 1000)
+    {
+        state
+            .showcase
+            .put_shadow(&series)
+            .await
+            .with_context(|| format!("write showcase artifact {}", series.id))?;
+        built.push(series);
     }
     Ok(())
 }
 
-/// Write the showcase artifacts under the public prefix and remove the bot
-/// files not in `keep`, the objects of the bots the scan listed as shown.
-/// Returns how many were removed.
-///
-/// The index is written on every run, empty when nothing is public, so the
-/// page can tell "nothing public" from "never synced".
+/// Bring the public prefix in line with the rows as they are now, not as the
+/// scan read them minutes ago, so a bot shown or hidden on the console while
+/// the run was fetching keeps the operator's latest choice. Writes the built
+/// artifacts of the bots published now, removes the artifacts of the bots not
+/// published now, and rebuilds the listing from what is left. Returns how many
+/// were written and how many removed.
 async fn publish(
     state: &AppState,
-    public: &[model::PublicBotSeries],
-    mut keep: HashSet<String>,
-    generated_at: i64,
-) -> anyhow::Result<usize> {
-    let chart_cfg = &state.configs.chart;
-    let index = model::PublicIndex::new(public, generated_at);
-    s3_writer::put_public(&state.s3, chart_cfg, "index.json", &index)
-        .await
-        .context("write public index")?;
-
-    for series in public {
-        let key = format!("bots/{}.json", series.id);
-        s3_writer::put_public(&state.s3, chart_cfg, &key, series)
-            .await
-            .with_context(|| format!("write public series {key}"))?;
-        keep.insert(key);
-    }
-
-    let mut removed = 0;
-    for key in s3_writer::list_public(&state.s3, chart_cfg, "bots/")
-        .await
-        .context("list public series")?
-    {
-        if !keep.contains(&key) {
-            s3_writer::delete_public(&state.s3, chart_cfg, &key)
-                .await
-                .with_context(|| format!("remove public series {key}"))?;
-            removed += 1;
+    built: &[PublicBotSeries],
+    operators: &mut Operators,
+) -> anyhow::Result<(usize, usize)> {
+    let rows = state.bots.find_all().await.context("re-read bots")?;
+    let mut published = HashSet::new();
+    let mut current = HashMap::new();
+    for bot in &rows {
+        if bot.on_showcase() && is_published(bot, operators.is_operator(state, &bot.user_id).await?)
+        {
+            let pid = public_id(&bot.user_id, &bot.id);
+            current.insert(pid.clone(), bot);
+            published.insert(pid);
         }
     }
-    Ok(removed)
+
+    let listed = state
+        .showcase
+        .list_public()
+        .await
+        .context("list public artifacts")?;
+    let (writes, removes) = model::publish_plan(built, &published, &listed);
+
+    for series in &writes {
+        let mut series = (*series).clone();
+        if let Some(bot) = current.get(&series.id) {
+            series.refresh_from(bot);
+        }
+        state
+            .showcase
+            .put_public(&series)
+            .await
+            .with_context(|| format!("write public artifact {}", series.id))?;
+    }
+    for pid in &removes {
+        state
+            .showcase
+            .delete_public(pid)
+            .await
+            .with_context(|| format!("remove public artifact {pid}"))?;
+    }
+    state
+        .showcase
+        .rebuild_index()
+        .await
+        .context("rebuild the public listing")?;
+    Ok((writes.len(), removes.len()))
 }
