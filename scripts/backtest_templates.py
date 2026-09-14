@@ -535,14 +535,17 @@ def republish_template_audiences(profile: str | None, run=subprocess.run) -> Non
         publish_template_audiences(Path(scratch), profile, run)
 
 
-def publish_if_synced(synced: bool, templates_dir: Path, profile: str | None, run=subprocess.run) -> None:
-    """Publish the overlay after a run whose templates came from S3 just now.
+def publish_if_synced(synced: bool, profile: str | None, run=subprocess.run) -> None:
+    """Publish the overlay at the end of a run that synced the templates.
 
-    A run on cached templates does not: they may be older than an audience
-    the console set since, and the overlay would take that switch back.
+    From a fresh sync, not the run's own mirror: the backtests can take hours,
+    so a switch made in the console meanwhile would be taken back, and the
+    mirror keeps the file of a template archived or renamed since. A run on
+    cached templates publishes nothing: the templates may be older than an
+    audience the console set, and the run never said to read S3.
     """
     if synced:
-        publish_template_audiences(templates_dir, profile, run)
+        republish_template_audiences(profile, run)
     else:
         print("--no-sync: the template audiences were not published")
 
@@ -609,7 +612,7 @@ def main(argv=None) -> int:
         print(f"[{tag}] {template.name} {elapsed:.0f}s {status if status != 'ok' else ''}".rstrip(), flush=True)
 
     write_index()
-    publish_if_synced(args.sync, templates_dir, args.profile)
+    publish_if_synced(args.sync, args.profile)
 
     width = max((len(row[0]) for row in summary), default=4)
     print()
