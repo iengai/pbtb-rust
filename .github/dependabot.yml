@@ -1,0 +1,18 @@
+# The workflows pin each action to a major version tag, which never moves to
+# the next major on its own. Dependabot opens a PR when a new major appears, so
+# an action is moved off a runtime GitHub deprecates before that runtime is
+# removed from the runners. One grouped PR a week, since a bump usually touches
+# every workflow at once. Its `gate` check parses the workflow YAML and runs
+# verify.yml's own actions only; the deploy, pages and issue-fix actions first
+# run on main, so each major's release notes are read before merging.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      github-actions:
+        patterns: ["*"]

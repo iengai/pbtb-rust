@@ -31,7 +31,7 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The gate diffs against origin/main to decide which conditional
           # gates (cargo, terraform, workflow) apply; a shallow clone has no
@@ -56,7 +56,7 @@ jobs:
       # aws-lc-sys builds assembly from source on x86_64.
       - run: sudo apt-get update && sudo apt-get install -y nasm
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
 
