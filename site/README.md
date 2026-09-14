@@ -186,10 +186,17 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   opaque template id and `audience` is `"operator"` on a retired template,
   offered to the operator's account only (the Configs page lists it under its
   Retired tab when `GET /me` says the session is the operator's and leaves it
-  out otherwise; its page stays reachable by link). For the operator both pages
+  out otherwise; its page stays reachable by link). The `audience` here is the
+  snapshot's: everyone but the operator reads it through the overlay
+  `templates/audience.json` beside the showcase (`VITE_SHOWCASE_URL`,
+  `{generated_at, published[id]}`; `staticData.templatesPublished`), where a
+  template the overlay does not name is retired, and the snapshot's mark holds
+  only while there is no overlay (none written, an error, or no answer in 3 s;
+  locally, with no `VITE_SHOWCASE_URL`, always). For the operator both pages
   read the audience live from `GET /api/v1/templates` instead, and a template's
-  page offers Retire / Publish (`PUT /api/v1/templates/{name}/audience`); this
-  index follows when it is next rebuilt. `templates/<name>.json` — the same plus `starting_balance`,
+  page offers Retire / Publish (`PUT /api/v1/templates/{name}/audience`), which
+  rewrites the overlay; the public pages follow within about half a minute.
+  How the overlay is kept is in docs/data-model.md. `templates/<name>.json` — the same plus `starting_balance`,
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `trading_sha` /
   `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`

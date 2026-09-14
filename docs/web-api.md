@@ -103,7 +103,7 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `GET /showcase` | read | — | `{bots:[{bot_id, name, exchange, public_url, public}]}`: the caller's own bots as showcase candidates; 403 `operator_only` unless the account is the operator's |
 | `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level, audience}]}`; nothing is hidden by level; `audience` is `everyone` (published) or `operator` (retired), and an `operator` one is listed to the operator's account only |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
-| `PUT /templates/{name}/audience` | write | — | `{audience: "everyone"\|"operator"}` → `updated` / `unchanged` with `audience`; publishes or retires a listed template by rewriting its object (404 for a name `GET /templates` would not list, so no object is created); 403 `operator_only` unless the account is the operator's; the static catalogue follows when `site/templates/index.json` is next rebuilt |
+| `PUT /templates/{name}/audience` | write | — | `{audience: "everyone"\|"operator"}` → `updated` / `unchanged` with `audience`; publishes or retires a listed template by rewriting its object (404 for a name `GET /templates` would not list, so no object is created); 403 `operator_only` unless the account is the operator's; then republishes the public catalogue's overlay, an unchanged audience included, which the showcase CDN serves within about half a minute; a publish fault after the save answers 503 `retryable` or 500, and repeating the call repairs it |
 
 A template is addressed by its opaque id (`tpl-…`) and read by its `title` /
 `title_zh`, which every described config carries alongside `template_name`,

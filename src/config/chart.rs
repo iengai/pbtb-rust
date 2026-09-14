@@ -11,8 +11,10 @@ pub struct ChartConfig {
     /// written.
     #[serde(default = "default_key_prefix")]
     pub key_prefix: String,
-    /// Key prefix of the showcase artifacts (`index.json`, `bots/{id}.json`),
-    /// the one part of the bucket that is published.
+    /// Key prefix of what the public pages read through the showcase CDN, the
+    /// one part of the bucket that is published: the showcase artifacts
+    /// (`index.json`, `bots/{id}.json`) and the template catalogue's audience
+    /// overlay (`templates/audience.json`).
     #[serde(default = "default_public_prefix")]
     pub public_prefix: String,
     /// Key prefix of every operator bot's showcase artifact, shown or not,
