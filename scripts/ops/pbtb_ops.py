@@ -9,7 +9,8 @@ same answers with one command instead of re-deriving where things live:
   telebot-logs [--since 30m] [--grep X] [--app] telebot logs on the NAT host (journald, or the app with --app)
   lambda-logs NAME [--since 30m] [--pattern X]
   codebuild-log BUILD_ID [--tail N]    tolerant of the corrupt JSON CloudWatch emits
-  smoke-lambda NAME                    invoke with an event the handler ignores
+  smoke-lambda NAME                    invoke with an event the handler ignores (mcp-http: an
+                                       unauthenticated HTTP request, expected to be refused 401)
   user-show USER_ID                    the account row and the identities it holds
   user-create USER_ID [--vip N] [--email E] [--telegram TG_ID]
                                        create an account row (and bind a Telegram id)
@@ -44,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -629,16 +631,54 @@ def cmd_codebuild_log(a):
             print(l)
 
 
+SMOKE_EVENTBRIDGE = '{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
+# mcp-http is a Function URL handler: the runtime rejects an EventBridge shape
+# before the handler runs, so it gets an HTTP API v2 request without a bearer.
+SMOKE_HTTP_V2 = ('{"version":"2.0","rawPath":"/","requestContext":{"http":{"method":"POST","path":"/"}},'
+                 '"headers":{"content-type":"application/json"},"body":"{}","isBase64Encoded":false}')
+
+
+def smoke_is_http(fname: str, c: dict) -> bool:
+    return fname == c["lambdas"]["mcp-http"]
+
+
+def smoke_failure(is_http: bool, out: dict, body: str) -> str | None:
+    """Why a smoke invoke counts as failed, or None when it passed."""
+    status, ferr = out.get("StatusCode"), out.get("FunctionError")
+    if status != 200:
+        return f"unexpected StatusCode={status}"
+    if ferr:
+        return f"FunctionError={ferr}"
+    if is_http:
+        try:
+            code = json.loads(body).get("statusCode")
+        except (json.JSONDecodeError, AttributeError):
+            return f"response is not an HTTP response: {body[:200]}"
+        if code != 401:
+            return f"an unauthenticated request returned {code}, not 401"
+    return None
+
+
 def cmd_smoke_lambda(a):
     c = cfg(a.env)
     fname = c["lambdas"].get(a.name, a.name)
-    payload = '{"version":"0","source":"pbtb.smoke-test","detail-type":"SmokeTest","detail":{}}'
-    out = aws(["lambda", "invoke", "--function-name", fname, "--cli-binary-format", "raw-in-base64-out",
-               "--payload", payload, os.devnull], a.profile, a.region)
-    status, ferr = out.get("StatusCode"), out.get("FunctionError")
-    print(f"{fname}: StatusCode={status} FunctionError={ferr}")
-    if status != 200 or ferr:
+    is_http = smoke_is_http(fname, c)
+    payload = SMOKE_HTTP_V2 if is_http else SMOKE_EVENTBRIDGE
+    fd, resp_path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    try:
+        out = aws(["lambda", "invoke", "--function-name", fname, "--cli-binary-format", "raw-in-base64-out",
+                   "--payload", payload, resp_path], a.profile, a.region)
+        with open(resp_path, encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    finally:
+        os.unlink(resp_path)
+    print(f"{fname}: StatusCode={out.get('StatusCode')} FunctionError={out.get('FunctionError')}")
+    why = smoke_failure(is_http, out, body)
+    if why:
+        print(f"smoke failed: {why}")
         raise SystemExit(1)
+    print("smoke ok")
 
 
 # ---------------------------------------------------------------- main
@@ -882,7 +922,7 @@ def main(argv=None):
     s.add_argument("--after", type=int, default=6)
     s.set_defaults(fn=cmd_codebuild_log)
 
-    s = sub.add_parser("smoke-lambda", help="invoke with an ignored event; expect 200 and no FunctionError")
+    s = sub.add_parser("smoke-lambda", help="invoke with an ignored event; expect 200 and no FunctionError (mcp-http: a 401 refusal)")
     s.add_argument("name")
     s.set_defaults(fn=cmd_smoke_lambda)
 
