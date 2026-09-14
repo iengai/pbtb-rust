@@ -252,7 +252,7 @@ pub(crate) async fn function_handler(
                 }
                 ReconcileOutcome::SkippedSuperseded => {
                     tracing::warn!(
-                        "Stopped task is no longer current (duplicate/late STOPPED); not restarting. taskArn={}",
+                        "Stopped task is not the row's current task (a duplicate or late STOPPED, or a launch's task before its id was attached); not restarting. taskArn={}",
                         task_arn
                     );
                 }

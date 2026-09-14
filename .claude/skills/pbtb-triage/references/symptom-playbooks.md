@@ -89,7 +89,13 @@ sits Enabled · Stopped (or `🛑 Stopping` for ten minutes).
    right binary, then `terraform apply -target=module.lambda_task_state_change_handler`
    to drop the key.
 3. `SkippedNotEnabled` → the user turned the bot off; correct behaviour.
-4. `SkippedSuperseded` → duplicate STOPPED event; correct behaviour.
+4. `SkippedSuperseded` → the row has moved past the stopped task: a duplicate or
+   late STOPPED (correct behaviour), or the task of a launch whose id was not
+   attached yet. In the second case `bot-status <id>` shows `runtime=starting`
+   with no live task: a Run reclaims it once the claim is 600 s old. A
+   `runtime=running` row whose task ECS no longer knows needs a Stop or Restart
+   (the Run answers AlreadyRunning); the rule and its cost are in
+   docs/architecture.md § Stale-lock reclaim.
 5. `SkippedNotRestartable` after a Restart → the STOPPED line above it shows the
    `stoppedReason`; `restart requested` there with this outcome means the
    Lambda predates the rule (`deploy-audit`, then `lambda-deploy`). Any other

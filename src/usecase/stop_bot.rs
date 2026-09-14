@@ -82,6 +82,7 @@ impl StopBotUseCase {
         match runtime {
             Some(rt) if matches!(rt.phase, RuntimePhase::Running | RuntimePhase::Starting) => {
                 let version = rt.version;
+                let row_stamp = rt.observed_at;
                 match rt.task_id {
                     Some(task_id) => {
                         match self.stopper.stop(&self.cluster_arn, &task_id, reason).await {
@@ -108,17 +109,27 @@ impl StopBotUseCase {
                                 Ok(StopOutcome::Stopped { task_id })
                             }
                             // StopTask failed. If ECS confirms the task is already
-                            // gone, the runtime row was stale (a missed STOPPED event)
-                            // — reconcile observed to Stopped and report success rather
-                            // than a hard error. Only a stop failure on a task that is
-                            // still Alive (or whose liveness can't be confirmed) is a
-                            // real error worth surfacing.
+                            // gone, its STOPPED has not settled the row yet: settle it
+                            // for that task and report NotRunning rather than a hard
+                            // error. The settle leaves a row that has moved past the
+                            // task (a restart claim, a later task), so NotRunning does
+                            // not promise the row reads stopped. It is stamped no
+                            // earlier than the row, so a redelivered RUNNING of the
+                            // gone task cannot bring it back. Only a stop failure on a
+                            // task that is still Alive (or whose liveness can't be
+                            // confirmed) is a real error worth surfacing.
                             Err(stop_err) => {
                                 match self.stopper.liveness(&self.cluster_arn, &task_id).await {
                                     Ok(TaskLiveness::Gone) => {
                                         if let Err(e) = self
                                             .runtimes
-                                            .settle_stopped(user_id, bot_id, &task_id, version, now)
+                                            .settle_stopped(
+                                                user_id,
+                                                bot_id,
+                                                &task_id,
+                                                version,
+                                                now.max(row_stamp),
+                                            )
                                             .await
                                         {
                                             tracing::warn!(

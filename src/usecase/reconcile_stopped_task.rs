@@ -94,13 +94,13 @@ impl ReconcileStoppedTaskUseCase {
         // stopped write, and its task decides whether this event may write at all.
         let current = self.runtimes.find_consistent(user_id, bot_id).await?;
         let prev_version = current.as_ref().map(|r| r.version).unwrap_or(0);
-        // The row tracks another task, so this is a duplicate or late STOPPED. It
-        // says nothing about that task: settling its `stopping` row would let a
-        // Run launch beside the still-live task.
+        // A row that does not admit this task's STOPPED has moved past it (a later
+        // task, or a launch claim whose id is not attached yet): the event is a
+        // duplicate, late, or about a task the row never recorded, and settling
+        // that row would let a Run launch beside the task or the launch.
         let superseded = current
             .as_ref()
-            .and_then(|r| r.task_id.as_deref())
-            .is_some_and(|t| t != stopped_task_id);
+            .is_some_and(|r| !r.admits_stopped_of(stopped_task_id));
 
         let bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,

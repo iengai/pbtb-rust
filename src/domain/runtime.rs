@@ -96,6 +96,15 @@ impl BotRuntime {
             observed_at: now,
         }
     }
+    /// Whether a STOPPED for `task_id` may settle this row to `stopped`: the row
+    /// tracks that task, or already reads `stopped`. Any other row has moved past
+    /// the task (a launch claim with no id yet, a later task), and settling it
+    /// would let a Run pass the start lock's `stopped` clause beside that launch
+    /// or task. An empty `task_id` names no task.
+    pub fn admits_stopped_of(&self, task_id: &str) -> bool {
+        self.phase == RuntimePhase::Stopped
+            || (!task_id.is_empty() && self.task_id.as_deref() == Some(task_id))
+    }
 }
 
 #[async_trait]
@@ -112,12 +121,12 @@ pub trait BotRuntimeRepository: Send + Sync {
         self.find(user_id, bot_id).await
     }
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError>;
-    /// Settle the row to `stopped` on `task_id`'s STOPPED. A `stopping` row
-    /// settles only for the task it is stopping: a late STOPPED for a superseded
-    /// task must not mark a still-live later task stopped, or a Run would launch
-    /// beside it. The default checks that with a read before the write, which a
-    /// concurrent writer can slip between; an implementation that can make the
-    /// write conditional (the DynamoDB one) overrides it with an atomic check.
+    /// Settle the row to `stopped` on `task_id`'s STOPPED: an absent row, or one
+    /// that `BotRuntime::admits_stopped_of` the task; a row already `stopped`
+    /// moves only forward in time. The default checks that with a read before the
+    /// write, which a concurrent writer can slip between; an implementation that
+    /// can make the write conditional (the DynamoDB one) overrides it with an
+    /// atomic check.
     async fn settle_stopped(
         &self,
         user_id: &str,
@@ -127,8 +136,8 @@ pub trait BotRuntimeRepository: Send + Sync {
         observed_at: i64,
     ) -> Result<(), DomainError> {
         if let Some(rt) = self.find_consistent(user_id, bot_id).await?
-            && rt.phase == RuntimePhase::Stopping
-            && rt.task_id.as_deref() != Some(task_id)
+            && (!rt.admits_stopped_of(task_id)
+                || (rt.phase == RuntimePhase::Stopped && rt.observed_at > observed_at))
         {
             return Ok(());
         }

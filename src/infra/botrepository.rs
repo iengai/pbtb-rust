@@ -505,18 +505,19 @@ impl BotRuntimeRepository for DynamoBotRepository {
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
-        // Monotonic, phase-aware write. Its production callers are record-running
-        // (Running) and StopBot/Restart (Stopping, identity-guarded below); a
-        // STOPPED from reconcile or StopBot goes through `settle_stopped`, which
-        // applies the same time order to rows that are not `stopping`. Event times
-        // are whole seconds, so RUNNING and STOPPED of one bot can land on the same
-        // second; events can also arrive out of order or concurrently. Rules,
-        // enforced atomically at commit so a non-atomic read-then-write can't lose
-        // to a race:
-        //   - a strictly newer observation always wins;
-        //   - at an equal second a STOPPED wins the tie (terminal state), so a
-        //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
-        //     always precedes STOPPED for a task, so it is the reordered/stale one).
+        // Phase-aware conditional write. Its production callers are record-running
+        // (Running), StopBot/Restart (Stopping, identity-guarded below), and
+        // `settle_stopped` for a STOPPED that names no task (Stopped, which only
+        // creates a row or moves a stopped one forward); a STOPPED that names its
+        // task goes through `settle_stopped`'s identity condition instead. Event
+        // times are whole seconds, so RUNNING and STOPPED of one bot can land on the
+        // same second; events can also arrive out of order or concurrently. The
+        // Running and Starting arms are time-ordered, enforced atomically at commit
+        // so a non-atomic read-then-write can't lose to a race:
+        //   - a strictly newer observation wins;
+        //   - at an equal second a RUNNING loses to a stopped or stopping row
+        //     (RUNNING always precedes STOPPED for a task, so it is the
+        //     reordered/stale one).
         // `:observed_at` is added per-arm (only the timestamp-ordered arms use it);
         // DynamoDB rejects a request whose ExpressionAttributeValues are not all
         // referenced, so the identity-guarded Stopping arm must NOT define it.
@@ -528,13 +529,14 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .set_item(Some(metadata.to_item()));
 
         let put = match runtime.phase {
-            // A STOPPED that names no task never settles a `stopping` row, whatever
-            // its stamp; `settle_stopped`, which knows the task, is the write that may.
+            // A STOPPED that names no task only creates a row or moves a stopped one
+            // forward; settling a row that tracks a task is `settle_stopped`'s,
+            // which knows the task.
             RuntimePhase::Stopped => put
-                .condition_expression("attribute_not_exists(task_updated_at) OR (#st <> :stopping AND task_updated_at <= :observed_at)")
+                .condition_expression("attribute_not_exists(task_updated_at) OR (#st = :stopped AND task_updated_at <= :observed_at)")
                 .expression_attribute_names("#st", "status")
                 .expression_attribute_values(":observed_at", observed_at)
-                .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
+                .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string())),
             // A same-second RUNNING must not resurrect a terminal Stopped NOR a
             // just-written Stopping (the task is on its way down), so the tie-break
             // excludes both. A strictly-newer RUNNING still wins (a real relaunch).
@@ -571,12 +573,12 @@ impl BotRuntimeRepository for DynamoBotRepository {
         send_runtime_put(put, runtime, &metadata).await
     }
 
-    /// A `stopping` row settles only on the STOPPED of the task it is stopping,
-    /// whatever either stamp says. That settles a row a clock-ahead telebot
-    /// stamped in the future (with no sweeper, a dropped settlement would leave it
-    /// `stopping`), and refuses a late STOPPED for a superseded task, which would
-    /// let a Run pass the start lock's `stopped` clause beside the still-live
-    /// task. Any other row follows the observed-time order `record` applies.
+    /// The atomic form of `BotRuntime::admits_stopped_of`: a row that tracks the
+    /// task settles whatever either stamp says (a clock-ahead telebot's future
+    /// `stopping` stamp included; with no sweeper, a dropped settlement would
+    /// leave it), a stopped row moves only forward in time, and a row that has
+    /// moved past the task is left alone. An empty `task_id` names no task, and
+    /// would otherwise match every id-less launch claim.
     async fn settle_stopped(
         &self,
         user_id: &str,
@@ -591,16 +593,19 @@ impl BotRuntimeRepository for DynamoBotRepository {
             version,
             observed_at,
         );
+        if task_id.is_empty() {
+            return BotRuntimeRepository::record(self, &runtime).await;
+        }
         let metadata = BotECSTaskMetadata::from_domain(&runtime);
         let put = self
             .client
             .put_item()
             .table_name(&self.table_name)
             .set_item(Some(metadata.to_item()))
-            .condition_expression("attribute_not_exists(task_updated_at) OR (#st = :stopping AND task_id = :expected_task) OR (#st <> :stopping AND task_updated_at <= :observed_at)")
+            .condition_expression("attribute_not_exists(task_updated_at) OR task_id = :expected_task OR (#st = :stopped AND task_updated_at <= :observed_at)")
             .expression_attribute_names("#st", "status")
             .expression_attribute_values(":observed_at", AttributeValue::N(observed_at.to_string()))
-            .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string()))
+            .expression_attribute_values(":stopped", AttributeValue::S("stopped".to_string()))
             .expression_attribute_values(":expected_task", AttributeValue::S(task_id.to_string()));
         send_runtime_put(put, &runtime, &metadata).await
     }
