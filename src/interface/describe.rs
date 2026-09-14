@@ -27,6 +27,18 @@ pub(crate) fn bot(bot: &Bot, phase: Option<String>) -> Value {
     })
 }
 
+/// A bot as the operator's showcase switchboard lists it: the link the page
+/// would carry and whether the bot is on the page.
+pub(crate) fn showcase_candidate(bot: &Bot) -> Value {
+    json!({
+        "bot_id": bot.id,
+        "name": bot.name,
+        "exchange": bot.exchange.as_str(),
+        "public_url": bot.public_url,
+        "public": bot.on_showcase(),
+    })
+}
+
 /// The operational view of a bot's config — what telebot's State screen
 /// prints. Risk, leverage and coins are the fields the user set or can set;
 /// the strategy's own parameters are not among them.

@@ -250,11 +250,15 @@ impl Harness {
         api::Deps {
             mcp: self.mcp_deps(),
             add_bot_usecase: Arc::new(AddBotUseCase::new(
-                bots_dyn,
+                bots_dyn.clone(),
                 self.api_keys.clone(),
                 clock.clone(),
             )),
-            signup_usecase: Arc::new(SignupUseCase::new(identities, users, clock)),
+            signup_usecase: Arc::new(SignupUseCase::new(identities, users, clock.clone())),
+            showcase_usecase: Arc::new(BotShowcaseUseCase::new(bots_dyn, clock)),
+            set_template_audience_usecase: Arc::new(SetTemplateAudienceUseCase::new(
+                self.templates.clone(),
+            )),
         }
     }
 

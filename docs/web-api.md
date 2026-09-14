@@ -99,8 +99,11 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
 | `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
 | `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it: a return index plus realized PnL in the settlement coin (`realized_usdt` / `cum_realized_usdt` per point, `total_realized_usdt` overall), no balance; 404 until it has; 501 where no chart bucket is configured |
+| `PUT /bots/{id}/showcase` | write | — | `{public: bool}` → `updated` / `unchanged` with `public`; puts one of the caller's bots on the public showcase page or takes it off, keeping its `public_url` either way; 403 `operator_only` unless the account is the operator's; the page follows on the collector's next run |
+| `GET /showcase` | read | — | `{bots:[{bot_id, name, exchange, public_url, public}]}`: the caller's own bots as showcase candidates; 403 `operator_only` unless the account is the operator's |
 | `GET /templates` | read | Choose config | `{templates:[{name, title, min_vip_level, audience}]}`; nothing is hidden by level; `audience` is `everyone` (published) or `operator` (retired), and an `operator` one is listed to the operator's account only |
 | `GET /templates/{name}` | read | — | the template described (with `min_vip_level`), never its parameters |
+| `PUT /templates/{name}/audience` | write | — | `{audience: "everyone"\|"operator"}` → `updated` / `unchanged` with `audience`; publishes or retires a listed template by rewriting its object (404 for a name `GET /templates` would not list, so no object is created); 403 `operator_only` unless the account is the operator's; the static catalogue follows when `site/templates/index.json` is next rebuilt |
 
 A template is addressed by its opaque id (`tpl-…`) and read by its `title` /
 `title_zh`, which every described config carries alongside `template_name`,
@@ -140,7 +143,8 @@ is already on never trips it. A template may ask for a level
 is refused, listing and describing are not. A template may instead be retired,
 the operator's alone (`pbtb.audience: "operator"`, absent = everyone): a member is
 not listed it and is refused applying it; describing it is open to anyone with
-its id, since the showcase charts link to it. Levels are changed with
+its id, since the showcase charts link to it. The operator switches it with
+`PUT /templates/{name}/audience` (the console's Configs page). Levels are changed with
 `python scripts/ops/pbtb_ops.py set-vip`; lowering one stops nothing, it
 only refuses the next start past the new ceiling.
 

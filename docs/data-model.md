@@ -9,7 +9,7 @@ One table holds the tenant's rows under a shared partition key `pk = "user_id#<u
 ```
 Bot row      pk = "user_id#<user_id>", sk = "<bot_id>"
              Attributes: name, exchange, api_key, secret_key, enabled,
-                         runtime, public_url, created_at, updated_at
+                         runtime, public_url, showcase, created_at, updated_at
              (enabled = desired state; there is no status attribute)
 
 Runtime row  pk = "user_id#<user_id>", sk = "ecs_task_metadata#<bot_id>"
@@ -31,6 +31,7 @@ The bot's configured identity and desired state.
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
 | `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run or Restart) |
 | `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; written by `/public <bot_id> <url>` (the operator's account only) or by the ops `set-public-url` (any account; the collector publishes only an operator's bots, so on a member's bot the link is inert); `off` removes it. Read as stored |
+| `showcase` | Whether the bot is on the public showcase page: a boolean the operator sets from the console (`PUT /api/v1/bots/{id}/showcase`). Optional; absent means no choice was made, and the bot is shown exactly when it carries `public_url`. Independent of the link: hiding keeps `public_url`, and a bot without one can be shown (its page has no Bybit button) |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 
@@ -150,7 +151,9 @@ Bucket: {project}-{env}-bot-configs
   retired template, offered to the operator's account only (absent =
   published, everyone; a member is not listed it and may not apply it). An
   operator edits the object
-  to change either gate, no deploy needed. Beside it, `lab` is the strategy
+  to change either gate, no deploy needed; the audience is also switched from
+  the console's Configs page, which rewrites the object (formatting and key
+  order may change; what passivbot reads does not). Beside it, `lab` is the strategy
   lab's record of the tuning (run, seeds, genome, verdicts); no surface reads
   it and a bot's copy of the template drops it.
 - `retired/` — an archived template, offered to no one. `S3TemplateRepository::list`
@@ -165,7 +168,7 @@ Bucket: {project}-{env}-bot-configs
 
 The chart bucket (`{project}-{env}-return-charts`) is the daily collector's, keyed by tenant like the config bucket: `charts/{user_id}/{bot_id}.json` is the series the API serves to the bot's owner (`GET /api/v1/bots/{id}/returns`), `_state/{user_id}/{bot_id}.json` the accumulated ledger only the collector reads. The prefix is one Terraform local shared by the collector and the API function. The console reads a tenant's curves through the API after sign-in.
 
-`public/` is the one prefix that leaves the bucket: `public/index.json` (every showcase bot: opaque id, name, exchange, link, current return, a 30-day sparkline) and `public/bots/{id}.json` (the curve as index and return per day, the config switches and capital resets each with the rounded capital the bot ran at, never a balance or a realized figure), written on every run for each bot whose account row is the operator's and whose bot row carries `public_url`. `{id}` is `sha256("{user_id}#{bot_id}")` cut to twelve hex characters: a collision-safe key across tenants (bot ids are per-tenant names), not a shield for the `user_id`, which a keyed hash would be. A bot that stops being public loses its file at the next run. The pages-publish workflow copies the prefix to the site (`site/data/`).
+`public/` is the one prefix that leaves the bucket: `public/index.json` (every showcase bot: opaque id, name, exchange, link or `null`, current return, a 30-day sparkline) and `public/bots/{id}.json` (the curve as index and return per day, the config switches and capital resets each with the rounded capital the bot ran at, never a balance or a realized figure), written on every run for each bot whose account row is the operator's and that is on the showcase (`showcase`, or with no choice made, `public_url`). `{id}` is `sha256("{user_id}#{bot_id}")` cut to twelve hex characters: a collision-safe key across tenants (bot ids are per-tenant names), not a shield for the `user_id`, which a keyed hash would be. A bot that stops being public loses its file at the next run. The pages-publish workflow copies the prefix to the site (`site/data/`).
 
 ## Tenant isolation
 

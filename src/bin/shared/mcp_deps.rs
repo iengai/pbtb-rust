@@ -82,6 +82,9 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         clock.clone(),
     ));
     let get_template_usecase = Arc::new(GetTemplateUseCase::new(templates.clone()));
+    let set_template_audience_usecase =
+        Arc::new(SetTemplateAudienceUseCase::new(templates.clone()));
+    let showcase_usecase = Arc::new(BotShowcaseUseCase::new(bots.clone(), clock.clone()));
     let list_identities_usecase = Arc::new(ListIdentitiesUseCase::new(identities.clone()));
     let users: Arc<dyn domain::UserRepository> = bot_repository.clone();
     let tickets: Arc<dyn domain::LinkTicketRepository> = bot_repository.clone();
@@ -160,5 +163,7 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         mcp,
         add_bot_usecase,
         signup_usecase,
+        showcase_usecase,
+        set_template_audience_usecase,
     })
 }

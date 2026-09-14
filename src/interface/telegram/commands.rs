@@ -244,10 +244,22 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
 }
 
 const PUBLIC_USAGE: &str = "Usage: /public <bot_id> [<url>|off]\n\n\
-    • <url> — the bot's Bybit copy-trading page (https://…bybit.com/…); marks the bot \
-    for the public showcase page\n\
-    • off — clears the mark\n\n\
+    • <url> — the bot's Bybit copy-trading page (https://…bybit.com/…), which the public \
+    showcase page links to; a bot with a link is shown unless the web console hides it\n\
+    • off — clears the link\n\n\
     The bot must be one of yours (see /list). Setting the link is for the operator's account.";
+
+/// Where a bot stands on the showcase page, as `/public` reports it.
+fn showcase_state(bot_id: &str, bot: &crate::domain::bot::Bot) -> String {
+    match (&bot.public_url, bot.on_showcase()) {
+        (Some(url), true) => format!("🌐 Bot {bot_id} is public: {url}"),
+        (Some(url), false) => {
+            format!("🌐 Bot {bot_id} is hidden from the showcase; its link is kept: {url}")
+        }
+        (None, true) => format!("🌐 Bot {bot_id} is public, without a link."),
+        (None, false) => format!("🌐 Bot {bot_id} is private."),
+    }
+}
 
 /// `/public` handler body. The bot is looked up under the caller's own account,
 /// so a user can only ever read or change their own bots; the use case refuses
@@ -264,35 +276,38 @@ async fn public_command(deps: &Deps, sender: &TelegramSender, args: &str) -> Str
 
     let Some(value) = value else {
         return match super::find_own_bot(deps, &sender.user_id, bot_id).await {
-            Ok(Some(b)) => match b.public_url {
-                Some(url) => format!("🌐 Bot {bot_id} is public: {url}"),
-                None => format!("🌐 Bot {bot_id} is private."),
-            },
+            Ok(Some(b)) => showcase_state(bot_id, &b),
             Ok(None) => format!("❌ Bot {bot_id} not found."),
             Err(e) => redact("fetching bots", &e),
         };
     };
     let public_url = (!value.eq_ignore_ascii_case("off")).then(|| value.to_string());
 
-    match deps
+    let link = match deps
         .set_bot_public_url_usecase
         .execute(sender.role, &sender.user_id, bot_id, public_url)
         .await
     {
         Ok(SetPublicUrlOutcome::Unchanged {
             public_url: Some(url),
-        }) => format!("🌐 Bot {bot_id} is already public: {url}"),
+        }) => format!("🔗 Bot {bot_id} already links to {url}"),
         Ok(SetPublicUrlOutcome::Unchanged { public_url: None }) => {
-            format!("🌐 Bot {bot_id} is already private.")
+            format!("🔗 Bot {bot_id} already has no link.")
         }
         Ok(SetPublicUrlOutcome::Updated {
             public_url: Some(url),
             ..
-        }) => format!("🌐 Bot {bot_id} is now marked public: {url}"),
+        }) => format!("🔗 Bot {bot_id} now links to {url}"),
         Ok(SetPublicUrlOutcome::Updated {
             public_url: None, ..
-        }) => format!("🌐 Bot {bot_id} is now private."),
-        Ok(SetPublicUrlOutcome::BotNotFound) => format!("❌ Bot {bot_id} not found."),
-        Err(e) => redact("setting the public link", &e),
+        }) => format!("🔗 Bot {bot_id} link cleared."),
+        Ok(SetPublicUrlOutcome::BotNotFound) => return format!("❌ Bot {bot_id} not found."),
+        Err(e) => return redact("setting the public link", &e),
+    };
+    // The link alone does not say whether the bot is shown: the web console's
+    // showcase choice outranks it.
+    match super::find_own_bot(deps, &sender.user_id, bot_id).await {
+        Ok(Some(b)) => format!("{link}\n{}", showcase_state(bot_id, &b)),
+        _ => link,
     }
 }
