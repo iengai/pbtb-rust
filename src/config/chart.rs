@@ -3,8 +3,7 @@ use serde::Deserialize;
 /// Where the return-curve collector writes its per-bot JSON artifacts, and
 /// where the API reads them back for their owner. A separate, private bucket
 /// from the credential-bearing bot-configs bucket. Only the public prefix
-/// leaves it: the showcase CDN serves it, and the pages-publish workflow
-/// copies it to the site.
+/// leaves it: the showcase CDN serves it to the site's pages.
 #[derive(Debug, Deserialize)]
 pub struct ChartConfig {
     pub bucket_name: String,

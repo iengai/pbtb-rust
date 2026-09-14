@@ -28,7 +28,7 @@ site/
     chart/              return curve (windowing, re-basing, SVG), the showcase's runs, the config page's
                         combined chart (backtest + live runs over a chosen period, presets and a brush)
     components/         nav, pills/badges/tiles, banners, modal, icons
-    data/               static JSON access (templates/, data/)
+    data/               static JSON access (templates/, the showcase)
     i18n/               English + Simplified Chinese catalogs (see Languages below)
     pages/              Login, Callback, Bots, BotDetail, AddBot, Configs, ConfigDetail (+ ConfigChart), Account,
                         Returns, Showcase, ShowcaseBot
@@ -90,6 +90,7 @@ Build-time env, read via `import.meta.env` (copy `.env.example` to `.env`):
 | `VITE_OAUTH_ISSUER` | The AuthKit issuer; the app uses `/oauth2/authorize` and `/oauth2/token` on it. |
 | `VITE_OAUTH_CLIENT_ID` | The public Connect application. Registered redirect URIs: `http://localhost:5173/callback`, `https://iengai.github.io/pbtb-rust/callback`. |
 | `VITE_EGRESS_IP` | Optional. The NAT egress IP shown on the Account page and in the add-bot hint. |
+| `VITE_SHOWCASE_URL` | Optional. The showcase CDN, **with its trailing slash**; it answers CORS for the Pages origin alone. Unset, the showcase pages read `data/` beside the app (see Static data below). |
 | `VITE_MOCK_API` | Dev only. `1` replaces the API with an in-memory fake and a fake session (`src/api/mock.ts`), for working on pages without an issuer. Not in production bundles. |
 
 All three required values are public identifiers, not secrets; the pages
@@ -140,20 +141,23 @@ the daily collector writes under the owner's tenant, so an account only ever
 sees its own bots' curves. A 404 there means the collector has not written the
 bot yet.
 
-## Static data: `data/` (the showcase)
+## Static data: the showcase
 
-Synced from the chart bucket's `public/` prefix by `pages-publish` (daily at
-01:40 UTC and on every publish), never committed; `npm run fixtures` copies
-the sample in `fixtures/data/` into place, so a local build serves it. Two shapes,
-written by the daily collector (`src/bin/daily_pnl_snapshot/model.rs`,
-`PublicIndex` / `PublicBotSeries`):
+Read at run time from `VITE_SHOWCASE_URL`, the showcase CDN over the chart
+bucket's `public/` prefix, never built into the site. Unset, as in a local
+build, the pages read `data/` beside the app instead, which `npm run fixtures`
+fills from the sample in `fixtures/data/`. Two shapes, built in
+`src/domain/showcase.rs` (`PublicIndex` / `PublicBotSeries`):
 
-- `data/index.json`: `{generated_at, bots[{id, name, exchange, public_url,
-  current_return_pct, spark[30 × return_pct]}]}`; `public_url` is `null` on a
-  bot shown without a Bybit link, and the pages leave the link out.
-- `data/bots/{id}.json`: `{id, name, exchange, public_url, generated_at,
+- `index.json`: `{generated_at, bots[{id, name, exchange, public_url,
+  current_return_pct, spark[30 × return_pct]}]}`.
+- `bots/{id}.json`: `{id, name, exchange, public_url, generated_at,
   current_return_pct, points[{ts, index, return_pct}], config_switches[{ts,
   template_name, cap_usdt}], capital_resets[{ts, cap_usdt}]}`.
+
+`public_url` is `null` on a bot shown without a Bybit link. The pages link it
+only when it is an https URL on bybit.com (`bybitLink` in `src/data/static.ts`)
+and leave the link out otherwise.
 
 `id` is opaque (twelve hex characters), not the bot id. Percentages only:
 `cap_usdt`, the capital the bot ran a config at, is the one balance-derived
@@ -163,8 +167,11 @@ layout is in docs/data-model.md.
 
 Which bots are shown is the operator's choice on `/p/manage` (`GET
 /api/v1/showcase`, `PUT /api/v1/bots/{id}/showcase`), reachable from the
-showcase page when `GET /me` says the session is the operator's; the files
-here follow on the collector's next run.
+showcase page when `GET /me` says the session is the operator's. A switch
+writes or removes the bot's file and rebuilds `index.json` at once, and the
+CDN serves the change within about half a minute; a shown bot with no
+collected curve yet (`published: false`) appears after the collector's next
+run. How the prefix is kept is in docs/data-model.md.
 
 ## Static data: `templates/`
 
@@ -247,7 +254,8 @@ and "untick all" clears them.
 `.github/workflows/pages-publish.yml`: `npm ci && npm run build` in `site/`,
 upload `site/dist`. On every push to `main` that touches `site/`, or `gh
 workflow run pages-publish.yml --ref main`. No cloud credentials: the page is
-code and the committed backtests, nothing per tenant.
+code and the committed backtests, nothing per tenant; the showcase comes from
+the CDN at run time, so neither a switch nor a collector run needs a publish.
 
 GitHub Pages is enough: the app is static, the OAuth redirect URI is just a
 path on the Pages origin, the API sits on the Lambda with CORS, and the only
