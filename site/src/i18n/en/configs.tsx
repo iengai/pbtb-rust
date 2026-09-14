@@ -60,6 +60,26 @@ export const configs = {
     notEnough: "Not enough backtest points to plot.",
   },
 
+  // The operator's switch between the two catalogues.
+  audience: {
+    retire: "Retire",
+    publish: "Publish",
+    title: {
+      retire: (template: string) => `Retire ${template}`,
+      publish: (template: string) => `Publish ${template}`,
+    },
+    body: {
+      retire:
+        "Members stop being offered it and can no longer apply it; it moves to the Retired tab. Bots already running it keep their config.",
+      publish: "Every account is offered it again; it moves to the Published tab.",
+    },
+    publicNote: "The public catalogue follows when its index is next rebuilt.",
+    done: {
+      retire: (template: string) => `Retired ${template}.`,
+      publish: (template: string) => `Published ${template}.`,
+    },
+  },
+
   apply: {
     title: (template: string) => `Apply ${template}`,
     botLabel: "Bot",

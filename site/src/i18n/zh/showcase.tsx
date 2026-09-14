@@ -11,6 +11,21 @@ export const showcase: typeof en = {
   onBybit: "在 Bybit 查看",
   col: { bot: "机器人", trend: (days) => `近 ${days} 天` },
   updated: (date) => `更新于 ${date} UTC`,
+  manage: {
+    cta: "管理公开展示",
+    title: "管理公开展示",
+    lead: "你自己的机器人。选择公开展示页显示哪些；隐藏不会删除 Bybit 链接。",
+    operatorOnly: "公开展示只能由运营者账户管理。",
+    loading: "机器人",
+    col: { bot: "机器人", link: "Bybit 链接", state: "展示状态" },
+    shown: "公开",
+    hidden: "隐藏",
+    noLink: "无链接",
+    show: "公开",
+    hide: "隐藏",
+    empty: "还没有机器人。",
+    note: "公开页面会在下一次每日采集并发布站点后更新。",
+  },
   runs: {
     title: "实盘运行",
     lead: (max) =>

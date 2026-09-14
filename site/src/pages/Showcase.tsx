@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
+import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
+import { useAuth } from "../auth/AuthProvider";
 import { useRangeLabel } from "../chart/ReturnChart";
 import { DEFAULT_RANGE, RANGES, fmtDate, fmtSignedPct } from "../chart/returnCurve";
 import { headline } from "../chart/showcase";
@@ -25,6 +27,8 @@ export function Showcase() {
   }, "showcase");
   const bots = data?.index.bots ?? [];
   const heads = data?.heads ?? [];
+  const { session } = useAuth();
+  const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
 
   return (
     <>
@@ -33,6 +37,11 @@ export function Showcase() {
           <h1>{t.showcase.title}</h1>
           <div className="sub">{t.showcase.lead}</div>
         </div>
+        {me.data?.role === "operator" && (
+          <Link className="btn" to="/p/manage">
+            {t.showcase.manage.cta}
+          </Link>
+        )}
       </div>
       <ErrorBanner error={error} onRetry={reload} />
       {loading && !data && <Loading what={t.showcase.loading} />}
@@ -71,9 +80,11 @@ export function Showcase() {
                   )}
                 </div>
                 <div style={{ fontSize: 13 }}>
-                  <a href={b.public_url} target="_blank" rel="noopener noreferrer">
-                    {t.showcase.onBybit} ↗
-                  </a>
+                  {b.public_url && (
+                    <a href={b.public_url} target="_blank" rel="noopener noreferrer">
+                      {t.showcase.onBybit} ↗
+                    </a>
+                  )}
                 </div>
                 <Link to={to} style={{ color: "var(--muted)" }} aria-label={b.name}>
                   <Chevron />

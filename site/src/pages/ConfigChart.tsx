@@ -148,9 +148,13 @@ export function ConfigChart({ template }: { template: TemplateBacktest }) {
               <Link to={`/p/bots/${encodeURIComponent(bot.id)}`} style={{ fontWeight: 600, color: "var(--text)" }}>
                 {bot.name}
               </Link>
-              <a href={bot.public_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
-                {t.showcase.onBybit} ↗
-              </a>
+              {bot.public_url ? (
+                <a href={bot.public_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
+                  {t.showcase.onBybit} ↗
+                </a>
+              ) : (
+                <span />
+              )}
               <div className="run-segs">
                 {runs.map((r) => (
                   <span

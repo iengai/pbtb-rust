@@ -8,6 +8,7 @@ import type {
   BotSummary,
   Me,
   RestartStatus,
+  ShowcaseCandidate,
   StartStatus,
   StopStatus,
   TemplateDescription,
@@ -143,9 +144,25 @@ export const api = {
   /** The bot's return series; 404 until the daily collector has written one. */
   botReturns: (id: string) => request<BotReturnSeries>("GET", `/bots/${encodeURIComponent(id)}/returns`),
 
+  /** The operator's own bots and whether each is on the public showcase page; 403 `operator_only` otherwise. */
+  showcaseCandidates: () => request<{ bots: ShowcaseCandidate[] }>("GET", "/showcase"),
+  setShowcase: (id: string, shown: boolean) =>
+    request<{ status: "updated" | "unchanged"; public: boolean }>(
+      "PUT",
+      `/bots/${encodeURIComponent(id)}/showcase`,
+      { public: shown },
+    ),
+
   listTemplates: () => request<{ templates: TemplateListing[] }>("GET", "/templates"),
   getTemplate: (name: string) =>
     request<TemplateDescription>("GET", `/templates/${encodeURIComponent(name)}`),
+  /** Publish a template (`everyone`) or retire it (`operator`); the operator's account alone. */
+  setTemplateAudience: (name: string, audience: TemplateListing["audience"]) =>
+    request<{ status: "updated" | "unchanged"; audience: TemplateListing["audience"] }>(
+      "PUT",
+      `/templates/${encodeURIComponent(name)}/audience`,
+      { audience },
+    ),
 };
 
 /** A 409 from start/stop/restart that the server marks `retry: true`. */

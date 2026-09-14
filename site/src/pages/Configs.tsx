@@ -33,10 +33,24 @@ export function Configs() {
   const [tab, setTab] = useState<Catalogue>("published");
   const [engine, setEngine] = useState<string>("all");
   const catalogue: Catalogue = operator ? tab : "published";
+  // The operator's tabs follow each template's audience live from the API, so
+  // a retire or publish shows at once; the static index catches up when it is
+  // next rebuilt, and is what everyone else reads.
+  const live = useLoad(
+    () => (operator ? api.listTemplates() : Promise.resolve(null)),
+    operator ? "templates:live" : "templates:live:none",
+  );
+  const audience = useMemo(
+    () => new Map((live.data?.templates ?? []).map((tpl) => [tpl.name, tpl.audience === "operator"])),
+    [live.data],
+  );
 
   const offered = useMemo(
-    () => (data ?? []).filter((tpl) => (tpl.audience === "operator") === (catalogue === "retired")),
-    [data, catalogue],
+    () =>
+      (data ?? []).filter(
+        (tpl) => (audience.get(tpl.name) ?? tpl.audience === "operator") === (catalogue === "retired"),
+      ),
+    [data, catalogue, audience],
   );
   const engines = useMemo(() => Array.from(new Set(offered.map((tpl) => tpl.engine))).sort().reverse(), [offered]);
   const shown = useMemo(() => {

@@ -149,7 +149,8 @@ written by the daily collector (`src/bin/daily_pnl_snapshot/model.rs`,
 `PublicIndex` / `PublicBotSeries`):
 
 - `data/index.json`: `{generated_at, bots[{id, name, exchange, public_url,
-  current_return_pct, spark[30 × return_pct]}]}`.
+  current_return_pct, spark[30 × return_pct]}]}`; `public_url` is `null` on a
+  bot shown without a Bybit link, and the pages leave the link out.
 - `data/bots/{id}.json`: `{id, name, exchange, public_url, generated_at,
   current_return_pct, points[{ts, index, return_pct}], config_switches[{ts,
   template_name, cap_usdt}], capital_resets[{ts, cap_usdt}]}`.
@@ -159,6 +160,11 @@ written by the daily collector (`src/bin/daily_pnl_snapshot/model.rs`,
 figure and is rounded to one significant digit; there is no realized
 PnL and no balance. `capital_resets` dates a wipe-out-and-refund. The S3
 layout is in docs/data-model.md.
+
+Which bots are shown is the operator's choice on `/p/manage` (`GET
+/api/v1/showcase`, `PUT /api/v1/bots/{id}/showcase`), reachable from the
+showcase page when `GET /me` says the session is the operator's; the files
+here follow on the collector's next run.
 
 ## Static data: `templates/`
 
@@ -173,10 +179,15 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   opaque template id and `audience` is `"operator"` on a retired template,
   offered to the operator's account only (the Configs page lists it under its
   Retired tab when `GET /me` says the session is the operator's and leaves it
-  out otherwise; its page stays reachable by link); `templates/<name>.json` — the same plus `starting_balance`,
+  out otherwise; its page stays reachable by link). For the operator both pages
+  read the audience live from `GET /api/v1/templates` instead, and a template's
+  page offers Retire / Publish (`PUT /api/v1/templates/{name}/audience`); this
+  index follows when it is next rebuilt. `templates/<name>.json` — the same plus `starting_balance`,
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
-  100 at the backtest start, and the `source_sha` / `generated_at` the
-  pipeline uses to skip unchanged templates. `metrics` follow passivbot's
+  100 at the backtest start, and the `source_sha` / `trading_sha` /
+  `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`
+  covers what passivbot reads alone, so an audience switch does not re-run a
+  backtest). `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
   `drawdown_worst` are fractions). **Never put strategy parameters in these
   files**, and that includes the template's `description`: the authors' notes

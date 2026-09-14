@@ -13,6 +13,7 @@ import { Login } from "./pages/Login";
 import { Returns } from "./pages/Returns";
 import { Showcase } from "./pages/Showcase";
 import { ShowcaseBot } from "./pages/ShowcaseBot";
+import { ShowcaseManage } from "./pages/ShowcaseManage";
 import { Signup } from "./pages/Signup";
 
 function RequireAuth() {
@@ -54,6 +55,7 @@ export function App() {
           <Route path="/bots/new" element={<AddBot />} />
           <Route path="/bots/:id" element={<BotDetail />} />
           <Route path="/account" element={<Account />} />
+          <Route path="/p/manage" element={<ShowcaseManage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Route>

@@ -60,6 +60,16 @@ export type TemplateListing = {
   audience: "everyone" | "operator";
 };
 
+/** One of the operator's own bots as the showcase switchboard lists it: the link the public
+ *  page carries (null without one) and whether the bot is on that page. */
+export type ShowcaseCandidate = {
+  bot_id: string;
+  name: string;
+  exchange: string;
+  public_url: string | null;
+  public: boolean;
+};
+
 export type TemplateDescription = {
   name: string;
   version: string | null;

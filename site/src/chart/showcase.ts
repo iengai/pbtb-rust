@@ -15,7 +15,7 @@ export const MAX_BOTS_PER_TEMPLATE = 5;
 const DEAD_EPS = 1e-9;
 
 export type Run = {
-  bot: { id: string; name: string; public_url: string };
+  bot: { id: string; name: string; public_url: string | null };
   template_name: string;
   /** The capital the bot ran this span at, rounded to a magnitude by the collector. */
   cap_usdt: number;

@@ -142,6 +142,7 @@ h1.lg { font-size: 22px; }
 .table .tr { align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text); }
 .table a.tr:hover { background: var(--panel); }
 .table.showcase .th, .table.showcase .tr { grid-template-columns: 1.6fr 1fr 1fr 1.2fr 40px; }
+.table.showcase-manage .th, .table.showcase-manage .tr { grid-template-columns: 1.2fr 2fr 0.8fr 90px; gap: 12px; }
 .metric-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
 /* A metric can arrive as a long unbroken float; it wraps inside the row rather
    than widening the page. */

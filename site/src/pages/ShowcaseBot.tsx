@@ -47,9 +47,11 @@ export function ShowcaseBot() {
                 {t.showcase.updated(fmtDate(data.generated_at))}
               </div>
             </div>
-            <a className="btn" href={data.public_url} target="_blank" rel="noopener noreferrer">
-              {t.showcase.onBybit} ↗
-            </a>
+            {data.public_url && (
+              <a className="btn" href={data.public_url} target="_blank" rel="noopener noreferrer">
+                {t.showcase.onBybit} ↗
+              </a>
+            )}
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", margin: "0 0 16px" }}>
             <RangeSelector value={range} onChange={setRange} />
