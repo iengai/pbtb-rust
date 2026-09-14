@@ -117,18 +117,17 @@ async fn dynamo_bot_repository_roundtrip() {
     assert_eq!(rt.task_id.as_deref(), Some("task-abc"));
     assert_eq!(rt.version, 1);
 
-    // --- record(stopped) then find returns Stopped with task_id None ---
-    BotRuntimeRepository::record(
+    // --- settle_stopped(task) then find returns Stopped with task_id None ---
+    BotRuntimeRepository::settle_stopped(
         &repo,
-        &BotRuntime::stopped(
-            "user-1".to_string(),
-            "alpha-bot".to_string(),
-            1,
-            1_700_000_300,
-        ),
+        "user-1",
+        "alpha-bot",
+        "task-abc",
+        1,
+        1_700_000_300,
     )
     .await
-    .expect("record stopped should succeed");
+    .expect("settle stopped should succeed");
 
     let rt_stopped = BotRuntimeRepository::find(&repo, "user-1", "alpha-bot")
         .await
@@ -251,7 +250,7 @@ async fn start_lock_cas_and_lifecycle() {
     );
 
     // After a stop, a new claim succeeds.
-    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 1, 1030))
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-1", 1, 1030)
         .await
         .unwrap();
     assert_eq!(
@@ -558,6 +557,131 @@ async fn a_stopped_write_for_another_task_does_not_settle_a_stopping_row() {
         .unwrap();
     assert_eq!(settled.phase, RuntimePhase::Stopped);
     assert_eq!(settled.task_id, None);
+}
+
+/// A stopped write for task X leaves every row that has moved past X: a launch
+/// claim with no task id yet, or a later task's `running` row, whatever the
+/// stamps say. Settling either would let a Run pass the start lock's `stopped`
+/// clause beside the launch or the live task.
+#[tokio::test]
+async fn a_stopped_write_for_another_task_leaves_a_claim_or_a_later_running_row() {
+    let Some(db) = common::dynamo::start().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
+    let (u, b) = ("user-1", "claimed-bot");
+
+    // task-x exited and the Lambda claimed the restart: starting, id cleared.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-x".into(), 3, 1000),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        repo.try_acquire_restart(u, b, "task-x", 2000)
+            .await
+            .unwrap(),
+        StartClaim::Acquired
+    );
+
+    // A gone-task stop for task-x stamped a few seconds later.
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-x", 3, 2005)
+        .await
+        .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rt.phase,
+        RuntimePhase::Starting,
+        "STOPPED(task-x) must not settle the restart claim"
+    );
+    assert_eq!(
+        repo.try_acquire_start(u, b, 2010, 600).await.unwrap(),
+        StartClaim::AlreadyStarting,
+        "a Run still waits for the claimed launch"
+    );
+
+    // The replacement comes up; a task-x stop stamped after its RUNNING.
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-y".into(), 4, 2100),
+    )
+    .await
+    .unwrap();
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-x", 4, 2200)
+        .await
+        .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rt.phase,
+        RuntimePhase::Running,
+        "STOPPED(task-x) must not settle running(task-y)"
+    );
+    assert_eq!(rt.task_id.as_deref(), Some("task-y"));
+
+    // task-y's own STOPPED settles it, even with an older stamp.
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-y", 4, 2050)
+        .await
+        .unwrap();
+    assert_eq!(
+        BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        RuntimePhase::Stopped
+    );
+
+    // A stopped row moves only forward: an older STOPPED leaves its stamp.
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-y", 4, 1900)
+        .await
+        .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.observed_at, 2050);
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-y", 4, 2300)
+        .await
+        .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.observed_at, 2300);
+
+    // A Run's launch with its id attached: task-x's STOPPED leaves starting(task-w).
+    assert_eq!(
+        repo.try_acquire_start(u, b, 3000, 600).await.unwrap(),
+        StartClaim::Acquired
+    );
+    repo.attach_started_task(u, b, "task-w").await.unwrap();
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-x", 4, 3005)
+        .await
+        .unwrap();
+    let rt = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rt.phase, RuntimePhase::Starting);
+    assert_eq!(rt.task_id.as_deref(), Some("task-w"));
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-w", 4, 3010)
+        .await
+        .unwrap();
+    assert_eq!(
+        BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        RuntimePhase::Stopped
+    );
 }
 
 /// The STOPPED of the task a `stopping` row names settles it, even when the row

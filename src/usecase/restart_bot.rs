@@ -105,7 +105,8 @@ impl RestartBotUseCase {
 
                 match self.stop.wind_down(user_id, bot_id, RESTART_REASON).await? {
                     StopOutcome::Stopped { task_id } => Ok(RestartOutcome::Restarting { task_id }),
-                    // ECS reported the task gone and the row now reads stopped.
+                    // ECS reported the task gone. The row reads stopped, or has moved
+                    // on to a launch the start's own claim then refuses.
                     StopOutcome::NotRunning => self.start_instead(user_id, vip_level, bot_id).await,
                     StopOutcome::StartInProgress => Ok(RestartOutcome::StartInProgress),
                     StopOutcome::AlreadyStopping => Ok(RestartOutcome::Stopping),
@@ -593,6 +594,137 @@ mod tests {
         assert!(matches!(out, RestartOutcome::Started { .. }), "{out:?}");
         assert!(w.ecs.stops.lock().unwrap().is_empty());
         assert_eq!(*w.ecs.launches.lock().unwrap(), 1);
+    }
+
+    /// Grants a start only on an absent or stopped row, as the start lock's CAS
+    /// does, and marks the row claimed.
+    struct RowLock {
+        runtimes: Arc<InMemoryRuntimes>,
+    }
+    #[async_trait]
+    impl StartLockRepository for RowLock {
+        async fn try_acquire_start(
+            &self,
+            u: &str,
+            b: &str,
+            now: i64,
+            _stale: i64,
+        ) -> Result<StartClaim, DomainError> {
+            let rt = self.runtimes.find(u, b).await?;
+            if rt
+                .as_ref()
+                .is_some_and(|r| r.phase != RuntimePhase::Stopped)
+            {
+                return Ok(StartClaim::AlreadyStarting);
+            }
+            self.runtimes.record(&claim(now)).await?;
+            Ok(StartClaim::Acquired)
+        }
+        async fn try_acquire_restart(
+            &self,
+            _u: &str,
+            _b: &str,
+            _stopped: &str,
+            _now: i64,
+        ) -> Result<StartClaim, DomainError> {
+            Ok(StartClaim::AlreadyRunning)
+        }
+        async fn attach_started_task(
+            &self,
+            _u: &str,
+            _b: &str,
+            _t: &str,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+        async fn release_start(&self, _u: &str, _b: &str, _now: i64) -> Result<(), DomainError> {
+            Ok(())
+        }
+    }
+
+    /// A launch claim in flight: `starting` with no task id attached yet.
+    fn claim(observed_at: i64) -> BotRuntime {
+        BotRuntime {
+            user_id: "user-1".to_string(),
+            bot_id: "bot-1".to_string(),
+            task_id: None,
+            phase: RuntimePhase::Starting,
+            version: 4,
+            observed_at,
+        }
+    }
+
+    /// ECS for a task that exited on its own: StopTask fails and liveness says
+    /// gone. The Lambda's restart claim for that exit lands in the same instant,
+    /// between the Restart's read of `running` and its stopped write.
+    struct GoneWhileClaimed {
+        runtimes: Arc<InMemoryRuntimes>,
+        launches: Mutex<usize>,
+    }
+    #[async_trait]
+    impl TaskRunner for GoneWhileClaimed {
+        async fn run(&self, _u: &str, _b: &str, _c: &str, _t: &str, _n: &str) -> Result<String> {
+            *self.launches.lock().unwrap() += 1;
+            Ok("task-second".to_string())
+        }
+    }
+    #[async_trait]
+    impl TaskController for GoneWhileClaimed {
+        async fn stop(&self, _c: &str, _task_id: &str, _reason: &str) -> Result<()> {
+            self.runtimes.record(&claim(NOW - 5)).await?;
+            Err(anyhow!("task not found"))
+        }
+        async fn liveness(&self, _c: &str, _task_id: &str) -> Result<TaskLiveness> {
+            Ok(TaskLiveness::Gone)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_gone_task_racing_a_restart_claim_does_not_start_a_second_task() {
+        let bots = Arc::new(InMemoryBots::with([bot("bot-1", true)]));
+        let runtimes = Arc::new(InMemoryRuntimes::with(running("task-xyz")));
+        let ecs = Arc::new(GoneWhileClaimed {
+            runtimes: runtimes.clone(),
+            launches: Mutex::new(0),
+        });
+        let clock = Arc::new(FixedClock);
+        let start = Arc::new(StartBotUseCase::new(
+            bots.clone(),
+            runtimes.clone(),
+            Arc::new(RowLock {
+                runtimes: runtimes.clone(),
+            }),
+            ecs.clone(),
+            ecs.clone(),
+            clock.clone(),
+            "cluster".to_string(),
+            Arc::new(Resolver { ok: true }),
+            "container".to_string(),
+        ));
+        let stop = Arc::new(StopBotUseCase::new(
+            bots.clone(),
+            runtimes.clone(),
+            ecs.clone(),
+            clock.clone(),
+            "cluster".to_string(),
+        ));
+        let uc = RestartBotUseCase::new(bots, runtimes.clone(), stop, start, clock);
+
+        let out = uc.execute("user-1", TOP, "bot-1").await.unwrap();
+
+        assert_eq!(out, RestartOutcome::StartInProgress);
+        assert_eq!(
+            *ecs.launches.lock().unwrap(),
+            0,
+            "the Lambda's launch is the only one"
+        );
+        let rt = runtimes.get().unwrap();
+        assert_eq!(
+            rt.phase,
+            RuntimePhase::Starting,
+            "the claim is left in flight"
+        );
+        assert_eq!(rt.task_id, None);
     }
 
     #[tokio::test]
