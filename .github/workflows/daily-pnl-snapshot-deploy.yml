@@ -3,8 +3,9 @@ name: daily-pnl-snapshot-deploy
 # Build the daily_pnl_snapshot collector bootstrap and ship it straight to the
 # function via `aws lambda update-function-code`. Same pattern as lambda-deploy:
 # no Terraform, no state lock, no NAT touch. Built through the SAME builder stage
-# (.devcontainer/Dockerfile, rust:1.98-bookworm), which references no symbol above
-# GLIBC_2.34 — exactly AL2023's glibc — never a bare `cargo build` on the runner.
+# (.devcontainer/Dockerfile, rust:1.98-bookworm), never a bare `cargo build` on the
+# runner; the package step refuses a bootstrap needing a symbol above GLIBC_2.34,
+# AL2023's glibc.
 
 on:
   workflow_dispatch:
@@ -73,6 +74,14 @@ jobs:
         run: |
           set -euo pipefail
           test -f artifact/bootstrap || { echo "bootstrap not produced by the build"; exit 1; }
+          # AL2023 ships glibc 2.34. A bootstrap linked against anything newer
+          # builds and packages cleanly and fails only on the first invocation,
+          # so the builder image's glibc is checked here rather than trusted.
+          MAX=$(readelf --version-info artifact/bootstrap | grep -oE 'GLIBC_2\.[0-9]+' | sort -V | tail -1)
+          echo "max required glibc symbol: ${MAX:-none}"
+          if [ -n "$MAX" ] && [ "$(printf '%s\nGLIBC_2.34\n' "$MAX" | sort -V | tail -1)" != "GLIBC_2.34" ]; then
+            echo "bootstrap requires $MAX, newer than AL2023's GLIBC_2.34"; exit 1
+          fi
           chmod +x artifact/bootstrap
           (cd artifact && zip -X -q ../out.zip bootstrap)
           echo "LOCAL_SHA=$(openssl dgst -sha256 -binary out.zip | base64)" >> "$GITHUB_ENV"
