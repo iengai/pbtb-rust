@@ -104,7 +104,7 @@ jobs:
           path: |
             cargo-registry-cache
             cargo-target-cache
-          key: telebot-buildkit-${{ hashFiles('Cargo.lock') }}
+          key: telebot-buildkit-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             telebot-buildkit-
 

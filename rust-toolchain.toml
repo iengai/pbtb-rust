@@ -1,6 +1,9 @@
-# Pin every environment to one toolchain. The Dev Container's rust feature
-# installed 1.88 while the images build on rust:1.89-bookworm, so clippy passed
-# locally and failed in CI on lints 1.89 added.
+# Pin every environment to one toolchain. The Dev Container's rust feature and
+# the `rust:<version>-bookworm` builder image each pick their own release, and a
+# mismatch lets clippy pass locally and fail in CI on lints the newer one added.
+# The Dockerfile's builder tag, devcontainer.json's rust feature and the
+# workflows' `dtolnay/rust-toolchain` ref name the same version and move with
+# this file, as does every build cache key hashing it.
 [toolchain]
-channel = "1.89"
+channel = "1.98"
 components = ["rustfmt", "clippy"]

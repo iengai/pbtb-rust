@@ -22,7 +22,7 @@ config/wiring (role, env vars, runtime, memory/timeout); CI owns only the code.
 ## Why the build reuses the devcontainer builder stage
 
 The binary is built through the `lambda-export` stage of `.devcontainer/Dockerfile`,
-which is `FROM` the same `rust:1.89-bookworm` `builder` stage the devcontainer and
+which is `FROM` the same `rust:1.98-bookworm` `builder` stage the devcontainer and
 telebot use. The bootstrap it produces references no symbol above **GLIBC_2.34** —
 exactly the glibc **AL2023** ships — so it resolves on the Lambda host. A plain
 `cargo build` on the `ubuntu-24.04` runner links against glibc 2.39 and could

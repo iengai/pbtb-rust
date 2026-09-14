@@ -6,7 +6,7 @@ use std::error::Error as StdError;
 /// `SdkError`'s own `Display` masks the modeled service error — a missing IAM
 /// permission reads only as "service error" — so walking the chain is what
 /// surfaces the real code and message the masked top-level `Display` hides.
-pub(crate) fn error_chain(err: &(dyn StdError)) -> String {
+pub(crate) fn error_chain(err: &dyn StdError) -> String {
     let mut out = err.to_string();
     let mut source = err.source();
     while let Some(inner) = source {

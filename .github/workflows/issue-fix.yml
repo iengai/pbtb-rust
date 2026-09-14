@@ -103,7 +103,7 @@ jobs:
 
       # The toolchain steps mirror verify.yml so the gate the model runs is
       # the gate CI runs.
-      - uses: dtolnay/rust-toolchain@1.89
+      - uses: dtolnay/rust-toolchain@1.98
         with:
           components: rustfmt, clippy
 

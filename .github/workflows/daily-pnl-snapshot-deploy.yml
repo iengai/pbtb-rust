@@ -3,7 +3,7 @@ name: daily-pnl-snapshot-deploy
 # Build the daily_pnl_snapshot collector bootstrap and ship it straight to the
 # function via `aws lambda update-function-code`. Same pattern as lambda-deploy:
 # no Terraform, no state lock, no NAT touch. Built through the SAME builder stage
-# (.devcontainer/Dockerfile, rust:1.89-bookworm), which references no symbol above
+# (.devcontainer/Dockerfile, rust:1.98-bookworm), which references no symbol above
 # GLIBC_2.34 — exactly AL2023's glibc — never a bare `cargo build` on the runner.
 
 on:
@@ -42,7 +42,7 @@ jobs:
           path: |
             cargo-registry-cache
             cargo-target-cache
-          key: lambda-buildkit-${{ hashFiles('Cargo.lock') }}
+          key: lambda-buildkit-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             lambda-buildkit-
 
