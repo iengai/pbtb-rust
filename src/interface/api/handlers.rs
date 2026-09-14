@@ -16,7 +16,8 @@ use crate::domain::user::Role;
 use crate::interface::describe;
 use crate::interface::mcp::auth::Principal;
 use crate::usecase::{
-    AddOutcome, DeleteOutcome, RestartOutcome, SetRuntimeOutcome, StartOutcome, StopOutcome,
+    AddOutcome, DeleteOutcome, RestartOutcome, SetAudienceOutcome, SetRuntimeOutcome,
+    SetShowcaseOutcome, StartOutcome, StopOutcome,
 };
 
 pub(super) struct Handlers<'a> {
@@ -67,6 +68,25 @@ pub(super) struct TemplateBody {
     pub name: String,
 }
 
+#[derive(Deserialize)]
+pub(super) struct ShowcaseBody {
+    pub public: bool,
+}
+
+#[derive(Deserialize)]
+pub(super) struct AudienceBody {
+    /// `everyone` publishes the template, `operator` retires it.
+    pub audience: String,
+}
+
+fn audience_name(operator_only: bool) -> &'static str {
+    if operator_only {
+        "operator"
+    } else {
+        "everyone"
+    }
+}
+
 impl Handlers<'_> {
     fn user_id(&self) -> &str {
         &self.principal.user_id
@@ -87,6 +107,17 @@ impl Handlers<'_> {
             principal = %self.principal.user_id,
             route,
             bot_id,
+            outcome,
+            "api write"
+        );
+    }
+
+    /// `audit` for a write whose target is a template rather than a bot.
+    fn audit_template(&self, route: &str, template: &str, outcome: &str) {
+        tracing::info!(
+            principal = %self.principal.user_id,
+            route,
+            template,
             outcome,
             "api write"
         );
@@ -552,6 +583,56 @@ impl Handlers<'_> {
         Self::ok(series)
     }
 
+    // ---------------------------------------------------------------- showcase
+
+    /// The caller's own bots as candidates for the public showcase page, each
+    /// with its link and whether it is shown. The operator's account alone.
+    pub async fn showcase(&self) -> ApiResult {
+        require(self.principal, READ)?;
+        let bots = self
+            .deps
+            .showcase_usecase
+            .candidates(self.role(), self.user_id())
+            .await
+            .map_err(|e| ApiError::from_domain("listing the showcase candidates", e))?;
+        Self::ok(
+            json!({ "bots": bots.iter().map(describe::showcase_candidate).collect::<Vec<_>>() }),
+        )
+    }
+
+    /// Show one of the operator's bots on the showcase page or hide it. The
+    /// link stays either way; the page follows on the collector's next run.
+    pub async fn set_showcase(&self, bot_id: &str, body: ShowcaseBody) -> ApiResult {
+        require(self.principal, WRITE)?;
+        let outcome = self
+            .deps
+            .showcase_usecase
+            .set(self.role(), self.user_id(), bot_id, body.public)
+            .await
+            .map_err(|e| {
+                self.audit("set_showcase", bot_id, "error");
+                ApiError::from_domain("setting the showcase", e)
+            })?;
+        let body = match outcome {
+            SetShowcaseOutcome::Updated { shown } => {
+                json!({ "status": "updated", "public": shown })
+            }
+            SetShowcaseOutcome::Unchanged { shown } => {
+                json!({ "status": "unchanged", "public": shown })
+            }
+            SetShowcaseOutcome::BotNotFound => {
+                self.audit("set_showcase", bot_id, "bot_not_found");
+                return Err(ApiError::NotFound);
+            }
+        };
+        self.audit(
+            "set_showcase",
+            bot_id,
+            body["status"].as_str().unwrap_or("unknown"),
+        );
+        Self::ok(body)
+    }
+
     // ---------------------------------------------------------------- templates
 
     /// Every template with the level it asks for. Nothing is hidden by level:
@@ -585,6 +666,48 @@ impl Handlers<'_> {
             .map_err(|e| ApiError::from_domain("reading the template", e))?
             .ok_or(ApiError::NotFound)?;
         Self::ok(describe::template(&preview))
+    }
+
+    /// Publish a template to everyone or retire it to the operator's account.
+    /// The published catalogue page follows when its index is next rebuilt.
+    pub async fn set_template_audience(&self, name: &str, body: AudienceBody) -> ApiResult {
+        require(self.principal, WRITE)?;
+        let operator_only = match body.audience.as_str() {
+            "operator" => true,
+            "everyone" => false,
+            _ => {
+                return Err(ApiError::BadRequest(
+                    "audience must be `everyone` or `operator`".into(),
+                ));
+            }
+        };
+        let outcome = self
+            .deps
+            .set_template_audience_usecase
+            .execute(self.role(), name, operator_only)
+            .await
+            .map_err(|e| {
+                self.audit_template("set_template_audience", name, "error");
+                ApiError::from_domain("setting the template's audience", e)
+            })?;
+        let body = match outcome {
+            SetAudienceOutcome::Updated { operator_only } => {
+                json!({ "status": "updated", "audience": audience_name(operator_only) })
+            }
+            SetAudienceOutcome::Unchanged { operator_only } => {
+                json!({ "status": "unchanged", "audience": audience_name(operator_only) })
+            }
+            SetAudienceOutcome::NotFound => {
+                self.audit_template("set_template_audience", name, "not_found");
+                return Err(ApiError::NotFound);
+            }
+        };
+        self.audit_template(
+            "set_template_audience",
+            name,
+            body["status"].as_str().unwrap_or("unknown"),
+        );
+        Self::ok(body)
     }
 
     // ---------------------------------------------------------------- helpers

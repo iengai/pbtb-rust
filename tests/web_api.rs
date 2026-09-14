@@ -674,6 +674,170 @@ async fn the_templates_listing_offers_an_operator_only_template_to_the_operator_
 }
 
 #[tokio::test]
+async fn the_operator_retires_and_publishes_a_template() {
+    use pbtb_rust::domain::configtemplate::ConfigTemplateRepository;
+
+    let h = harness!();
+    h.templates.add(a_template("tpl-a"));
+    let set = |audience: &str| {
+        request(
+            "PUT",
+            "/templates/tpl-a/audience",
+            Some(TOKEN),
+            Some(json!({ "audience": audience })),
+        )
+    };
+    let names = |listed: Value| {
+        listed["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].clone())
+            .collect::<Vec<_>>()
+    };
+    let member = h.http_api_with(at_level(USER, 9));
+    let operator = h.http_api(TOKEN);
+
+    let refused = member.handle(set("operator")).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(body(&refused)["error"], json!("operator_only"));
+    assert!(!h.templates.get("tpl-a").await.unwrap().is_operator_only());
+
+    let retired = operator.handle(set("operator")).await;
+    assert_eq!(retired.status(), StatusCode::OK);
+    assert_eq!(
+        body(&retired),
+        json!({ "status": "updated", "audience": "operator" })
+    );
+    let saved = h.templates.get("tpl-a").await.unwrap();
+    assert!(saved.is_operator_only());
+    assert_eq!(
+        saved.config_data["bot"],
+        a_template("tpl-a").config_data["bot"],
+        "the strategy is written back as read"
+    );
+    assert!(names(body(&member.handle(get("/templates")).await)).is_empty());
+
+    assert_eq!(
+        body(&operator.handle(set("operator")).await)["status"],
+        json!("unchanged")
+    );
+    assert_eq!(
+        body(&operator.handle(set("everyone")).await),
+        json!({ "status": "updated", "audience": "everyone" })
+    );
+    assert_eq!(
+        names(body(&member.handle(get("/templates")).await)),
+        vec![json!("tpl-a")]
+    );
+
+    let bad = operator.handle(set("members")).await;
+    assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+    let missing = operator
+        .handle(request(
+            "PUT",
+            "/templates/tpl-nope/audience",
+            Some(TOKEN),
+            Some(json!({ "audience": "operator" })),
+        ))
+        .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    assert!(
+        !h.templates.exists("tpl-nope").await.unwrap(),
+        "a write to an unlisted name creates nothing"
+    );
+}
+
+#[tokio::test]
+async fn the_operator_shows_and_hides_their_own_bots_and_the_link_stays() {
+    use pbtb_rust::domain::bot::BotRepository;
+
+    let h = harness!();
+    let link = "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=abc";
+    let mut linked = a_bot(USER, "linked");
+    linked.set_public_url(Some(link.to_string()), NOW).unwrap();
+    h.given_bot(linked).await;
+    h.given_bot(a_bot(USER, "plain")).await;
+    h.given_bot(a_bot(SOMEONE_ELSE, "theirs")).await;
+    let set = |bot: &str, public: bool| {
+        request(
+            "PUT",
+            &format!("/bots/{bot}/showcase"),
+            Some(TOKEN),
+            Some(json!({ "public": public })),
+        )
+    };
+    let operator = h.http_api(TOKEN);
+
+    let listed = body(&operator.handle(get("/showcase")).await);
+    let mut rows = listed["bots"].as_array().unwrap().clone();
+    rows.sort_by_key(|b| b["bot_id"].as_str().unwrap().to_string());
+    assert_eq!(
+        rows,
+        vec![
+            json!({ "bot_id": "linked", "name": "linked", "exchange": "bybit", "public_url": link, "public": true }),
+            json!({ "bot_id": "plain", "name": "plain", "exchange": "bybit", "public_url": null, "public": false }),
+        ],
+        "the operator's own bots, and no one else's"
+    );
+
+    let hidden = operator.handle(set("linked", false)).await;
+    assert_eq!(
+        body(&hidden),
+        json!({ "status": "updated", "public": false })
+    );
+    let row = h.bots.find(USER, "linked").await.unwrap().unwrap();
+    assert!(!row.on_showcase());
+    assert_eq!(
+        row.public_url.as_deref(),
+        Some(link),
+        "hiding keeps the link"
+    );
+
+    assert_eq!(
+        body(&operator.handle(set("plain", true)).await),
+        json!({ "status": "updated", "public": true })
+    );
+    assert!(
+        h.bots
+            .find(USER, "plain")
+            .await
+            .unwrap()
+            .unwrap()
+            .on_showcase()
+    );
+
+    let elsewhere = operator.handle(set("theirs", true)).await;
+    assert_eq!(elsewhere.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        h.bots
+            .find(SOMEONE_ELSE, "theirs")
+            .await
+            .unwrap()
+            .unwrap()
+            .showcase,
+        None
+    );
+
+    let member = h.http_api_with(at_level(USER, 9));
+    for response in [
+        member.handle(get("/showcase")).await,
+        member.handle(set("plain", false)).await,
+    ] {
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(body(&response)["error"], json!("operator_only"));
+    }
+    assert!(
+        h.bots
+            .find(USER, "plain")
+            .await
+            .unwrap()
+            .unwrap()
+            .on_showcase()
+    );
+}
+
+#[tokio::test]
 async fn a_level_zero_account_runs_one_bot_at_a_time() {
     let h = harness!();
     for name in ["first", "second"] {

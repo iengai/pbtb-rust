@@ -36,19 +36,24 @@ use super::mcp::auth::{AuthError, Principal, SCOPE_READ, SCOPE_WRITE, TokenVerif
 use super::mcp::http::{Metadata, bearer, insufficient_scope, refuse};
 use super::redaction::redact;
 use crate::domain::error::{DomainError, Retryability};
-use crate::usecase::{AddBotUseCase, SignupOutcome, SignupUseCase};
+use crate::usecase::{
+    AddBotUseCase, BotShowcaseUseCase, SetTemplateAudienceUseCase, SignupOutcome, SignupUseCase,
+};
 
 /// Every route lives under this prefix, so the MCP protocol keeps `/` and the
 /// link flow keeps `/link` on the shared host.
 pub const PREFIX: &str = "/api/v1";
 
 /// The use cases the routes drive: everything the MCP tools have, plus the two
-/// a tool must not offer — key entry, and creating the account itself.
+/// a tool must not offer — key entry, and creating the account itself — and
+/// the operator's switches for the catalogue and the showcase page.
 #[derive(Clone)]
 pub struct Deps {
     pub mcp: mcp::Deps,
     pub add_bot_usecase: Arc<AddBotUseCase>,
     pub signup_usecase: Arc<SignupUseCase>,
+    pub showcase_usecase: Arc<BotShowcaseUseCase>,
+    pub set_template_audience_usecase: Arc<SetTemplateAudienceUseCase>,
 }
 
 pub struct WebApi {
@@ -229,12 +234,18 @@ impl WebApi {
             (&Method::PUT, ["bots", id, "runtime"]) => h.set_runtime(id, parse(body)?).await,
             (&Method::POST, ["bots", id, "template"]) => h.apply_template(id, parse(body)?).await,
             (&Method::GET, ["bots", id, "returns"]) => h.bot_returns(id).await,
+            (&Method::PUT, ["bots", id, "showcase"]) => h.set_showcase(id, parse(body)?).await,
             (&Method::GET, ["bots", _, "balance"]) | (&Method::POST, ["bots", _, "unstuck"]) => {
                 Err(ApiError::NotAvailable)
             }
 
+            (&Method::GET, ["showcase"]) => h.showcase().await,
+
             (&Method::GET, ["templates"]) => h.list_templates().await,
             (&Method::GET, ["templates", name]) => h.get_template(name).await,
+            (&Method::PUT, ["templates", name, "audience"]) => {
+                h.set_template_audience(name, parse(body)?).await
+            }
 
             _ => Err(ApiError::NotFound),
         }

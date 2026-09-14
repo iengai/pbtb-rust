@@ -811,14 +811,16 @@ def cmd_set_public_url(a):
     c = cfg(a.env)
     if a.url == "off":
         done = dyn_update_bot(c, a.user_id, a.bot_id, "REMOVE public_url SET updated_at = :now", {}, {}, a)
-        state = "private"
+        change = "link cleared"
     else:
         url = check_public_url(a.url)
         done = dyn_update_bot(c, a.user_id, a.bot_id, "SET public_url = :u, updated_at = :now",
                               {}, {":u": {"S": url}}, a)
-        state = f"public: {url}"
+        change = f"now links to {url}"
+    # Only the link is reported: whether the bot is shown is its `showcase`
+    # choice when it has one, which this command does not touch.
     if done:
-        print(f"{a.user_id}/{a.bot_id} is now {state}")
+        print(f"{a.user_id}/{a.bot_id} {change}")
     else:
         raise RuntimeError(f"no bot row {a.bot_id} under {a.user_id}")
 
@@ -894,8 +896,9 @@ def main(argv=None):
     s.add_argument("role", choices=["operator", "member"])
     s.set_defaults(fn=cmd_set_role)
 
-    s = sub.add_parser("set-public-url", help="give the bot its showcase link (an https bybit.com URL) or take it off; "
-                       "only an operator's bots are published")
+    s = sub.add_parser("set-public-url", help="set or clear the bot's showcase link (an https bybit.com URL); "
+                       "whether it is shown is the console's showcase choice when one was made, "
+                       "and only an operator's bots are published")
     s.add_argument("user_id")
     s.add_argument("bot_id")
     s.add_argument("url", help="the bot's Bybit copy-trading page, or `off`")

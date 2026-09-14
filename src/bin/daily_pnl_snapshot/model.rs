@@ -339,7 +339,9 @@ pub struct PublicBotSeries {
     pub id: String,
     pub name: String,
     pub exchange: String,
-    pub public_url: String,
+    /// The copy-trading page the showcase links to; `None` on a bot shown
+    /// without one.
+    pub public_url: Option<String>,
     pub generated_at: i64,
     pub current_return_pct: f64,
     pub points: Vec<PublicPoint>,
@@ -361,7 +363,7 @@ pub struct PublicIndexBot {
     pub id: String,
     pub name: String,
     pub exchange: String,
-    pub public_url: String,
+    pub public_url: Option<String>,
     pub current_return_pct: f64,
     pub spark: Vec<f64>,
 }
@@ -376,13 +378,10 @@ pub fn public_id(user_id: &str, bot_id: &str) -> String {
     hex::encode(&Sha256::digest(format!("{user_id}#{bot_id}"))[..6])
 }
 
-/// The link a bot is published under, when it is: the operator's account gave
-/// it one. A link on any other account's row is inert.
-pub fn showcase_link(bot: &Bot, operator: bool) -> Option<&str> {
-    match &bot.public_url {
-        Some(url) if operator => Some(url),
-        _ => None,
-    }
+/// Whether a bot is published: it is on the showcase, on the operator's
+/// account. The same choice on any other account's row is inert.
+pub fn is_published(bot: &Bot, operator: bool) -> bool {
+    operator && bot.on_showcase()
 }
 
 /// Round a balance to one significant digit (706 → 700, 1 234 → 1 000,
@@ -430,7 +429,6 @@ fn close_on(days: &[DayAgg], ts: i64) -> f64 {
 impl PublicBotSeries {
     pub fn new(
         bot: &Bot,
-        public_url: &str,
         series: &ReturnSeries,
         switches: &[ConfigSwitchEvent],
         days: &[DayAgg],
@@ -466,7 +464,7 @@ impl PublicBotSeries {
             id: public_id(&bot.user_id, &bot.id),
             name: bot.name.clone(),
             exchange: bot.exchange.as_str().to_string(),
-            public_url: public_url.to_string(),
+            public_url: bot.public_url.clone(),
             generated_at,
             current_return_pct,
             points,
@@ -549,7 +547,6 @@ mod public_tests {
         let series = compute_points(&days, 1000.0);
         let public = PublicBotSeries::new(
             &a_public_bot(),
-            LINK,
             &series,
             &[switch(DAY_S + 100, "tpl-a")],
             &days,
@@ -606,7 +603,6 @@ mod public_tests {
         assert_eq!(series.capital_resets, vec![2 * DAY_S]);
         let public = PublicBotSeries::new(
             &a_public_bot(),
-            LINK,
             &series,
             &[switch(DAY_S + 3600, "tpl-a"), switch(-DAY_S, "tpl-0")],
             &days,
@@ -634,28 +630,45 @@ mod public_tests {
         assert_ne!(id, public_id("u-2", "shown"), "per tenant");
         assert_eq!(a_public_bot().user_id, "u-1");
         assert_eq!(
-            PublicBotSeries::new(&a_public_bot(), LINK, &ReturnSeries::default(), &[], &[], 0).id,
+            PublicBotSeries::new(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0).id,
             id
         );
     }
 
     #[test]
-    fn public_material_is_none_without_a_link() {
+    fn a_bot_is_published_when_it_is_on_the_operators_showcase() {
         let private = Bot::create("u-1".into(), "quiet".into(), "ak".into(), "sk".into(), 1);
-        assert_eq!(showcase_link(&private, true), None);
-        assert_eq!(showcase_link(&a_public_bot(), true), Some(LINK));
+        assert!(!is_published(&private, true));
+        assert!(is_published(&a_public_bot(), true));
+        assert!(!is_published(&a_public_bot(), false), "not an operator");
     }
 
     #[test]
-    fn public_material_is_none_when_the_account_is_not_an_operator() {
-        assert_eq!(showcase_link(&a_public_bot(), false), None);
+    fn a_hidden_bot_is_not_published_and_an_unlinked_one_can_be() {
+        let mut hidden = a_public_bot();
+        hidden.set_showcase(false, 2);
+        assert!(!is_published(&hidden, true));
+
+        let mut unlinked = Bot::create("u-1".into(), "bare".into(), "ak".into(), "sk".into(), 1);
+        unlinked.set_showcase(true, 2);
+        assert!(is_published(&unlinked, true));
+        let series = PublicBotSeries::new(&unlinked, &ReturnSeries::default(), &[], &[], 0);
+        assert_eq!(series.public_url, None);
+        assert_eq!(
+            serde_json::to_value(&series).unwrap()["public_url"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            PublicBotSeries::new(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0).public_url,
+            Some(LINK.to_string())
+        );
     }
 
     #[test]
     fn the_index_sparkline_is_the_last_thirty_days_oldest_first() {
         let days: Vec<DayAgg> = (0..40).map(|d| day(d, 1.0, 1000.0 + d as f64)).collect();
         let series = compute_points(&days, 1000.0);
-        let public = PublicBotSeries::new(&a_public_bot(), LINK, &series, &[], &days, 0);
+        let public = PublicBotSeries::new(&a_public_bot(), &series, &[], &days, 0);
         let index = PublicIndex::new(&[public], 0);
         let spark = &index.bots[0].spark;
         assert_eq!(spark.len(), 30);

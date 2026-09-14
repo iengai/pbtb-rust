@@ -59,10 +59,11 @@ pub(crate) async fn function_handler(
     let (mut ok, mut failed, mut skipped) = (0u32, 0u32, 0u32);
     let mut operators = Operators::default();
     let mut public = Vec::new();
-    // The public files to leave in place: every bot the scan lists with a
-    // link, built this run or not. A fault on a still-public bot (a throttle,
-    // an S3 hiccup) keeps yesterday's file; a bot that lost its link, its
-    // role or its row is not in this set and loses its file.
+    // The public files to leave in place: every bot the scan lists as on the
+    // showcase, built this run or not. A fault on a still-public bot (a
+    // throttle, an S3 hiccup) keeps yesterday's file; a bot taken off the
+    // showcase, or that lost its role or its row, is not in this set and
+    // loses its file.
     let mut keep = HashSet::new();
     for bot in &bots {
         match process_bot(&state, bot, now_ms, &mut operators, &mut public).await {
@@ -70,7 +71,7 @@ pub(crate) async fn function_handler(
             Ok(false) => skipped += 1,
             Err(e) => {
                 failed += 1;
-                if bot.public_url.is_some() {
+                if bot.on_showcase() {
                     keep.insert(public_object(&bot.user_id, &bot.id));
                 }
                 tracing::warn!(
@@ -128,7 +129,7 @@ impl Operators {
 /// written, `Ok(false)` when the bot was skipped (unsupported exchange or no
 /// stored keys), `Err` on a real fetch/write fault.
 ///
-/// A bot the operator has given a public link also yields its showcase
+/// A bot the operator has put on the showcase also yields its showcase
 /// artifact, built from the stored state whether or not today's fetch
 /// succeeded: a Bybit fault leaves yesterday's public curve in place rather
 /// than a hole on the page. The operator lookup comes after the private
@@ -243,8 +244,8 @@ async fn process_bot(
     Ok(true)
 }
 
-/// Add the bot's showcase artifact when it has one: a link, on the
-/// operator's account. The account is read only for a bot with a link.
+/// Add the bot's showcase artifact when it has one: on the showcase, on the
+/// operator's account. The account is read only for a bot on the showcase.
 #[allow(clippy::too_many_arguments)]
 async fn push_public(
     state: &AppState,
@@ -256,15 +257,14 @@ async fn push_public(
     now_ms: i64,
     public: &mut Vec<model::PublicBotSeries>,
 ) -> anyhow::Result<()> {
-    let operator = if bot.public_url.is_some() {
+    let operator = if bot.on_showcase() {
         operators.is_operator(state, &bot.user_id).await?
     } else {
         false
     };
-    if let Some(url) = model::showcase_link(bot, operator) {
+    if model::is_published(bot, operator) {
         public.push(model::PublicBotSeries::new(
             bot,
-            url,
             returns,
             switches,
             days,
@@ -275,7 +275,7 @@ async fn push_public(
 }
 
 /// Write the showcase artifacts under the public prefix and remove the bot
-/// files not in `keep`, the objects of the bots the scan listed with a link.
+/// files not in `keep`, the objects of the bots the scan listed as shown.
 /// Returns how many were removed.
 ///
 /// The index is written on every run, empty when nothing is public, so the
