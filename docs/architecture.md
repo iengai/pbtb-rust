@@ -87,7 +87,7 @@ The dispatcher is built in `src/interface/telegram/router.rs`. It installs middl
 
 1. **commands** (`commands.rs`) — slash commands such as `/start` and `/list` (a `Command` enum deriving teloxide's `BotCommands`).
 2. **callbacks** (`callbacks.rs`) — inline keyboard button presses.
-3. **dialogue** (`dialogue.rs`) — stateful multi-step flows (add bot, delete bot, set risk level).
+3. **dialogue** (`dialogue.rs`) — stateful multi-step flows (add bot, overwrite a bot's keys, delete bot).
 
 Two in-memory stores back the conversation, injected into the dispatcher via teloxide's `InMemStorage`:
 
