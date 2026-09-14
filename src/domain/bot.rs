@@ -16,9 +16,12 @@ pub struct Bot {
     /// Read at launch only; a change applies on the next start.
     pub runtime: Runtime,
     /// The bot's Bybit copy-trading page, given by the operator with
-    /// `/public`. A bot that carries one is meant for the public showcase
-    /// page; `None` keeps its curve private.
+    /// `/public`. The showcase links to it; whether the bot is on the
+    /// showcase at all is `on_showcase`.
     pub public_url: Option<String>,
+    /// The operator's explicit showcase choice. `None` on a row that never
+    /// made one, which is on the showcase exactly when it carries a link.
+    pub showcase: Option<bool>,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -47,6 +50,7 @@ impl Bot {
             enabled,
             runtime,
             public_url: None,
+            showcase: None,
             created_at,
             updated_at,
         }
@@ -83,6 +87,7 @@ impl Bot {
             enabled: false,
             runtime: Runtime::default(),
             public_url: None,
+            showcase: None,
             created_at: now,
             updated_at: now,
         }
@@ -137,6 +142,19 @@ impl Bot {
         self.public_url = url;
         self.updated_at = now;
         Ok(())
+    }
+
+    /// Whether the bot is meant for the public showcase page. The link and the
+    /// choice are separate, so hiding a bot keeps its link and a bot without
+    /// one can still be shown.
+    pub fn on_showcase(&self) -> bool {
+        self.showcase.unwrap_or(self.public_url.is_some())
+    }
+
+    /// Record the operator's showcase choice.
+    pub fn set_showcase(&mut self, shown: bool, now: i64) {
+        self.showcase = Some(shown);
+        self.updated_at = now;
     }
 
     /// Move the bot to another runtime image. Takes effect on the next launch:
@@ -270,6 +288,30 @@ mod tests {
         bot.set_public_url(None, 400).unwrap();
         assert_eq!(bot.public_url, None);
         assert_eq!(bot.updated_at, 400);
+    }
+
+    #[test]
+    fn a_bot_without_a_choice_is_shown_exactly_when_it_has_a_link() {
+        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        assert!(!bot.on_showcase());
+        bot.set_public_url(Some("https://www.bybit.com/x".into()), 2)
+            .unwrap();
+        assert!(bot.on_showcase());
+    }
+
+    #[test]
+    fn the_showcase_choice_overrides_the_link_and_keeps_it() {
+        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        bot.set_public_url(Some("https://www.bybit.com/x".into()), 2)
+            .unwrap();
+        bot.set_showcase(false, 300);
+        assert!(!bot.on_showcase());
+        assert_eq!(bot.public_url.as_deref(), Some("https://www.bybit.com/x"));
+        assert_eq!(bot.updated_at, 300);
+
+        let mut unlinked = Bot::create("u".into(), "c".into(), "ak".into(), "sk".into(), 1);
+        unlinked.set_showcase(true, 400);
+        assert!(unlinked.on_showcase(), "a link is not required to be shown");
     }
 
     #[test]

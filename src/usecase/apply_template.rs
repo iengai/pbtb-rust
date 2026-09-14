@@ -168,6 +168,9 @@ mod tests {
         async fn exists(&self, name: &str) -> Result<bool, DomainError> {
             Ok(name == self.0.name)
         }
+        async fn save(&self, _template: &ConfigTemplate) -> Result<(), DomainError> {
+            unreachable!("applying never writes the template")
+        }
     }
 
     /// A single bot, or none when `bot` is `None`.

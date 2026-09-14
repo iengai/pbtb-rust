@@ -193,6 +193,46 @@ async fn public_url_round_trips() {
 }
 
 #[tokio::test]
+async fn the_showcase_choice_round_trips_beside_the_link() {
+    let Some(db) = common::dynamo::start().await else {
+        return;
+    };
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
+    let link = "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=abc";
+
+    let mut bot = Bot::create(
+        "user-1".to_string(),
+        "hidden-bot".to_string(),
+        "ak".to_string(),
+        "sk".to_string(),
+        1_700_000_000,
+    );
+    bot.set_public_url(Some(link.to_string()), 1_700_000_000)
+        .expect("a bybit link");
+    repo.save(&bot).await.expect("save");
+    let found = BotRepository::find(&repo, "user-1", "hidden-bot")
+        .await
+        .expect("find")
+        .expect("saved");
+    assert_eq!(found.showcase, None, "no choice made yet");
+    assert!(found.on_showcase());
+
+    bot.set_showcase(false, 1_700_000_100);
+    repo.save(&bot).await.expect("save hidden");
+    let found = BotRepository::find(&repo, "user-1", "hidden-bot")
+        .await
+        .expect("find")
+        .expect("saved");
+    assert_eq!(found.showcase, Some(false));
+    assert!(!found.on_showcase());
+    assert_eq!(
+        found.public_url.as_deref(),
+        Some(link),
+        "hiding keeps the link"
+    );
+}
+
+#[tokio::test]
 async fn start_lock_cas_and_lifecycle() {
     let Some(db) = common::dynamo::start().await else {
         return; // Docker unavailable: skip gracefully.

@@ -74,6 +74,9 @@ mod tests {
         async fn exists(&self, name: &str) -> Result<bool, DomainError> {
             Ok(self.0.iter().any(|t| t.name == name))
         }
+        async fn save(&self, _template: &ConfigTemplate) -> Result<(), DomainError> {
+            unreachable!("listing never writes")
+        }
     }
 
     fn template(name: &str, config_data: serde_json::Value) -> ConfigTemplate {

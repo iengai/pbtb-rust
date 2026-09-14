@@ -44,6 +44,27 @@ impl ConfigTemplate {
             == Some("operator")
     }
 
+    /// Publish the template to everyone, or retire it to the operator's
+    /// account (`pbtb.audience: "operator"`). A published template carries no
+    /// mark at all. Refused on a file whose root or `pbtb` block is not an
+    /// object, which is not a template this can edit without losing data.
+    pub fn set_operator_only(&mut self, operator_only: bool) -> Result<(), DomainError> {
+        let malformed =
+            || DomainError::InvalidConfig(format!("template {} is not an object", self.name));
+        let root = self.config_data.as_object_mut().ok_or_else(malformed)?;
+        let meta = root
+            .entry("pbtb")
+            .or_insert_with(|| serde_json::Value::Object(Default::default()))
+            .as_object_mut()
+            .ok_or_else(malformed)?;
+        if operator_only {
+            meta.insert("audience".to_string(), "operator".into());
+        } else {
+            meta.remove("audience");
+        }
+        Ok(())
+    }
+
     /// What a chooser shows the template as (`pbtb.title`): the name is an
     /// opaque id that says nothing about it. `None` on a template without one.
     pub fn title(&self) -> Option<&str> {
@@ -67,6 +88,9 @@ pub trait ConfigTemplateRepository: Send + Sync {
 
     /// Check if template exists
     async fn exists(&self, template_name: &str) -> Result<bool, DomainError>;
+
+    /// Write a template back under its name.
+    async fn save(&self, template: &ConfigTemplate) -> Result<(), DomainError>;
 }
 
 #[cfg(test)]
@@ -116,6 +140,39 @@ mod tests {
     #[test]
     fn the_audience_operator_reads_the_pbtb_block() {
         assert!(template(json!({ "pbtb": { "audience": "operator" } })).is_operator_only());
+    }
+
+    #[test]
+    fn retiring_marks_the_audience_and_publishing_removes_the_mark() {
+        let mut tpl = template(json!({ "pbtb": { "title": "T" }, "live": { "leverage": 3.0 } }));
+        tpl.set_operator_only(true).unwrap();
+        assert!(tpl.is_operator_only());
+        tpl.set_operator_only(false).unwrap();
+        assert!(!tpl.is_operator_only());
+        assert_eq!(
+            tpl.config_data,
+            json!({ "pbtb": { "title": "T" }, "live": { "leverage": 3.0 } }),
+            "a published template carries no mark, and nothing else moved"
+        );
+
+        let mut bare = template(json!({}));
+        bare.set_operator_only(true).unwrap();
+        assert!(
+            bare.is_operator_only(),
+            "a template without a pbtb block gains one"
+        );
+    }
+
+    #[test]
+    fn a_malformed_template_is_not_edited() {
+        for data in [json!([]), json!({ "pbtb": "x" })] {
+            let mut tpl = template(data.clone());
+            assert!(matches!(
+                tpl.set_operator_only(true),
+                Err(DomainError::InvalidConfig(_))
+            ));
+            assert_eq!(tpl.config_data, data);
+        }
     }
 
     #[test]

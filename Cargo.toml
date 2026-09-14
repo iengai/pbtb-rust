@@ -10,7 +10,9 @@ async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.4", features = ["v4"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# float_roundtrip: a template written back (the audience switch) keeps every
+# strategy float bit-exact.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 config = "0.13"
 teloxide = { version = "0.12", default-features = false, features = ["macros", "rustls", "ctrlc_handler"] }
 anyhow = "1.0.99"
