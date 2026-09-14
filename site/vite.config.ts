@@ -6,9 +6,10 @@ import { defineConfig, type Plugin } from "vite";
 
 // The template backtests (`templates/`, committed) and the sample showcase
 // (`data/`, which `npm run fixtures` copies in for a build without
-// `VITE_SHOWCASE_URL`, absent in a plain checkout) live at the project root rather than under `public/`. This plugin
-// makes each directory behave like `public/`: served verbatim in dev and
-// preview, copied verbatim into `dist/` at build, skipped when absent.
+// `VITE_SHOWCASE_URL`, absent in a plain checkout) live at the project root
+// rather than under `public/`. This plugin makes each directory behave like
+// `public/`: served verbatim in dev and preview, copied verbatim into `dist/`
+// at build, skipped when absent.
 function staticDirs(dirs: string[]): Plugin {
   const root = resolve(__dirname);
   const types: Record<string, string> = {
