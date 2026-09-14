@@ -144,6 +144,19 @@ def artifact_end(name: str) -> str | None:
         return None
 
 
+# The blocks of ours a template carries beside what passivbot reads.
+OURS = ("pbtb", "lab")
+
+
+def trading_sha(config: dict) -> str:
+    """The sha of what passivbot reads, over a canonical encoding: blind to our
+    blocks and to formatting, so a template whose audience the console switched
+    (which rewrites the object) still matches the backtest run on it."""
+    strategy = {k: v for k, v in config.items() if k not in OURS}
+    body = json.dumps(strategy, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 class Template:
     """One template file plus the metadata the site needs from it.
 
@@ -157,6 +170,7 @@ class Template:
         self.raw = path.read_bytes()
         self.source_sha = hashlib.sha256(self.raw).hexdigest()
         self.config = json.loads(self.raw.decode("utf-8"))
+        self.trading_sha = trading_sha(self.config)
         self.engine = detect_engine(self.config)
         self.end_date = end_date or artifact_end(self.name) or self.backtest.get("end_date")
 
@@ -269,7 +283,8 @@ def artifact_is_current(template: Template, source_dir: str | None = None) -> bo
     except (OSError, ValueError):
         return False
     return (
-        existing.get("source_sha") == template.source_sha
+        (existing.get("source_sha") == template.source_sha
+         or existing.get("trading_sha") == template.trading_sha)
         and existing.get("engine") == ENGINE_VERSION[template.engine]
         and existing.get("end") == template.end_date
         and existing.get("ohlcv_source_dir") == candle_dir(template, source_dir)
@@ -440,6 +455,7 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         "metrics": pick_metrics(analysis),
         "points": load_points(result_dir),
         "source_sha": template.source_sha,
+        "trading_sha": template.trading_sha,
         "generated_at": int(time.time()),
     }
 

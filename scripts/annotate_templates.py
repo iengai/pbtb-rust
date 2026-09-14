@@ -46,8 +46,9 @@ A template added after the tables below were written carries its lineage in
 its own ``lab`` block (``transfer_config_to_s3.py --lab``), and keeps it.
 
 Nothing passivbot reads is touched. The backtest artifacts' ``source_sha``
-follows the rewritten bytes where it matched the old ones, so the backtests
-are not re-run.
+follows the rewritten bytes where it matched the old ones, or where the
+artifact's ``trading_sha`` matches the strategy (an object the console
+rewrote), so the backtests are not re-run.
 
 Usage::
 
@@ -64,7 +65,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import write_index, write_json
+from backtest_templates import trading_sha, write_index, write_json
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, CATALOG, PREFIX, TABLE, aws, body_bytes
 from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
@@ -79,22 +80,6 @@ LAB_OWN = ("original_name", "readable_id", "status", "notes")
 
 GENOME = "6501db3f96"
 
-# Retired: offered to the operator's account only (`pbtb.audience:
-# "operator"`), absent from every listing a member or a visitor sees, still
-# applicable by the operator. Any other id is published, offered to everyone,
-# and carries no mark.
-RETIRED: frozenset[str] = frozenset({
-    # the seven v7 lab generations
-    "tpl-2vewmtjy", "tpl-35c6wt6w", "tpl-8bzdh8ay", "tpl-8ctkayqd", "tpl-mvgw3zk4",
-    "tpl-tavc364d", "tpl-xhdfc2ws",
-    # the six v7 xrp one-offs
-    "tpl-fhhjk83e", "tpl-jwzxkxkh", "tpl-kypvfxgd", "tpl-nkh4sfw4", "tpl-rwqvrc6u",
-    "tpl-sappt9w2",
-    # v8 mix10/mix8 tunings that fail the lab's bear-leg gate (drawdown <= 0.50 started
-    # 2025-10-25 and 2025-11-01, to 2026-03-01) at their capital: the lab's NOTES.md,
-    # "round-15 熊市感知优化" (ref rows), and results/round15/harvest_*.log
-    "tpl-5syk2duu", "tpl-8brpubqf", "tpl-bzwt9jn2", "tpl-m5xse3az",
-})
 ORIGINAL = {readable: old for old, (readable, _, _) in CATALOG.items()}
 
 
@@ -250,13 +235,13 @@ def audience_of(meta: dict) -> str:
     return "operator" if meta.get("audience") == "operator" else "everyone"
 
 
-def annotate(raw: dict, readable: str, tid: str | None = None) -> dict:
-    """`tid` is the id the audience is keyed by; it defaults to the id the
-    block names."""
+def annotate(raw: dict, readable: str) -> dict:
     meta = dict(raw.get("pbtb") or {})
-    if (tid or meta.get("name")) in RETIRED:
-        meta["audience"] = "operator"
-    else:
+    # Retired (`audience: "operator"`, the operator's account alone) or
+    # published is switched on the console's Configs page, which writes the
+    # object; the bucket is the record, so a run keeps the mark it finds and
+    # drops only a value that is not the operator's.
+    if meta.get("audience") != "operator":
         meta.pop("audience", None)
     previous = raw.get(LAB_KEY) or {}
 
@@ -304,7 +289,7 @@ def ordered(meta: dict) -> dict:
 
 def curate(group: dict[str, dict]) -> dict[str, dict]:
     """id -> the annotated body, for templates listed together."""
-    out = {tid: annotate(raw, readable_of(raw, tid), tid) for tid, raw in group.items()}
+    out = {tid: annotate(raw, readable_of(raw, tid)) for tid, raw in group.items()}
     for tid, (title, title_zh) in titles({t: b["pbtb"] for t, b in out.items()}).items():
         out[tid]["pbtb"]["title"] = title
         out[tid]["pbtb"]["title_zh"] = title_zh
@@ -323,11 +308,16 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
         return False
     art = json.loads(path.read_text(encoding="utf-8"))
     changed = False
-    if art.get("source_sha") != sha(old):
+    # Current when it was run on these bytes, or on the same strategy under
+    # other metadata: the console rewrites an object to switch its audience.
+    strategy = trading_sha(json.loads(old))
+    if art.get("source_sha") != sha(old) and art.get("trading_sha") != strategy:
         print("    artifact was already stale; source_sha left for backtest_templates.py")
-    elif new != old:
-        art["source_sha"] = sha(new)
-        changed = True
+    else:
+        for field, value in (("source_sha", sha(new)), ("trading_sha", strategy)):
+            if art.get(field) != value:
+                art[field] = value
+                changed = True
     for field in ARTIFACT_FIELDS:
         if art.get(field) != meta.get(field):
             art[field] = meta.get(field)

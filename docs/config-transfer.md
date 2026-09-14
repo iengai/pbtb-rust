@@ -57,8 +57,9 @@ is the console's, `lab` is ours.
   its Retired tab — and its site page stays reachable by link. Absent means
   **published**: everyone. `min_vip_level` (absent = 0) is the other gate, on
   level rather than role: applying above it is refused, listing is not.
-  `annotate_templates.py` stamps the audience from its `RETIRED` set and
-  strips it elsewhere.
+  The operator switches it on the console's Configs page
+  (`PUT /api/v1/templates/{id}/audience`); `annotate_templates.py` keeps the
+  mark the object carries.
 - `exchange` — whose market data the strategy was tuned on.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
@@ -170,10 +171,12 @@ python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --uploa
 ### Retiring one
 
 A template the owner stops publishing but still runs on their own bots is
-retired: its id goes into `annotate_templates.py`'s `RETIRED` set and `--apply`
-stamps `pbtb.audience: "operator"` on it (and strips the mark from an id taken
-out of the set). Nothing moves: the operator keeps applying it, everyone else
-stops seeing it.
+retired: signed in as the operator, open its page on the console's Configs list
+and press Retire (Publish undoes it). That writes `pbtb.audience: "operator"`
+into the object. Nothing moves: the operator keeps applying it, everyone else
+stops seeing it. The static catalogue (`site/templates/index.json`) follows on
+the next `annotate_templates.py --apply` and site publish; the rewrite does not
+make its backtest stale (`trading_sha`).
 
 ### Archiving one
 
