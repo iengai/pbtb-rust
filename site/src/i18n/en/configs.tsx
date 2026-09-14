@@ -88,5 +88,12 @@ export const configs = {
     position_held_hours_mean: "Position held (h, mean)",
     loss_profit_ratio: "Loss / profit",
     backtest_completion_ratio: "Window completed",
+    drawdown_worst_mean_1pct: "Drawdown (worst 1% mean)",
+    omega_ratio: "Omega",
+    sterling_ratio: "Sterling",
+    position_unchanged_hours_max: "Position unchanged (h, max)",
+    equity_balance_diff_neg_max: "Unrealized loss (max)",
+    exposure_ratios_mean_long: "Exposure (long, mean)",
+    exposure_ratios_mean_short: "Exposure (short, mean)",
   },
 };
