@@ -14,7 +14,7 @@ import {
   engineLabel,
   templateTitle,
 } from "../components/ui";
-import { staticData, type TemplateBacktest } from "../data/static";
+import { isRetired, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
 import { metricRows, wipedOut } from "./metrics";
@@ -29,15 +29,24 @@ export function ConfigDetail() {
   const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
   const operator = me.data?.role === "operator";
   // The operator reads the audience live, so the switch below shows its result
-  // at once; everyone else reads the published backtest's.
+  // at once; everyone else reads the public overlay the switch rewrites, and
+  // the published backtest's own mark while there is none.
   const live = useLoad(
     () => (operator ? api.listTemplates() : Promise.resolve(null)),
     operator ? "templates:live" : "templates:live:none",
   );
+  const overlay = useLoad(
+    () => (operator ? Promise.resolve(null) : staticData.templatesPublished()),
+    operator ? "templates:published:none" : "templates:published",
+  );
   const liveAudience = live.data?.templates.find((tpl) => tpl.name === name)?.audience;
   // A retired template is applied by the operator's account alone; the page
   // shows everyone the backtest and offers the apply to no one else.
-  const retired = liveAudience ? liveAudience === "operator" : data?.audience === "operator";
+  const retired = liveAudience
+    ? liveAudience === "operator"
+    : data
+      ? isRetired(data, overlay.data ?? null)
+      : false;
   const canApply = !retired || operator;
   const [applying, setApplying] = useState(false);
   const [switching, setSwitching] = useState(false);

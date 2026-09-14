@@ -66,7 +66,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import write_index, write_json
+from backtest_templates import republish_template_audiences, write_index, write_json
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
@@ -454,6 +454,8 @@ def main() -> int:
     bodies = migrate_s3(args.profile, args.apply, write=not args.artifacts_only)
     print("site/templates:")
     migrate_site(bodies, args.apply)
+    if args.apply:
+        republish_template_audiences(args.profile)
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")
     return 0
