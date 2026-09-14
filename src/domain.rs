@@ -12,6 +12,7 @@ pub mod returncurve;
 pub mod runtime;
 pub mod secret;
 pub mod showcase;
+pub mod templateaudience;
 pub mod user;
 
 pub use bot::{ApiKeyRepository, Bot, BotRepository};
@@ -27,4 +28,5 @@ pub use returncurve::ReturnCurveRepository;
 pub use runtime::{BotRuntimeRepository, RuntimePhase, StartLockRepository};
 pub use secret::{random_token, token_digest};
 pub use showcase::{Published, ShowcasePublisher};
+pub use templateaudience::{PublishedTemplates, TemplateAudiencePublisher};
 pub use user::{Role, User, UserRepository, UserStatus};

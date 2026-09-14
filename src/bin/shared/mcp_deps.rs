@@ -13,7 +13,7 @@ use pbtb_rust::infra::client::{
 };
 use pbtb_rust::infra::{
     DynamoBotRepository, S3ApiKeyRepository, S3BotConfigRepository, S3ReturnCurveRepository,
-    S3ShowcaseStore, S3TemplateRepository,
+    S3ShowcaseStore, S3TemplateAudienceStore, S3TemplateRepository,
 };
 use pbtb_rust::interface::{api, mcp};
 use pbtb_rust::usecase::*;
@@ -63,8 +63,12 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
     });
 
     let clock = Arc::new(SystemClock);
-    // The showcase switch publishes to the same chart bucket; where none is
-    // configured it saves the choice alone.
+    // The template switch and the showcase switch publish to the same chart
+    // bucket; where none is configured each saves its choice alone.
+    let template_audience_publisher = configs.chart.as_ref().map(|chart| {
+        Arc::new(S3TemplateAudienceStore::new(s3_client.clone(), chart))
+            as Arc<dyn domain::TemplateAudiencePublisher>
+    });
     let showcase_publisher = configs.chart.as_ref().map(|chart| {
         Arc::new(S3ShowcaseStore::new(s3_client, chart, clock.clone()))
             as Arc<dyn domain::ShowcasePublisher>
@@ -88,8 +92,11 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
         clock.clone(),
     ));
     let get_template_usecase = Arc::new(GetTemplateUseCase::new(templates.clone()));
-    let set_template_audience_usecase =
-        Arc::new(SetTemplateAudienceUseCase::new(templates.clone()));
+    let set_template_audience_usecase = Arc::new(SetTemplateAudienceUseCase::new(
+        templates.clone(),
+        clock.clone(),
+        template_audience_publisher,
+    ));
     let showcase_usecase = Arc::new(BotShowcaseUseCase::new(
         bots.clone(),
         clock.clone(),
