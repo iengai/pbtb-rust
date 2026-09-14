@@ -81,21 +81,11 @@ passivbot_engines = {
 # without RunTask overrides.
 #
 # Only line-8 bots can be shadowed: the image is built `engine-v8` and refuses
-# a v7 config at startup. Of the four live bots today, `xxbot` (516903813) and
-# `abot` (415196485) are v8.1.0; DollarDigger (436713564) and Low-Risk Trader
-# (516889601) are v7.12.0 and need P7 first.
+# a v7 config at startup. A shadow is only worth running beside a bot on the py
+# runtime; once that bot runs rs, its shadow is rs-against-rs and comes out of
+# this map.
 passivbot_shadows = {
-  # xxbot's bot attribute is already runtime=rs, but its task has run the Python
-  # image since 2026-09-05: the attribute is read at launch only. On its next
-  # start this silently becomes an rs-against-rs shadow, not a parity one.
-  xxbot = { user_id = "5351347639", bot_id = "516903813" }
-
-  # rs against py on one shared v8 config. paper2 has run the Python runtime
-  # (bot attribute runtime=py) since the 2026-09-11 swap that moved abot to
-  # Rust; that swap turned the abot shadow into rs-against-rs, so it was retired
-  # along with dollardigger_v8ref, whose account is now on Rust too and whose
-  # v8ref copy no longer matches the live config. Every shadow here is meant to
-  # sit beside a Python bot.
+  # rs against py on one shared v8 config: paper2 runs runtime=py.
   #
   # paper2's account is small (~42 USDT), so its orders sit near the exchange
   # minimum. That is a property of the account, not of either runtime.
