@@ -1,9 +1,10 @@
 // The static JSON the pages read without a token, none of it tenant data:
 // `templates/`, the backtests of the strategy templates (committed, published
-// beside the app), and the showcase, the operator's shown bots, read from
-// `VITE_SHOWCASE_URL` (the showcase CDN over the chart bucket's `public/`
-// prefix). Unset, the showcase is `data/` beside the app, the sample
-// `npm run fixtures` copies in. A signed-in account's own return curves are
+// beside the app), and from `VITE_SHOWCASE_URL` (the showcase CDN over the
+// chart bucket's `public/` prefix) the showcase, the operator's shown bots,
+// and `templates/audience.json`, the templates published now. Unset, both are
+// read from `data/` beside the app, where `npm run fixtures` copies the
+// showcase sample and no overlay. A signed-in account's own return curves are
 // not here: they come through the API.
 
 const BASE = import.meta.env.BASE_URL;
