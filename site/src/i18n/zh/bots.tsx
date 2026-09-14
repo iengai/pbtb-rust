@@ -23,7 +23,7 @@ export const bots: typeof en = {
       actual: "实际",
       desired: "期望",
       config: "配置",
-      runtime: "运行时",
+      runtime: "执行程序",
     },
     empty: "还没有机器人，添加一个即可开始。",
     note:
@@ -41,7 +41,7 @@ export const bots: typeof en = {
     desiredRuntime: (enabled, runtime) => (
       <>
         期望：{enabled}
-        {" · "}运行时：{runtime}
+        {" · "}执行程序：{runtime}
       </>
     ),
     taskObserved: (when) => `上次观测到任务：${when}`,
@@ -72,7 +72,7 @@ export const bots: typeof en = {
     coins: "币种",
     noConfig: "还没有配置，选择一个后机器人才能运行。",
     changeConfig: "更换配置",
-    runtime: "运行时",
+    runtime: "执行程序",
     configHint: "改动会在机器人下次启动或重启时生效。正在运行的任务仍使用启动时的配置。",
     balance: "余额",
     balanceHint: "余额查询尚未提供。",
@@ -133,7 +133,7 @@ export const bots: typeof en = {
   // --- BotDetail：机器人启动所用的镜像 ---
   runtimeModal: {
     hint: "机器人在其引擎线内启动时使用的镜像。正在运行的任务仍使用启动时的二进制。",
-    saved: (runtime) => `运行时已设为 ${runtime}。`,
+    saved: (runtime) => `执行程序已设为 ${runtime}。`,
   },
 
   // --- AddBot：名称、API Key、API Secret ---
