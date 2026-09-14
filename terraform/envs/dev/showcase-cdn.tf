@@ -1,6 +1,7 @@
 # The showcase CDN: the public pages read the chart bucket's `public/` prefix
-# through it, so a showcase switch reaches them as soon as its objects are
-# written and the short cache expires, with no site rebuild.
+# through it (the showcase, and the template catalogue's audience overlay), so
+# a showcase or template switch reaches them as soon as its objects are written
+# and the short cache expires, with no site rebuild.
 #
 # Scoped to `public/` twice: the origin path, and the bucket policy's resource.
 # Its own file so a scoped apply of it never sweeps in the NAT instance — see

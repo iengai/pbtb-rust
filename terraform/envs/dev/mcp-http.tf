@@ -173,8 +173,8 @@ resource "aws_lambda_permission" "mcp_http_invoke" {
 
 # The tools drive the same use cases telebot does, so they need the same access:
 # the bots table (including the CAS start lock), the config bucket, and RunTask;
-# the REST surface adds a read of the chart bucket's per-tenant series and the
-# showcase switch's writes to its public prefix.
+# the REST surface adds a read of the chart bucket's per-tenant series, and the
+# showcase switch's and the template switch's writes to its public prefix.
 resource "aws_iam_role_policy" "mcp_http_app" {
   count = local.mcp_http_enabled
 
@@ -236,6 +236,14 @@ resource "aws_iam_role_policy" "mcp_http_app" {
         Effect   = "Allow"
         Action   = ["s3:DeleteObject"]
         Resource = "${module.chart_bucket.bucket_arn}/${local.chart_public_prefix}/bots/*"
+      },
+      {
+        # The template switch rewrites the public catalogue's overlay, the ids
+        # of the templates offered to everyone, whole. It never reads it back.
+        Sid      = "WritePublicTemplateAudiences"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_public_prefix}/templates/audience.json"
       },
       {
         # ListBucket so a GetObject on a bot the collector has not written yet
