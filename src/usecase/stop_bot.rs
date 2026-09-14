@@ -118,12 +118,7 @@ impl StopBotUseCase {
                                     Ok(TaskLiveness::Gone) => {
                                         if let Err(e) = self
                                             .runtimes
-                                            .record(&BotRuntime::stopped(
-                                                user_id.to_string(),
-                                                bot_id.to_string(),
-                                                version,
-                                                now,
-                                            ))
+                                            .settle_stopped(user_id, bot_id, &task_id, version, now)
                                             .await
                                         {
                                             tracing::warn!(

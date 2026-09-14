@@ -490,10 +490,80 @@ async fn stopping_write_is_identity_guarded() {
     assert_eq!(after.version, claimed_version, "version untouched");
 }
 
-/// A terminal STOPPED always settles a `stopping` row, even one stamped slightly
-/// in the future by a clock-ahead telebot — otherwise a dropped settlement would
-/// leave the row stuck `stopping` forever (there is no sweeper). The same clause
-/// must NOT let a stale STOPPED clobber a genuinely newer `running` row.
+/// A `stopping` row settles only on the STOPPED of the task it is stopping. A
+/// late STOPPED for a superseded task settling `stopping(Y)` would let a Run
+/// pass the start lock's `stopped` clause while Y is still alive.
+#[tokio::test]
+async fn a_stopped_write_for_another_task_does_not_settle_a_stopping_row() {
+    let Some(db) = common::dynamo::start().await else {
+        return; // Docker unavailable: skip gracefully.
+    };
+    let repo = DynamoBotRepository::new(db.client.clone(), db.table.clone());
+    let (u, b) = ("user-1", "superseded-bot");
+
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::running(u.into(), b.into(), "task-y".into(), 2, 2000),
+    )
+    .await
+    .unwrap();
+    BotRuntimeRepository::record(
+        &repo,
+        &BotRuntime::stopping(u.into(), b.into(), "task-y".into(), 2, 2100),
+    )
+    .await
+    .unwrap();
+
+    // STOPPED for the superseded task-x, both older and newer than the stamp.
+    for observed_at in [1500, 2200] {
+        BotRuntimeRepository::settle_stopped(&repo, u, b, "task-x", 2, observed_at)
+            .await
+            .unwrap();
+        let rt = BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            rt.phase,
+            RuntimePhase::Stopping,
+            "STOPPED(task-x) at {observed_at} must not settle stopping(task-y)"
+        );
+        assert_eq!(rt.task_id.as_deref(), Some("task-y"));
+    }
+    // A stopped write that names no task does not settle it either.
+    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 2, 2200))
+        .await
+        .unwrap();
+    assert_eq!(
+        BotRuntimeRepository::find(&repo, u, b)
+            .await
+            .unwrap()
+            .unwrap()
+            .phase,
+        RuntimePhase::Stopping
+    );
+    assert_eq!(
+        repo.try_acquire_start(u, b, 2300, 600).await.unwrap(),
+        StartClaim::AlreadyStopping,
+        "a Run still waits for task-y"
+    );
+
+    // task-y's own STOPPED settles it.
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-y", 2, 2150)
+        .await
+        .unwrap();
+    let settled = BotRuntimeRepository::find(&repo, u, b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(settled.phase, RuntimePhase::Stopped);
+    assert_eq!(settled.task_id, None);
+}
+
+/// The STOPPED of the task a `stopping` row names settles it, even when the row
+/// was stamped in the future by a clock-ahead telebot; otherwise a dropped
+/// settlement would leave the row stuck `stopping` (there is no sweeper). A stale
+/// STOPPED must still NOT clobber a genuinely newer `running` row.
 #[tokio::test]
 async fn terminal_stopped_settles_future_stamped_stopping() {
     let Some(db) = common::dynamo::start().await else {
@@ -525,7 +595,7 @@ async fn terminal_stopped_settles_future_stamped_stopping() {
     );
 
     // A terminal STOPPED with an EARLIER observed_at still settles it.
-    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 1, 3000))
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-1", 1, 3000)
         .await
         .unwrap();
     let settled = BotRuntimeRepository::find(&repo, u, b)
@@ -546,7 +616,7 @@ async fn terminal_stopped_settles_future_stamped_stopping() {
     )
     .await
     .unwrap();
-    BotRuntimeRepository::record(&repo, &BotRuntime::stopped(u.into(), b.into(), 2, 3500))
+    BotRuntimeRepository::settle_stopped(&repo, u, b, "task-1", 2, 3500)
         .await
         .unwrap();
     let still = BotRuntimeRepository::find(&repo, u, b)

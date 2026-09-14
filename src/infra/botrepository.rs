@@ -505,11 +505,14 @@ impl BotRuntimeRepository for DynamoBotRepository {
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
         let metadata = BotECSTaskMetadata::from_domain(runtime);
 
-        // Monotonic, phase-aware write. Both writers (reconcile + record-running)
-        // stamp the EventBridge event time in whole seconds, so RUNNING and STOPPED
-        // of one bot can land on the same second; events can also arrive out of
-        // order or concurrently. Rules, enforced atomically at commit so a
-        // non-atomic read-then-write can't lose to a race:
+        // Monotonic, phase-aware write. Its production callers are record-running
+        // (Running) and StopBot/Restart (Stopping, identity-guarded below); a
+        // STOPPED from reconcile or StopBot goes through `settle_stopped`, which
+        // applies the same time order to rows that are not `stopping`. Event times
+        // are whole seconds, so RUNNING and STOPPED of one bot can land on the same
+        // second; events can also arrive out of order or concurrently. Rules,
+        // enforced atomically at commit so a non-atomic read-then-write can't lose
+        // to a race:
         //   - a strictly newer observation always wins;
         //   - at an equal second a STOPPED wins the tie (terminal state), so a
         //     RUNNING must not overwrite a STOPPED stamped the same second (RUNNING
@@ -525,14 +528,10 @@ impl BotRuntimeRepository for DynamoBotRepository {
             .set_item(Some(metadata.to_item()));
 
         let put = match runtime.phase {
-            // A terminal STOPPED always settles the row, INCLUDING a `stopping`
-            // one stamped slightly in the future by a clock-ahead telebot — without
-            // the `#st = :stopping` clause a dropped settlement could leave the row
-            // stuck `stopping` forever (there is no periodic sweeper). It only ever
-            // fires while the row is actually `stopping`, so it cannot clobber a
-            // newer `running`.
+            // A STOPPED that names no task never settles a `stopping` row, whatever
+            // its stamp; `settle_stopped`, which knows the task, is the write that may.
             RuntimePhase::Stopped => put
-                .condition_expression("attribute_not_exists(task_updated_at) OR task_updated_at <= :observed_at OR #st = :stopping")
+                .condition_expression("attribute_not_exists(task_updated_at) OR (#st <> :stopping AND task_updated_at <= :observed_at)")
                 .expression_attribute_names("#st", "status")
                 .expression_attribute_values(":observed_at", observed_at)
                 .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string())),
@@ -569,25 +568,69 @@ impl BotRuntimeRepository for DynamoBotRepository {
                 .expression_attribute_values(":observed_at", observed_at),
         };
 
-        match put.send().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if e.as_service_error()
-                    .map(|se| se.is_conditional_check_failed_exception())
-                    .unwrap_or(false)
-                {
-                    // A newer (or tie-winning) observation already holds the row; dropping this one is correct.
-                    tracing::info!(
-                        "runtime write skipped (stale observed_at={}, phase={}): pk={}, sk={}",
-                        runtime.observed_at,
-                        runtime.phase.as_str(),
-                        metadata.pk,
-                        metadata.sk
-                    );
-                    Ok(())
-                } else {
-                    Err(sdk_err("DynamoDB put_item failed", e))
-                }
+        send_runtime_put(put, runtime, &metadata).await
+    }
+
+    /// A `stopping` row settles only on the STOPPED of the task it is stopping,
+    /// whatever either stamp says. That settles a row a clock-ahead telebot
+    /// stamped in the future (with no sweeper, a dropped settlement would leave it
+    /// `stopping`), and refuses a late STOPPED for a superseded task, which would
+    /// let a Run pass the start lock's `stopped` clause beside the still-live
+    /// task. Any other row follows the observed-time order `record` applies.
+    async fn settle_stopped(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        task_id: &str,
+        version: i64,
+        observed_at: i64,
+    ) -> Result<(), DomainError> {
+        let runtime = BotRuntime::stopped(
+            user_id.to_string(),
+            bot_id.to_string(),
+            version,
+            observed_at,
+        );
+        let metadata = BotECSTaskMetadata::from_domain(&runtime);
+        let put = self
+            .client
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(metadata.to_item()))
+            .condition_expression("attribute_not_exists(task_updated_at) OR (#st = :stopping AND task_id = :expected_task) OR (#st <> :stopping AND task_updated_at <= :observed_at)")
+            .expression_attribute_names("#st", "status")
+            .expression_attribute_values(":observed_at", AttributeValue::N(observed_at.to_string()))
+            .expression_attribute_values(":stopping", AttributeValue::S("stopping".to_string()))
+            .expression_attribute_values(":expected_task", AttributeValue::S(task_id.to_string()));
+        send_runtime_put(put, &runtime, &metadata).await
+    }
+}
+
+/// Sends an observed-runtime write. A failed condition means the row already
+/// holds an observation this one must not overwrite (newer, tie-winning, or of
+/// another task), so the write is dropped; any other failure is returned.
+async fn send_runtime_put(
+    put: aws_sdk_dynamodb::operation::put_item::builders::PutItemFluentBuilder,
+    runtime: &BotRuntime,
+    metadata: &BotECSTaskMetadata,
+) -> Result<(), DomainError> {
+    match put.send().await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if e.as_service_error()
+                .map(|se| se.is_conditional_check_failed_exception())
+                .unwrap_or(false)
+            {
+                tracing::info!(
+                    "runtime write skipped (condition not met, observed_at={}, phase={}): pk={}, sk={}",
+                    runtime.observed_at,
+                    runtime.phase.as_str(),
+                    metadata.pk,
+                    metadata.sk
+                );
+                Ok(())
+            } else {
+                Err(sdk_err("DynamoDB put_item failed", e))
             }
         }
     }
