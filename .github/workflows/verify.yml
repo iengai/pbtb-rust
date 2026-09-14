@@ -40,7 +40,7 @@ jobs:
 
       # Keep in sync with rust-toolchain.toml, which is what actually governs;
       # naming the version here only saves rustup a second download.
-      - uses: dtolnay/rust-toolchain@1.89
+      - uses: dtolnay/rust-toolchain@1.120
         with:
           components: rustfmt, clippy
 
