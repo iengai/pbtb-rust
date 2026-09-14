@@ -4,6 +4,7 @@ pub mod botconfigrepository;
 pub mod botrepository;
 pub mod client;
 pub mod configtemplaterepository;
+pub mod publicobjects;
 pub mod returncurverepository;
 pub mod showcasestore;
 
