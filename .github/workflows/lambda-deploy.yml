@@ -7,7 +7,7 @@ name: lambda-deploy
 # source_code_hash drift; see terraform/modules/lambda/base).
 #
 # The binary is built through the SAME builder stage the devcontainer/telebot use
-# (.devcontainer/Dockerfile, FROM rust:1.89-bookworm), which references no symbol
+# (.devcontainer/Dockerfile, FROM rust:1.98-bookworm), which references no symbol
 # above GLIBC_2.34 — exactly the glibc AL2023 ships. A plain `cargo build` on the
 # ubuntu-24.04 runner links against glibc 2.39 and could fail on the Lambda host.
 #
@@ -71,7 +71,7 @@ jobs:
           path: |
             cargo-registry-cache
             cargo-target-cache
-          key: lambda-buildkit-${{ hashFiles('Cargo.lock') }}
+          key: lambda-buildkit-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             lambda-buildkit-
 

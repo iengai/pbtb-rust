@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7-labs
 ######## Build ########
-FROM rust:1.89-bookworm AS builder
+FROM rust:1.98-bookworm AS builder
 # Only fresh CA certs. Every TLS stack in the tree is rustls (teloxide, reqwest,
 # the AWS SDK), so nothing links system OpenSSL — do not add libssl-dev here: it
 # buys the build nothing and only drags in a security-suite package whose pool
@@ -82,7 +82,7 @@ CMD ["/app/pbtb-rust"]
 
 ######## Lambda export ########
 # Emits ONLY the Lambda bootstrap binary so CI can extract it without a runtime
-# image. Built against the same `builder` stage (FROM rust:1.89-bookworm), which
+# image. Built against the same `builder` stage (FROM rust:1.98-bookworm), which
 # references no symbol above GLIBC_2.34 — exactly the glibc AL2023 ships — so the
 # bootstrap resolves on the Lambda host. Building on the CI runner's own glibc
 # (2.39) would link symbols the Lambda runtime lacks.
