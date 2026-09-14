@@ -173,7 +173,8 @@ resource "aws_lambda_permission" "mcp_http_invoke" {
 
 # The tools drive the same use cases telebot does, so they need the same access:
 # the bots table (including the CAS start lock), the config bucket, and RunTask;
-# the REST surface adds a read of the chart bucket's per-tenant series.
+# the REST surface adds a read of the chart bucket's per-tenant series and the
+# showcase switch's writes to its public prefix.
 resource "aws_iam_role_policy" "mcp_http_app" {
   count = local.mcp_http_enabled
 
@@ -206,6 +207,35 @@ resource "aws_iam_role_policy" "mcp_http_app" {
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = "${module.chart_bucket.bucket_arn}/${local.chart_key_prefix}/*"
+      },
+      {
+        # The showcase switch publishes a bot from the collector's private copy
+        # of its artifact and rebuilds the listing from what is published. The
+        # function is internet-facing and these objects reach the public pages,
+        # so it names the two public shapes and nothing else under the prefix.
+        Sid      = "ReadShowcaseArtifacts"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_showcase_prefix}/bots/*"
+      },
+      {
+        # Read back to rebuild the listing from what is published.
+        Sid      = "WritePublicShowcaseArtifacts"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_public_prefix}/bots/*"
+      },
+      {
+        Sid      = "WritePublicShowcaseListing"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_public_prefix}/index.json"
+      },
+      {
+        Sid      = "WithdrawPublicShowcase"
+        Effect   = "Allow"
+        Action   = ["s3:DeleteObject"]
+        Resource = "${module.chart_bucket.bucket_arn}/${local.chart_public_prefix}/bots/*"
       },
       {
         # ListBucket so a GetObject on a bot the collector has not written yet
