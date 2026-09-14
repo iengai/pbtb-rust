@@ -35,13 +35,13 @@ export type TemplateBacktest = TemplateSummary & {
 };
 
 // One showcase bot in `data/index.json`: an opaque id (the collector's hash,
-// stable across renames), the copy-trading page it links to, and the last 30
-// daily returns as a sparkline.
+// stable across renames), the copy-trading page it links to (null on a bot
+// shown without one), and the last 30 daily returns as a sparkline.
 export type ShowcaseEntry = {
   id: string;
   name: string;
   exchange: string;
-  public_url: string;
+  public_url: string | null;
   current_return_pct: number;
   spark: number[];
 };
@@ -58,7 +58,7 @@ export type ShowcaseBot = {
   id: string;
   name: string;
   exchange: string;
-  public_url: string;
+  public_url: string | null;
   generated_at: number;
   current_return_pct: number;
   points: ShowcasePoint[];

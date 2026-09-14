@@ -11,6 +11,22 @@ export const showcase = {
   onBybit: "View on Bybit",
   col: { bot: "Bot", trend: (days: number) => `Last ${days} days` },
   updated: (date: string) => `updated ${date} UTC`,
+  // The operator's switchboard: which of their own bots the public page shows.
+  manage: {
+    cta: "Manage showcase",
+    title: "Manage showcase",
+    lead: "Your own bots. Choose which ones the public showcase shows; hiding a bot keeps its Bybit link.",
+    operatorOnly: "The showcase is managed from the operator's account.",
+    loading: "bots",
+    col: { bot: "Bot", link: "Bybit link", state: "Showcase" },
+    shown: "Public",
+    hidden: "Hidden",
+    noLink: "no link",
+    show: "Show",
+    hide: "Hide",
+    empty: "No bots yet.",
+    note: "The public page follows after the next daily collection and site publish.",
+  },
   runs: {
     title: "Live runs",
     lead: (max: number) =>

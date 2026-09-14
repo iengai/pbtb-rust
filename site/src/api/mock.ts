@@ -4,7 +4,7 @@
 
 import { saveSession } from "../auth/oauth";
 import { api, ApiError } from "./client";
-import type { BotDetail, BotSummary, ConfigDescription, Me, Phase } from "./types";
+import type { BotDetail, BotSummary, ConfigDescription, Me, Phase, TemplateListing } from "./types";
 import type { BotReturnSeries } from "../chart/returnCurve";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -134,6 +134,18 @@ const me: Me = {
     { provider: "telegram", subject: "5351234539" },
   ],
 };
+
+// Each bot's link and showcase choice, by bot id; a bot not named here has neither.
+const showcase: Record<string, { public_url: string | null; public: boolean }> = {
+  "b-dollardigger": { public_url: "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=mock1", public: true },
+  "b-lowrisk": { public_url: "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=mock2", public: false },
+};
+
+const templates: TemplateListing[] = [
+  { name: "tpl-bzwt9jn2", title: "10-coin basket · Balanced · $1k · BZWT", min_vip_level: 0, audience: "everyone" },
+  { name: "tpl-8ctkayqd", title: "8-coin basket · Bold · $300 · 8CTK", min_vip_level: 0, audience: "operator" },
+  { name: "tpl-san8qrvj", title: "3-coin basket · Steady · $100", min_vip_level: 3, audience: "everyone" },
+];
 
 const summary = (b: BotDetail): BotSummary => ({
   bot_id: b.bot_id,
@@ -267,14 +279,31 @@ export function installMock(): void {
       if (b.phase === null) return Promise.reject(new ApiError(404, { error: "not found" }, "not found"));
       return delay(fakeSeries(b));
     },
-    listTemplates: () =>
+    showcaseCandidates: () =>
       delay({
-        templates: [
-          { name: "tpl-bzwt9jn2", title: "10-coin basket · Balanced · $1k · BZWT", min_vip_level: 0, audience: "everyone" },
-          { name: "tpl-8ctkayqd", title: "8-coin basket · Bold · $300 · 8CTK", min_vip_level: 0, audience: "operator" },
-          { name: "tpl-san8qrvj", title: "3-coin basket · Steady · $100", min_vip_level: 3, audience: "everyone" },
-        ],
+        bots: bots.map((b) => ({
+          bot_id: b.bot_id,
+          name: b.name,
+          exchange: b.exchange,
+          public_url: showcase[b.bot_id]?.public_url ?? null,
+          public: showcase[b.bot_id]?.public ?? false,
+        })),
       }),
+    setShowcase: (id: string, shown: boolean) => {
+      find(id);
+      const current = showcase[id] ?? { public_url: null, public: false };
+      const status = current.public === shown ? "unchanged" : "updated";
+      showcase[id] = { ...current, public: shown };
+      return delay({ status, public: shown });
+    },
+    listTemplates: () => delay({ templates: templates.map((tpl) => ({ ...tpl })) }),
     getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null, min_vip_level: 0 }),
+    setTemplateAudience: (name: string, audience: TemplateListing["audience"]) => {
+      const tpl = templates.find((x) => x.name === name);
+      if (!tpl) return Promise.reject(new ApiError(404, { error: "not found" }, "not found"));
+      const status = tpl.audience === audience ? "unchanged" : "updated";
+      tpl.audience = audience;
+      return delay({ status, audience });
+    },
   });
 }

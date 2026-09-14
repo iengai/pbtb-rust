@@ -27,11 +27,20 @@ export function ConfigDetail() {
   const navigate = useNavigate();
   const { data, error, loading, reload } = useLoad(() => staticData.template(name), `template:${name}`);
   const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
+  const operator = me.data?.role === "operator";
+  // The operator reads the audience live, so the switch below shows its result
+  // at once; everyone else reads the published backtest's.
+  const live = useLoad(
+    () => (operator ? api.listTemplates() : Promise.resolve(null)),
+    operator ? "templates:live" : "templates:live:none",
+  );
+  const liveAudience = live.data?.templates.find((tpl) => tpl.name === name)?.audience;
   // A retired template is applied by the operator's account alone; the page
   // shows everyone the backtest and offers the apply to no one else.
-  const retired = data?.audience === "operator";
-  const canApply = !retired || me.data?.role === "operator";
+  const retired = liveAudience ? liveAudience === "operator" : data?.audience === "operator";
+  const canApply = !retired || operator;
   const [applying, setApplying] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const sides = data ? Array.from(new Set(data.strategies.map((s) => s.side))) : [];
@@ -79,15 +88,23 @@ export function ConfigDetail() {
                 {retired && ` · ${t.configs.detail.retiredNote}`}
               </div>
             </div>
-            {canApply && (
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => (session ? setApplying(true) : navigate("/"))}
-              >
-                {t.configs.detail.applyCta}
-              </button>
-            )}
+            <div className="btn-row">
+              {/* Only a template the API lists can be switched: an archived one is in no catalogue. */}
+              {operator && liveAudience && (
+                <button type="button" className="btn" onClick={() => setSwitching(true)}>
+                  {retired ? t.configs.audience.publish : t.configs.audience.retire}
+                </button>
+              )}
+              {canApply && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => (session ? setApplying(true) : navigate("/"))}
+                >
+                  {t.configs.detail.applyCta}
+                </button>
+              )}
+            </div>
           </div>
 
           <ConfigChart key={data.name} template={data} />
@@ -143,9 +160,67 @@ export function ConfigDetail() {
               }}
             />
           )}
+          {switching && (
+            <AudienceDialog
+              template={data}
+              retire={!retired}
+              onClose={() => setSwitching(false)}
+              onDone={(msg) => {
+                setSwitching(false);
+                setNotice(msg);
+                live.reload();
+              }}
+            />
+          )}
         </>
       )}
     </>
+  );
+}
+
+function AudienceDialog({
+  template,
+  retire,
+  onClose,
+  onDone,
+}: {
+  template: TemplateBacktest;
+  retire: boolean;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const t = useT();
+  const { lang } = useLang();
+  const action = useAction();
+  const title = templateTitle(template, lang);
+  const kind = retire ? "retire" : "publish";
+  return (
+    <Modal title={t.configs.audience.title[kind](title)} onClose={onClose}>
+      <div className="banner">
+        <div className="body">
+          {t.configs.audience.body[kind]} {t.configs.audience.publicNote}
+        </div>
+      </div>
+      <ErrorBanner error={action.error} onDismiss={action.clear} />
+      <div className="actions">
+        <button type="button" className="btn ghost" onClick={onClose}>
+          {t.common.cancel}
+        </button>
+        <button
+          type="button"
+          className={`btn primary${retire ? " danger solid" : ""}`}
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              await api.setTemplateAudience(template.name, retire ? "operator" : "everyone");
+              onDone(t.configs.audience.done[kind](title));
+            })
+          }
+        >
+          {t.configs.audience[kind]}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
