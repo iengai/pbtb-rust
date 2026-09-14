@@ -8,8 +8,8 @@ API and the site, the operator's view included, while the object, its version
 history and any bot that still names it are untouched. Moving it back is the
 same command with the prefixes swapped. A *retired* template in the catalogue's
 sense — offered to the operator's account alone — is a different thing: it stays
-under ``predefined/`` with ``pbtb.audience: "operator"`` (annotate_templates.py,
-``RETIRED``).
+under ``predefined/`` with ``pbtb.audience: "operator"``, switched on the
+console's Configs page (``PUT /api/v1/templates/{id}/audience``).
 
 Its backtest artifact is deleted from ``site/templates`` and the index rebuilt,
 so the published catalogue drops it too. The artifact is recoverable from git,
