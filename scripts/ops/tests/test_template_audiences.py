@@ -59,11 +59,17 @@ class PublishedTemplatesTest(unittest.TestCase):
 
     def test_a_run_on_cached_templates_publishes_nothing(self):
         aws = FakeAws()
-        with templates(open={}) as root:
-            backtest_templates.publish_if_synced(False, Path(root), "dev", run=aws)
-            self.assertEqual(aws.calls, [])
-            backtest_templates.publish_if_synced(True, Path(root), "dev", run=aws)
-        self.assertEqual(aws.uploads()[0]["published"], ["open"])
+        backtest_templates.publish_if_synced(False, "dev", run=aws)
+        self.assertEqual(aws.calls, [])
+
+    def test_a_synced_run_publishes_from_a_fresh_sync_not_its_mirror(self):
+        aws = FakeAws()
+        backtest_templates.publish_if_synced(True, "dev", run=aws)
+        (sync, _), (upload, _) = aws.calls
+        self.assertEqual(sync[:3], ["aws", "s3", "sync"])
+        mirror = str(backtest_templates.DEFAULT_CACHE_DIR)
+        self.assertFalse(sync[4].startswith(mirror), f"synced into the run's mirror: {sync[4]}")
+        self.assertEqual(upload[:3], ["aws", "s3", "cp"])
 
     def test_a_script_without_a_mirror_syncs_before_publishing(self):
         aws = FakeAws()
