@@ -33,8 +33,7 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
                     secret_key
                 }]
                 .endpoint(confirm_overwrite_bot),
-            )
-            .branch(dptree::case![DialogueState::ReceiveRiskLevel].endpoint(receive_risk_level)),
+            ),
     )
 }
 
@@ -272,66 +271,6 @@ async fn handle_start_state(
                     }
                 }
             }
-            "Risk level" => {
-                // Check if bot is selected
-                let ctx = bot_context.get().await?
-                    .unwrap_or_default();
-
-                if ctx.selected_bot_id.is_none() {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ No bot selected. Please use 'List' to select a bot first."
-                    )
-                        .await?;
-                    return Ok(());
-                }
-
-                // Check if bot has config
-                let user_id = sender.user_id.clone();
-
-                let bot_id = ctx.selected_bot_id.as_ref().unwrap();
-
-                match deps.get_bot_config_usecase.execute(&user_id, bot_id).await {
-                    Ok(config) => {
-                        // Get current risk level
-                        let current_risk = config.risk_level()
-                            .map(|r| format!("Long: {:.2}, Short: {:.2}", r.long, r.short))
-                            .unwrap_or_else(|_| "Not set".to_string());
-
-                        let current_leverage = config.leverage()
-                            .map(|l| format!("{:.1}x", l.long))
-                            .unwrap_or_else(|_| "Not set".to_string());
-
-                        bot.send_message(
-                            msg.chat.id,
-                            format!(
-                                "⚠️ Risk Level Configuration\n\n\
-                                🤖 Bot: {bot_id}\n\
-                                📊 Current Risk Level: {current_risk}\n\
-                                📈 Current Leverage: {current_leverage}\n\n\
-                                Please enter the new risk level values in the following format:\n\
-                                `<long_risk>/<short_risk>`\n\n\
-                                Example: `3.0/1.5`\n\n\
-                                Note:\n\
-                                - Values should be decimal numbers (0.0 - 10.0)\n\
-                                - Leverage will be automatically set to (max_risk + 1)\n\
-                                - Send 'cancel' to abort"
-                            )
-                        )
-                            .await?;
-
-                        dialogue.update(DialogueState::ReceiveRiskLevel).await?;
-                    }
-                    Err(_) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ No configuration found for this bot.\n\n\
-                            Please apply a configuration template first using 'Choose config...'."
-                        )
-                            .await?;
-                    }
-                }
-            }
             "Run bot" => {
                 let ctx = bot_context.get().await?
                     .unwrap_or_default();
@@ -508,11 +447,6 @@ async fn handle_start_state(
                             .await?;
                     }
                 }
-            }
-            "Unstuck" => {
-                bot.send_message(msg.chat.id, "🔧 Unstuck operation... (Feature coming soon)")
-                    .reply_markup(super::keyboards::main_menu_keyboard())
-                    .await?;
             }
             "Delete API key" => {
                 let ctx = bot_context.get().await?
@@ -852,136 +786,6 @@ async fn confirm_overwrite_bot(
                     "❌ Please send 'yes' to confirm or any other message to cancel.",
                 )
                 .await?;
-            }
-        }
-        anyhow::Ok(())
-    })
-    .await;
-
-    result.map_err(|_| DependencyMap::new())
-}
-
-async fn receive_risk_level(
-    bot: Bot,
-    dialogue: MyDialogue,
-    bot_context: MyBotContext,
-    msg: Message,
-    deps: Deps,
-    sender: TelegramSender,
-) -> Result<(), DependencyMap> {
-    let result = super::with_deadline("receive_risk_level", async {
-        match msg.text() {
-            Some(text) => {
-                // Allow cancellation
-                if text.trim().eq_ignore_ascii_case("cancel") {
-                    bot.send_message(msg.chat.id, "🚫 Risk level update cancelled.")
-                        .await?;
-                    dialogue.update(DialogueState::Start).await?;
-                    return Ok(());
-                }
-
-                // Parse input: "3.0/1.5"
-                let parts: Vec<&str> = text.trim().split('/').collect();
-
-                if parts.len() != 2 {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Invalid format. Please enter two numbers separated by /\n\n\
-                        Example: `3.0/1.5`\n\
-                        Or send 'cancel' to abort.",
-                    )
-                    .await?;
-                    return Ok(());
-                }
-
-                // Parse risk values
-                let risk_long: f64 = match parts[0].trim().parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Invalid long risk value. Please enter a decimal number.\n\n\
-                            Example: `3.0/1.5`",
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                };
-
-                let risk_short: f64 = match parts[1].trim().parse() {
-                    Ok(v) => v,
-                    Err(_) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Invalid short risk value. Please enter a decimal number.\n\n\
-                            Example: `3.0/1.5`",
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                };
-
-                // Validate range
-                if !(0.0..=10.0).contains(&risk_long) || !(0.0..=10.0).contains(&risk_short) {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Risk values must be between 0.0 and 10.0.\n\n\
-                        Please try again or send 'cancel'.",
-                    )
-                    .await?;
-                    return Ok(());
-                }
-
-                // Get user_id and bot_id
-                let user_id = sender.user_id.clone();
-
-                let ctx = bot_context.get().await?.unwrap_or_default();
-
-                let bot_id = match ctx.selected_bot_id {
-                    Some(id) => id,
-                    None => {
-                        bot.send_message(msg.chat.id, "❌ No bot selected.").await?;
-                        dialogue.update(DialogueState::Start).await?;
-                        return Ok(());
-                    }
-                };
-
-                // Update risk level
-                match deps
-                    .update_risk_level_usecase
-                    .execute(&user_id, &bot_id, risk_long, risk_short)
-                    .await
-                {
-                    Ok(_) => {
-                        let max_risk = risk_long.max(risk_short);
-                        let leverage = max_risk + 1.0;
-
-                        bot.send_message(
-                            msg.chat.id,
-                            format!(
-                                "✅ Risk level updated successfully!\n\n\
-                                🤖 Bot: {bot_id}\n\
-                                📊 New Risk Level:\n\
-                                   • Long: {risk_long:.2}\n\
-                                   • Short: {risk_short:.2}\n\
-                                📈 Leverage automatically set to: {leverage:.1}x\n\n\
-                                The configuration has been saved."
-                            ),
-                        )
-                        .await?;
-                    }
-                    Err(e) => {
-                        bot.send_message(msg.chat.id, redact("updating the risk level", &e))
-                            .await?;
-                    }
-                }
-
-                // Reset dialogue to start
-                dialogue.update(DialogueState::Start).await?;
-            }
-            None => {
-                bot.send_message(msg.chat.id, "❌ Please send text with risk level values.")
-                    .await?;
             }
         }
         anyhow::Ok(())

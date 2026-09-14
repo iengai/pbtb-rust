@@ -35,7 +35,7 @@ import { useLang, useT } from "../i18n/locale";
 
 const POLL_MS = 15_000;
 
-type Dialog = "stop" | "restart" | "delete" | "template" | "risk" | "sides" | "runtime" | null;
+type Dialog = "stop" | "restart" | "delete" | "template" | "sides" | "runtime" | null;
 
 export function BotDetail() {
   const { id = "" } = useParams();
@@ -249,9 +249,6 @@ export function BotDetail() {
                 <button type="button" className="btn" onClick={() => setDialog("template")}>
                   {t.bots.detail.changeConfig}
                 </button>
-                <button type="button" className="btn" onClick={() => setDialog("risk")} disabled={!d.config}>
-                  {t.bots.detail.riskLevel}
-                </button>
                 <button type="button" className="btn" onClick={() => setDialog("sides")} disabled={!d.config}>
                   {t.bots.detail.sides}
                 </button>
@@ -276,14 +273,6 @@ export function BotDetail() {
               <div className="card">
                 <div className="card-title sm">{t.bots.detail.dangerZone}</div>
                 <div className="btn-col">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={action.busy}
-                    onClick={() => void action.run(() => api.unstuck(id))}
-                  >
-                    {t.bots.detail.unstuck}
-                  </button>
                   <button type="button" className="btn danger" onClick={() => setDialog("delete")}>
                     <Trash />
                     {t.bots.detail.deleteBot}
@@ -350,7 +339,6 @@ export function BotDetail() {
           )}
           {dialog === "delete" && <DeleteDialog bot={d} onClose={close} onDeleted={() => navigate("/bots")} />}
           {dialog === "template" && <TemplateDialog bot={d} onClose={close} onDone={done} />}
-          {dialog === "risk" && <RiskDialog bot={d} onClose={close} onDone={done} />}
           {dialog === "sides" && <SidesDialog bot={d} onClose={close} onDone={done} />}
           {dialog === "runtime" && <RuntimeDialog bot={d} onClose={close} onDone={done} />}
         </>
@@ -467,48 +455,6 @@ function TemplateDialog({
             {t.bots.templateModal.apply(name)}
           </button>
         )}
-      </div>
-    </Modal>
-  );
-}
-
-function RiskDialog({ bot, onClose, onDone }: { bot: Detail; onClose: () => void; onDone: (msg: string) => void }) {
-  const [long, setLong] = useState(String(bot.config?.risk?.long ?? 0));
-  const [short, setShort] = useState(String(bot.config?.risk?.short ?? 0));
-  const action = useAction();
-  const t = useT();
-  const l = Number(long),
-    s = Number(short);
-  const valid = Number.isFinite(l) && Number.isFinite(s) && l >= 0 && s >= 0;
-  return (
-    <Modal title={t.bots.detail.riskLevel} onClose={onClose}>
-      <div className="hint">{t.bots.riskModal.hint}</div>
-      <div className="field">
-        <label>{t.bots.long}</label>
-        <input className="input tnum" type="number" step="0.05" min="0" value={long} onChange={(e) => setLong(e.target.value)} />
-      </div>
-      <div className="field">
-        <label>{t.bots.short}</label>
-        <input className="input tnum" type="number" step="0.05" min="0" value={short} onChange={(e) => setShort(e.target.value)} />
-      </div>
-      <ErrorBanner error={action.error} onDismiss={action.clear} />
-      <div className="actions">
-        <button type="button" className="btn ghost" onClick={onClose}>
-          {t.common.cancel}
-        </button>
-        <button
-          type="button"
-          className="btn primary"
-          disabled={!valid || action.busy}
-          onClick={() =>
-            void action.run(async () => {
-              await api.setRisk(bot.bot_id, l, s);
-              onDone(t.bots.riskModal.saved(l, s));
-            })
-          }
-        >
-          {t.common.save}
-        </button>
       </div>
     </Modal>
   );

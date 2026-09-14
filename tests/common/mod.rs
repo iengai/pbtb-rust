@@ -384,10 +384,6 @@ impl Harness {
                 engines.clone(),
             )),
             get_bot_config_usecase: Arc::new(GetBotConfigUseCase::new(configs_dyn.clone())),
-            update_risk_level_usecase: Arc::new(UpdateRiskLevelUseCase::new(
-                configs_dyn.clone(),
-                clock.clone(),
-            )),
             set_strategy_side_usecase: Arc::new(SetStrategySideUseCase::new(
                 configs_dyn.clone(),
                 clock.clone(),
@@ -493,10 +489,6 @@ fn build_deps(
         )),
         get_bot_config_usecase: Arc::new(GetBotConfigUseCase::new(configs_dyn.clone())),
         update_bot_config_usecase: Arc::new(UpdateBotConfigUseCase::new(
-            configs_dyn.clone(),
-            clock.clone(),
-        )),
-        update_risk_level_usecase: Arc::new(UpdateRiskLevelUseCase::new(
             configs_dyn.clone(),
             clock.clone(),
         )),

@@ -251,12 +251,6 @@ export function installMock(): void {
       settle(b, "running", 25_000);
       return delay({ status: "restarting", task_id: b.task_id });
     },
-    setRisk: (id: string, long: number, short: number) => {
-      const b = find(id);
-      if (long > 3 || short > 3) return Promise.reject(new ApiError(400, { error: "risk level out of range: max 3.0" }, ""));
-      if (b.config) b.config.risk = { long, short };
-      return delay({ status: "updated" });
-    },
     setSide: (id: string, side: "long" | "short", enabled: boolean) => {
       const b = find(id);
       if (b.config) b.config.sides[side] = enabled;
@@ -272,8 +266,6 @@ export function installMock(): void {
       b.config = config(name, name.endsWith("v810") ? "8.1.0" : "7.12.0", ["SOL", "XRP", "DOGE"]);
       return delay({ status: "applied" });
     },
-    unstuck: () =>
-      Promise.reject(new ApiError(501, { error: "not available yet" }, "not available yet")),
     botReturns: (id: string) => {
       const b = find(id);
       if (b.phase === null) return Promise.reject(new ApiError(404, { error: "not found" }, "not found"));

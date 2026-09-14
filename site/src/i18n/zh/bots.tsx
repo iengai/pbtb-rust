@@ -77,7 +77,6 @@ export const bots: typeof en = {
     balance: "余额",
     balanceHint: "余额查询尚未提供。",
     dangerZone: "危险操作",
-    unstuck: "解套",
     deleteBot: "删除机器人和 API Key",
     deleteHint: "删除时需要输入机器人 ID，这会移除已存储的 API Key 和配置，但不会改动交易所账户。",
   },
@@ -123,12 +122,6 @@ export const bots: typeof en = {
     ),
     apply: (name) => `应用 ${name}`,
     applied: (name) => `配置 ${name} 已应用，将在下次启动或重启时生效。`,
-  },
-
-  // --- BotDetail：每个方向的钱包敞口 ---
-  riskModal: {
-    hint: "每个方向的钱包敞口上限。杠杆按 max(多, 空) + 1 推导。下次启动或重启时生效。",
-    saved: (long, short) => `风险等级已设为 多 ${long.toFixed(2)} · 空 ${short.toFixed(2)}。`,
   },
 
   // --- BotDetail：启用或禁用某个方向 ---

@@ -556,6 +556,10 @@ async fn the_registry_exposes_no_whole_config_overwrite() {
         !names.iter().any(|n| n == "add_bot"),
         "add_bot would have to take exchange credentials to be useful: {names:?}"
     );
+    assert!(
+        !names.iter().any(|n| n == "set_risk_level"),
+        "risk level is not a user-facing setting; a bot's exposure comes from its template: {names:?}"
+    );
     // The surface that should exist, so a rename or a dropped `#[tool]` is loud.
     for expected in [
         "list_bots",
@@ -572,7 +576,6 @@ async fn the_registry_exposes_no_whole_config_overwrite() {
         "stop_bot",
         "restart_bot",
         "apply_template",
-        "set_risk_level",
         "set_strategy_side",
         "set_bot_runtime",
         "delete_bot",

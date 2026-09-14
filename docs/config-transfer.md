@@ -202,7 +202,7 @@ These are applied to the per-bot config by the bot, never at transfer time:
 |----------|--------|---------|
 | `live.user` | `BotConfig::from_template` / `set_live_user` (apply template) | identity the running task reports under = `bot_id` |
 | `live.forced_mode_<side>` | `SetStrategySideUseCase` (Telegram **Sides**) | `""`/`"normal"` = side on; `"graceful_stop"` = side off (close out, no new entries) |
-| `bot.<side>.total_wallet_exposure_limit` (v7) / `bot.<side>.risk.total_wallet_exposure_limit` (v8) | `apply_risk_level` (Telegram **Risk level**) | risk per side; the path follows the config's schema (see below) |
+| `bot.<side>.total_wallet_exposure_limit` (v7) / `bot.<side>.risk.total_wallet_exposure_limit` (v8) | `apply_risk_level` (no adapter calls it; the template's value stands) | risk per side; the path follows the config's schema (see below) |
 | `live.leverage` | `apply_risk_level` | derived: `max(long, short) + 1.0` |
 
 Code: `src/domain/botconfig.rs`, `src/usecase/apply_template.rs`,

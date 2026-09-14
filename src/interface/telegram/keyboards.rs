@@ -13,13 +13,11 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         vec![
             KeyboardButton::new("Add bot"),
             KeyboardButton::new("Choose config..."),
-            KeyboardButton::new("Risk level"),
         ],
         vec![
             KeyboardButton::new("Run bot"),
             KeyboardButton::new("Stop bot"),
             KeyboardButton::new("Restart bot"),
-            KeyboardButton::new("Unstuck"),
         ],
         vec![
             KeyboardButton::new("Delete API key"),

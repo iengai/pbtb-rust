@@ -92,12 +92,10 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 | `POST /bots/{id}/start` | write | Run bot | claims the start lock; `started` / `already_running` / `already_starting`; 409 `stopping` (retry); 403 `quota_exceeded` past the level's ceiling |
 | `POST /bots/{id}/stop` | write | Stop bot | `stopped` / `not_running` / `already_stopping`; 409 `start_in_progress` (retry) |
 | `POST /bots/{id}/restart` | write | Restart bot | `restarting` (the task stops with desired state kept on; the reconcile Lambda relaunches it) / `started` (nothing was running); 409 `start_in_progress` / `stopping` (retry); 403 `quota_exceeded` for a bot that is off past the level's ceiling |
-| `PUT /bots/{id}/risk` | write | Risk level | `{long, short}` wallet exposure limits; out-of-range → 400 |
 | `PUT /bots/{id}/sides` | write | Sides | `{side: "long"\|"short", enabled}` |
 | `PUT /bots/{id}/runtime` | write | Runtime | `{runtime: "py"\|"rs"}` |
 | `POST /bots/{id}/template` | write | Choose config | `{name}`, applies on the next start or restart; 403 `insufficient_level` for a template above the caller's level, 403 `operator_only` for an operator-only template unless the account is the operator's |
 | `GET /bots/{id}/balance` | read | Balance | 501: a placeholder in telebot, so a placeholder here |
-| `POST /bots/{id}/unstuck` | write | Unstuck | 501, likewise |
 | `GET /bots/{id}/returns` | read | — | the bot's return series as the daily collector wrote it: a return index plus realized PnL in the settlement coin (`realized_usdt` / `cum_realized_usdt` per point, `total_realized_usdt` overall), no balance; 404 until it has; 501 where no chart bucket is configured |
 | `PUT /bots/{id}/showcase` | write | — | `{public: bool}` → `updated` / `unchanged` with `public` and `published`; puts one of the caller's bots on the public showcase page or takes it off, keeping its `public_url` either way, and writes or removes its public artifact at once, which the showcase CDN serves within about half a minute (`published`: whether the artifact is on the public prefix now, `false` for a hidden bot and for a shown one with no collected curve yet); a publish fault after the choice is saved answers 503 `retryable` or 500, and repeating the call repairs it; 403 `operator_only` unless the account is the operator's |
 | `GET /showcase` | read | — | `{bots:[{bot_id, name, exchange, public_url, public}]}`: the caller's own bots as showcase candidates; 403 `operator_only` unless the account is the operator's |
@@ -115,8 +113,13 @@ Config changes take effect on a bot's next start or restart. A running task
 keeps the config and the binary it started with; `POST /bots/{id}/restart` is
 how a change is applied to one.
 
-Balance and unstuck are placeholders in telebot too (`$0.00` / "coming soon"),
-so the API mirrors them rather than inventing behaviour. A real balance has an
+A bot's risk level (per-side wallet exposure, and the leverage derived from
+it) comes from its template and is not a setting on any surface: there is no
+route, tool or button that writes it. `UpdateRiskLevelUseCase` stays in the
+use-case layer without an adapter.
+
+Balance is a placeholder in telebot too (`$0.00`), so the API mirrors it rather
+than inventing behaviour. A real balance has an
 infrastructure cost, not a code cost: the exchange keys are IP-whitelisted to
 the NAT's elastic IP, and `mcp_http` runs outside the VPC with no NAT egress,
 so it cannot reach the exchange at all. Doing it means moving the function into

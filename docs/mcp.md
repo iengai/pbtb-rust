@@ -23,7 +23,8 @@ their absence against the tool registry rather than trusting review:
   means entering keys, which stays on the Telegram bot and the web console.
 - **No whole-config overwrite.** `update_bot_config` replaces a live bot's
   position parameters in one call. Only named, validated fields are exposed
-  (`set_risk_level`, `set_strategy_side`, `apply_template`, `set_bot_runtime`).
+  (`set_strategy_side`, `apply_template`, `set_bot_runtime`). The risk level is
+  not among them: it comes from the template ([web-api.md](web-api.md#routes)).
 
 Every write is logged with principal, tool, bot id and outcome.
 
@@ -52,7 +53,6 @@ is key entry and signup; what this has and the web does not is `get_bot_config`.
 | `stop_bot` | `bots:write` | idempotent |
 | `restart_bot` | `bots:write` | `restarting` (the task stops; the reconcile Lambda relaunches it, desired state stays on) / `started` (nothing was running) / `start_in_progress`, `stopping` (both `retry`); not idempotent |
 | `apply_template` | `bots:write` | applies on the bot's next start or restart; refused for a template above the caller's level, and for an operator-only one unless the account is the operator's |
-| `set_risk_level` | `bots:write` | per-side wallet exposure limits |
 | `set_strategy_side` | `bots:write` | enable/disable one side |
 | `set_bot_runtime` | `bots:write` | `py` (passivbot) or `rs` (pb-runner) |
 | `delete_bot` | `bots:write` | destructive; `confirm` must equal `bot_id` |

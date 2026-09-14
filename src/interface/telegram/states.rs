@@ -21,7 +21,6 @@ pub enum DialogueState {
         api_key: String,
         secret_key: String,
     },
-    ReceiveRiskLevel,
 }
 
 /// Main state that tracks selected bot (if any)

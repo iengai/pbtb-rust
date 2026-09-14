@@ -115,7 +115,6 @@ pub struct Deps {
     pub apply_template_usecase: Arc<ApplyTemplateUseCase>,
     pub get_bot_config_usecase: Arc<GetBotConfigUseCase>,
     pub update_bot_config_usecase: Arc<UpdateBotConfigUseCase>,
-    pub update_risk_level_usecase: Arc<UpdateRiskLevelUseCase>,
     pub set_strategy_side_usecase: Arc<SetStrategySideUseCase>,
     pub set_bot_runtime_usecase: Arc<SetBotRuntimeUseCase>,
     pub set_bot_public_url_usecase: Arc<SetBotPublicUrlUseCase>,

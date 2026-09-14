@@ -150,10 +150,6 @@ async fn wire(configs: &Configs) -> anyhow::Result<api::Deps> {
             engines.clone(),
         )),
         get_bot_config_usecase: Arc::new(GetBotConfigUseCase::new(bot_configs.clone())),
-        update_risk_level_usecase: Arc::new(UpdateRiskLevelUseCase::new(
-            bot_configs.clone(),
-            clock.clone(),
-        )),
         set_strategy_side_usecase: Arc::new(SetStrategySideUseCase::new(
             bot_configs.clone(),
             clock.clone(),

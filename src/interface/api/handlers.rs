@@ -46,12 +46,6 @@ pub(super) struct ConfirmBody {
 }
 
 #[derive(Deserialize)]
-pub(super) struct RiskBody {
-    pub long: f64,
-    pub short: f64,
-}
-
-#[derive(Deserialize)]
 pub(super) struct SideBody {
     /// `long` or `short`.
     pub side: String,
@@ -453,24 +447,6 @@ impl Handlers<'_> {
             body["status"].as_str().unwrap_or("unknown"),
         );
         Ok(respond(status, body))
-    }
-
-    /// Set the per-side wallet exposure limits. Applies on the bot's next start
-    /// or restart.
-    pub async fn set_risk(&self, bot_id: &str, body: RiskBody) -> ApiResult {
-        require(self.principal, WRITE)?;
-        self.find_bot(bot_id).await?;
-        self.deps
-            .mcp
-            .update_risk_level_usecase
-            .execute(self.user_id(), bot_id, body.long, body.short)
-            .await
-            .map_err(|e| {
-                self.audit("set_risk_level", bot_id, "error");
-                ApiError::from_domain("setting the risk level", e)
-            })?;
-        self.audit("set_risk_level", bot_id, "updated");
-        Self::ok(json!({ "status": "updated", "risk": { "long": body.long, "short": body.short } }))
     }
 
     /// Enable or disable one side of the strategy. Applies on the next start or
