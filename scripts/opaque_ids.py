@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 from annotate_templates import LAB_KEY, curate, restamp_bots, trading
-from backtest_templates import write_index, write_json
+from backtest_templates import republish_template_audiences, write_index, write_json
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, PREFIX, TABLE, aws, body_bytes
 from template_naming import IDS, resolve, suffix
 
@@ -187,6 +187,7 @@ def main() -> int:
     if artifacts and args.apply:
         write_index()
         print("site/templates: artifacts moved, index rebuilt")
+        republish_template_audiences(args.profile)
     restamp_bots(metas, args.profile, args.apply)
     restamp_switches(args.profile, args.apply)
     if args.apply:

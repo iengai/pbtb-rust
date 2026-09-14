@@ -60,7 +60,7 @@ export const configs: typeof en = {
       retire: "普通用户将不再看到它，也无法再应用；它会移到『已退役』标签下。已经在用它的机器人保留现有配置。",
       publish: "所有账户都能再次看到并应用它；它会移到『已发布』标签下。",
     },
-    publicNote: "公开的配置目录会在下次重建索引后同步。",
+    publicNote: "公开的配置目录约半分钟内随之更新。",
     done: {
       retire: (template) => `已退役 ${template}。`,
       publish: (template) => `已发布 ${template}。`,

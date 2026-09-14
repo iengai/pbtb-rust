@@ -9,6 +9,10 @@ backtester that matches its engine line and writes, under ``site/templates``:
 * ``index.json`` - one row per template with headline metrics, sorted by name
 * ``<name>.json`` - the row plus a downsampled, index-normalized equity curve
 
+and, after a run that synced the templates, the public catalogue's audience
+overlay in the chart bucket (``AUDIENCES_URL``), which the site reads over
+each row's ``audience``.
+
 Usage::
 
     python scripts/backtest_templates.py [--only NAME ...] [--engine v7|v8]
@@ -54,12 +58,19 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 S3_PREFIX = "s3://scalable-cluster-dev-bot-configs/predefined/"
+# The public catalogue's audience overlay (src/domain/templateaudience.rs): the
+# ids of the templates offered to everyone, which the site reads through the
+# showcase CDN over the snapshot's own `audience`. Every script that rebuilds
+# the snapshot from S3 rewrites it, so an overlay never outlives a newer one.
+AUDIENCES_URL = "s3://scalable-cluster-dev-return-charts/public/templates/audience.json"
+PUBLIC_CACHE_CONTROL = "public, max-age=30"
 OUTPUT_DIR = REPO_ROOT / "site" / "templates"
 DEFAULT_CACHE_DIR = REPO_ROOT / ".cache" / "backtest_templates"
 # Sibling checkouts: the main passivbot tree is at v8.1.0; pb-v712 is a git
@@ -234,12 +245,12 @@ def detect_engine(config: dict) -> str:
     return "v8" if nested else "v7"
 
 
-def sync_templates(templates_dir: Path, profile: str) -> None:
+def sync_templates(templates_dir: Path, profile: str | None, run=subprocess.run) -> None:
     templates_dir.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, AWS_PROFILE=profile)
+    env = dict(os.environ, AWS_PROFILE=profile) if profile else None
     cmd = ["aws", "s3", "sync", S3_PREFIX, str(templates_dir), "--exclude", "*", "--include", "*.json"]
     print(f"syncing {S3_PREFIX} -> {templates_dir}")
-    subprocess.run(cmd, check=True, env=env)
+    run(cmd, check=True, env=env)
 
 
 def load_templates(templates_dir: Path, end_date: str | None = None) -> list[Template]:
@@ -481,6 +492,61 @@ def write_index() -> None:
     write_json(OUTPUT_DIR / "index.json", rows)
 
 
+def published_templates(templates_dir: Path) -> list[str]:
+    """The ids a member is listed: every synced template not marked for the operator.
+
+    The same rule as ``ConfigTemplate::is_operator_only``: only a ``pbtb.audience``
+    of exactly ``"operator"`` retires a template.
+    """
+    names = []
+    for path in sorted(templates_dir.glob("*.json")):
+        if path.stat().st_size == 0:
+            continue
+        config = json.loads(path.read_text(encoding="utf-8"))
+        meta = config.get("pbtb") if isinstance(config, dict) else None
+        if not (isinstance(meta, dict) and meta.get("audience") == "operator"):
+            names.append(path.stem)
+    return names
+
+
+def publish_template_audiences(templates_dir: Path, profile: str | None, run=subprocess.run) -> None:
+    """Write the public catalogue's overlay from templates just synced from S3."""
+    body = json.dumps(
+        {"generated_at": int(time.time()), "published": published_templates(templates_dir)},
+        separators=(",", ":"),
+    )
+    cmd = [
+        "aws", "s3", "cp", "-", AUDIENCES_URL,
+        "--content-type", "application/json", "--cache-control", PUBLIC_CACHE_CONTROL,
+    ]
+    if profile:
+        cmd += ["--profile", profile]
+    print(f"publishing the template audiences -> {AUDIENCES_URL}")
+    run(cmd, input=body.encode("utf-8"), check=True)
+
+
+def republish_template_audiences(profile: str | None, run=subprocess.run) -> None:
+    """Sync ``predefined/`` into a scratch directory and publish the overlay from it.
+
+    For a script that changed templates in S3 without a local mirror of them.
+    """
+    with tempfile.TemporaryDirectory() as scratch:
+        sync_templates(Path(scratch), profile, run)
+        publish_template_audiences(Path(scratch), profile, run)
+
+
+def publish_if_synced(synced: bool, templates_dir: Path, profile: str | None, run=subprocess.run) -> None:
+    """Publish the overlay after a run whose templates came from S3 just now.
+
+    A run on cached templates does not: they may be older than an audience
+    the console set since, and the overlay would take that switch back.
+    """
+    if synced:
+        publish_template_audiences(templates_dir, profile, run)
+    else:
+        print("--no-sync: the template audiences were not published")
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", nargs="+", metavar="NAME", help="template names (file stems) to process")
@@ -543,6 +609,7 @@ def main(argv=None) -> int:
         print(f"[{tag}] {template.name} {elapsed:.0f}s {status if status != 'ok' else ''}".rstrip(), flush=True)
 
     write_index()
+    publish_if_synced(args.sync, templates_dir, args.profile)
 
     width = max((len(row[0]) for row in summary), default=4)
     print()

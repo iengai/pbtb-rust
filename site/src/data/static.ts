@@ -114,8 +114,44 @@ async function showcaseBot(id: string): Promise<ShowcaseBot | null> {
   return bot && withBybitLink(bot);
 }
 
+// The ids in the showcase CDN's `templates/audience.json`, the overlay the
+// template switch and the template scripts rewrite: a set, or null when the
+// value is not `{published: string[]}`.
+export function parsePublished(value: unknown): Set<string> | null {
+  if (typeof value !== "object" || value === null) return null;
+  const published = (value as { published?: unknown }).published;
+  if (!Array.isArray(published) || !published.every((id) => typeof id === "string")) return null;
+  return new Set(published);
+}
+
+// Whether a template is retired: by the overlay when there is one, which names
+// every published template, and by the committed snapshot's own mark when
+// there is none.
+export function isRetired(tpl: { name: string; audience?: "operator" | null }, published: Set<string> | null): boolean {
+  return published ? !published.has(tpl.name) : tpl.audience === "operator";
+}
+
+// The catalogue renders from the snapshot whatever happens to the overlay, so
+// a slow edge is given up on rather than waited for.
+const OVERLAY_TIMEOUT_MS = 3000;
+
+async function templatesPublished(): Promise<Set<string> | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OVERLAY_TIMEOUT_MS);
+  try {
+    const r = await fetch(`${SHOWCASE}templates/audience.json`, { cache: "no-cache", signal: controller.signal });
+    if (!r.ok) return null;
+    return parsePublished(await r.json());
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const staticData = {
   templates: () => getJSON<TemplateSummary[]>(`${BASE}templates/index.json`),
+  templatesPublished,
   template: (name: string) => getJSON<TemplateBacktest>(`${BASE}templates/${encodeURIComponent(name)}.json`),
   showcase: showcaseIndex,
   showcaseBot,

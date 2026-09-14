@@ -13,7 +13,7 @@ import {
   engineLabel,
   templateTitle,
 } from "../components/ui";
-import { staticData, type TemplateSummary } from "../data/static";
+import { isRetired, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { fmtGain, fmtMetric, wipedOut } from "./metrics";
 
@@ -33,14 +33,18 @@ export function Configs() {
   const [tab, setTab] = useState<Catalogue>("published");
   const [engine, setEngine] = useState<string>("all");
   const catalogue: Catalogue = operator ? tab : "published";
-  // The operator's tabs follow each template's audience live from the API, so
-  // a retire or publish shows at once; the static index catches up when it is
-  // next rebuilt, and is what everyone else reads.
+  // Each template's audience: the operator's tabs read it live from the API,
+  // so a retire or publish shows at once; everyone else's list reads the public
+  // overlay the switch rewrites, and the committed snapshot while there is none.
   const live = useLoad(
     () => (operator ? api.listTemplates() : Promise.resolve(null)),
     operator ? "templates:live" : "templates:live:none",
   );
-  const audience = useMemo(
+  const overlay = useLoad(
+    () => (operator ? Promise.resolve(null) : staticData.templatesPublished()),
+    operator ? "templates:published:none" : "templates:published",
+  );
+  const liveRetired = useMemo(
     () => new Map((live.data?.templates ?? []).map((tpl) => [tpl.name, tpl.audience === "operator"])),
     [live.data],
   );
@@ -48,9 +52,10 @@ export function Configs() {
   const offered = useMemo(
     () =>
       (data ?? []).filter(
-        (tpl) => (audience.get(tpl.name) ?? tpl.audience === "operator") === (catalogue === "retired"),
+        (tpl) =>
+          (liveRetired.get(tpl.name) ?? isRetired(tpl, overlay.data ?? null)) === (catalogue === "retired"),
       ),
-    [data, catalogue, audience],
+    [data, catalogue, liveRetired, overlay.data],
   );
   const engines = useMemo(() => Array.from(new Set(offered.map((tpl) => tpl.engine))).sort().reverse(), [offered]);
   const shown = useMemo(() => {

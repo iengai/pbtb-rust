@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { bybitLink } from "./static";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { bybitLink, isRetired, parsePublished, staticData } from "./static";
 
 describe("bybitLink", () => {
   it("keeps an https link on bybit.com or a subdomain of it", () => {
@@ -25,5 +25,67 @@ describe("bybitLink", () => {
     expect(bybitLink(undefined)).toBeNull();
     expect(bybitLink("")).toBeNull();
     expect(bybitLink("www.bybit.com/x")).toBeNull();
+  });
+});
+
+describe("the template audience overlay", () => {
+  const published = { name: "tpl-a", audience: null };
+  const retired = { name: "tpl-b", audience: "operator" as const };
+
+  it("marks a snapshot template published when the overlay names it and retired when it does not", () => {
+    const overlay = parsePublished({ generated_at: 1, published: ["tpl-b"] });
+    expect(isRetired(published, overlay)).toBe(true);
+    expect(isRetired(retired, overlay)).toBe(false);
+  });
+
+  it("leaves every template on the snapshot's mark without an overlay", () => {
+    expect(isRetired(published, null)).toBe(false);
+    expect(isRetired(retired, null)).toBe(true);
+  });
+
+  it("reads a malformed overlay as none", () => {
+    for (const value of [null, "x", [], {}, { published: "tpl-a" }, { published: ["tpl-a", 1] }]) {
+      expect(parsePublished(value)).toBeNull();
+    }
+    expect(parsePublished({ published: [] })).toEqual(new Set());
+  });
+});
+
+describe("staticData.templatesPublished", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("reads the overlay's ids", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ generated_at: 1, published: ["tpl-a"] })));
+    expect(await staticData.templatesPublished()).toEqual(new Set(["tpl-a"]));
+  });
+
+  it("gives null for a missing, failed or malformed overlay", async () => {
+    for (const reply of [
+      async () => new Response("not found", { status: 404 }),
+      async () => {
+        throw new TypeError("network down");
+      },
+      async () => new Response("{not json"),
+    ]) {
+      vi.stubGlobal("fetch", reply);
+      expect(await staticData.templatesPublished()).toBeNull();
+    }
+  });
+
+  it("gives null when the edge does not answer in time", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
+    const pending = staticData.templatesPublished();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await pending).toBeNull();
   });
 });

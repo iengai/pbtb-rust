@@ -41,7 +41,7 @@ import textwrap
 from pathlib import Path
 
 from annotate_templates import ordered, refresh_artifact, restamp_bots, trading
-from backtest_templates import write_index
+from backtest_templates import republish_template_audiences, write_index
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, PREFIX, aws, body_bytes
 from template_naming import UNIVERSES, capital_label, exposure, traded_sides
 
@@ -259,6 +259,7 @@ def main() -> int:
     if artifacts and args.apply:
         write_index()
         print("site/templates: source_sha refreshed, index rebuilt")
+        republish_template_audiences(args.profile)
     restamp_bots(metas, args.profile, args.apply)
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")

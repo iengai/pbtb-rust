@@ -35,7 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import write_index
+from backtest_templates import republish_template_audiences, write_index
 from template_naming import resolve
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +136,7 @@ def main() -> int:
     if args.apply and not args.restore:
         write_index()
         print(f"  index.json rebuilt from {len(list(SITE_DIR.glob('*.json'))) - 1} artifacts")
+        republish_template_audiences(args.profile)
     if args.apply:
         print("  re-run annotate_templates.py --apply: the title suffixes follow the catalogue")
     if not args.apply:

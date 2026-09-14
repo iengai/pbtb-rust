@@ -65,7 +65,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import trading_sha, write_index, write_json
+from backtest_templates import republish_template_audiences, trading_sha, write_index, write_json
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, CATALOG, PREFIX, TABLE, aws, body_bytes
 from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
@@ -440,6 +440,7 @@ def main() -> int:
     if artifacts and args.apply:
         write_index()
         print("site/templates: artifacts refreshed, index rebuilt")
+        republish_template_audiences(args.profile)
     restamp_bots(metas, args.profile, args.apply)
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")

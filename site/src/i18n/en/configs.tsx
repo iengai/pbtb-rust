@@ -73,7 +73,7 @@ export const configs = {
         "Members stop being offered it and can no longer apply it; it moves to the Retired tab. Bots already running it keep their config.",
       publish: "Every account is offered it again; it moves to the Published tab.",
     },
-    publicNote: "The public catalogue follows when its index is next rebuilt.",
+    publicNote: "The public catalogue follows within about half a minute.",
     done: {
       retire: (template: string) => `Retired ${template}.`,
       publish: (template: string) => `Published ${template}.`,
