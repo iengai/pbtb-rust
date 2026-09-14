@@ -1,13 +1,15 @@
-import { useEffect, useId, useMemo, useRef, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLoad } from "../api/hooks";
 import { templateTitle } from "../components/ui";
 import { staticData } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
+import { frameOf } from "./frame";
 import {
   type ChartLabels,
   type ChartWindow,
   type DrawnPeriod,
+  RETURN_MARGINS,
   type RangeLabel,
   RANGES,
   type WindowCaption,
@@ -15,6 +17,7 @@ import {
   fmtDate,
   wireHover,
 } from "./returnCurve";
+import { useWidth } from "./useWidth";
 
 export function RangeSelector({ value, onChange }: { value: number; onChange: (i: number) => void }) {
   return (
@@ -95,8 +98,17 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   const rangeLabel = useRangeLabel();
   const labels = useChartLabels();
   const navigate = useNavigate();
-  const box = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement | null>(null);
   const tip = useRef<HTMLDivElement>(null);
+  const [measure, width, narrow] = useWidth();
+  const frame = useMemo(() => frameOf(width, RETURN_MARGINS, narrow), [width, narrow]);
+  const setBox = useCallback(
+    (el: HTMLDivElement | null) => {
+      box.current = el;
+      measure(el);
+    },
+    [measure],
+  );
   const { lang } = useLang();
   // React's id has colons, which a CSS `url(#…)` reference does not take.
   const idPrefix = useId().replace(/[^A-Za-z0-9]/g, "");
@@ -127,12 +139,12 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
       };
     });
   }, [win, catalog.data, lang]);
-  const svg = win.kind === "ok" ? chartSVG(win.view, switches, periods, labels, idPrefix) : "";
+  const svg = win.kind === "ok" ? chartSVG(win.view, switches, periods, labels, idPrefix, frame) : "";
 
   useEffect(() => {
     if (win.kind !== "ok" || !box.current || !tip.current) return;
-    return wireHover(box.current, tip.current, win.view, labels, periods);
-  }, [win, svg, labels, periods]);
+    return wireHover(box.current, tip.current, win.view, labels, periods, frame);
+  }, [win, svg, labels, periods, frame]);
 
   // The band labels are markup, not router links; a click on one is routed
   // here so the page changes without a reload.
@@ -165,7 +177,7 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
   }
   return (
     <>
-      <div ref={box} className="chart" onClick={onClick} dangerouslySetInnerHTML={{ __html: svg }} />
+      <div ref={setBox} className="chart" onClick={onClick} dangerouslySetInnerHTML={{ __html: svg }} />
       <div ref={tip} className="tip" />
     </>
   );

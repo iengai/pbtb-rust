@@ -49,6 +49,7 @@
 }
 
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body, #root { min-height: 100%; }
 body {
   margin: 0;
@@ -75,10 +76,11 @@ input, select { font: inherit; color: inherit; }
 .nav-brand .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); }
 .nav-brand .name { font-weight: 650; font-size: 15px; }
 .nav-links { display: flex; gap: 4px; }
-.nav-links a { padding: 6px 10px; border-radius: 8px; font-size: 14px; color: var(--muted); font-weight: 500; }
+.nav-links a { padding: 6px 10px; border-radius: 8px; font-size: 14px; color: var(--muted); font-weight: 500; white-space: nowrap; flex-shrink: 0; }
 .nav-links a:hover { color: var(--text); }
 .nav-links a.on { color: var(--text); background: var(--panel); font-weight: 600; }
-.nav-user { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.nav-user { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; color: var(--muted); }
+.nav-user .who { max-width: 260px; }
 .nav-user .avatar { width: 26px; height: 26px; border-radius: 50%; background: var(--border); }
 .nav-user a { color: var(--muted); }
 .lang { display: inline-flex; gap: 2px; }
@@ -141,12 +143,16 @@ h1.lg { font-size: 22px; }
 .table a.tr:hover { background: var(--panel); }
 .table.showcase .th, .table.showcase .tr { grid-template-columns: 1.6fr 1fr 1fr 1.2fr 40px; }
 .metric-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
+/* A metric can arrive as a long unbroken float; it wraps inside the row rather
+   than widening the page. */
+.metric-row > span { min-width: 0; overflow-wrap: anywhere; }
+.metric-row > span:last-child { text-align: right; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); }
 
 /* ---- pills / badges / chips ---- */
 .pill {
   display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 550;
-  color: var(--muted); background: var(--panel);
+  color: var(--muted); background: var(--panel); white-space: nowrap;
 }
 .pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
 .pill.ok { color: var(--ok); background: var(--ok-bg); }
@@ -200,7 +206,8 @@ h1.lg { font-size: 22px; }
 .range { border: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
 .range:hover { color: var(--text); }
 .range.on { background: var(--accent); color: #fff; }
-.chart svg { width: 100%; height: auto; display: block; }
+/* A sideways drag on a chart reads it; a vertical one still scrolls the page. */
+.chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
 /* Config periods: a band per period behind the curve, lit while the cursor
    is inside it or the pointer is on its label. */
 .chart .period rect { fill: var(--switch); opacity: .08; transition: opacity .12s; }
@@ -228,10 +235,12 @@ h1.lg { font-size: 22px; }
   position: fixed; pointer-events: none; opacity: 0; transition: opacity .08s;
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.18);
-  font-variant-numeric: tabular-nums; z-index: 10; white-space: nowrap;
+  font-variant-numeric: tabular-nums; z-index: 10; white-space: nowrap; max-width: calc(100vw - 16px);
 }
 .tip .d { color: var(--muted); margin-bottom: 4px; }
 .tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.tip .row span { flex-shrink: 0; }
+.tip .row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- modal ---- */
 .overlay { position: fixed; inset: 0; background: var(--overlay); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 20px; }
@@ -264,13 +273,42 @@ h1.lg { font-size: 22px; }
 .tcard .stats .v { font-weight: 640; font-variant-numeric: tabular-nums; }
 .desc { font-size: 14px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 
+/* Phones and narrow tablets: the header folds its links onto a second row that
+   scrolls sideways, grids drop to one or two columns, and form fields stay at
+   16px, below which iOS zooms the page in on focus. */
 @media (max-width: 760px) {
-  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .two-col, .cards { grid-template-columns: 1fr; }
+  .nav { flex-wrap: wrap; height: auto; padding: 8px 16px 0; row-gap: 2px; }
+  .nav-brand { margin-right: 8px; }
+  .nav-links {
+    order: 3; flex: 0 0 calc(100% + 32px); overflow-x: auto; scrollbar-width: none;
+    margin: 0 -16px; padding: 4px 16px 8px;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-user { gap: 8px; }
+  .nav-user .who { max-width: 38vw; }
+  .page { padding: 16px 16px 40px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile .v { font-size: 17px; }
+  .two-col, .cards { grid-template-columns: minmax(0, 1fr); }
+  .kv, .kv.wide { grid-template-columns: minmax(84px, 36%) minmax(0, 1fr); }
   .table .th { display: none; }
-  .table .tr { grid-template-columns: 1.6fr 1fr 1fr 40px; }
+  .table .tr, .table.showcase .tr { grid-template-columns: minmax(0, 1fr) auto auto 20px; gap: 12px; padding: 12px 14px; }
   .table .tr > .hide-sm { display: none; }
   .page-head { flex-direction: column; align-items: stretch; }
+  .page-head .btn-row > .btn { flex: 1 1 auto; }
+  .ranges { max-width: 100%; overflow-x: auto; }
+  .input, .select { font-size: 16px; }
+  .login { padding: 24px 20px; }
+  .login-wrap.framed { padding: 24px 0; }
+  .overlay { padding: 12px; }
+  .modal { padding: 16px; }
+  .stepper { gap: 8px; }
+  .stepper .t { font-size: 12.5px; }
+}
+/* A phone keeps the brand and the language switch on one row; the signed-in
+   address is on the Account page. */
+@media (max-width: 480px) {
+  .nav-user .avatar, .nav-user .who { display: none; }
 }
 
 .btn.link { display: inline; padding: 0; border: none; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }

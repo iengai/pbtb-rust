@@ -44,7 +44,7 @@ export function Layout() {
           <LangSwitch />
           <div className="avatar" />
           {who ? (
-            <span className="ellipsis" style={{ maxWidth: 260 }}>
+            <span className="who ellipsis" title={who}>
               {who}
             </span>
           ) : (
