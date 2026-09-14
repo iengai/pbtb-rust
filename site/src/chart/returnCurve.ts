@@ -1,8 +1,8 @@
 // The per-bot return series written by the daily_pnl_snapshot Lambda, and the
 // windowing, re-basing and SVG drawing that turn it into the return chart.
 // A series (a BotReturnSeries) reaches the page through `GET
-// /api/v1/bots/{id}/returns`, for the bot's owner, or as the public
-// `data/bots/{id}.json` of a showcase bot. It carries a time-weighted return
+// /api/v1/bots/{id}/returns`, for the bot's owner, or as the showcase's
+// public `bots/{id}.json`. It carries a time-weighted return
 // index (cumulative return %, deposit-neutral) and, for the owner, the
 // realized PnL in USDT per day; never a balance. The money fields are optional
 // because a series written before they existed has none and the public one
