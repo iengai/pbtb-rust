@@ -175,6 +175,16 @@ def family_engine(family: str, prefix: str):
     return f"{m.group(1)}{'rs' if m.group(2) else ''}" if m else None
 
 
+def is_shadow_family(family: str, prefix: str) -> bool:
+    """A dry-run pb-runner shadow: '…-passivbot-v8-rs-shadow-<key>'.
+
+    Shadows are deliberately not engine lines (terraform/envs/dev/passivbot-shadow.tf):
+    they are launched by family name, never through the engine table, so a shadow
+    family with no table key is expected rather than drift.
+    """
+    return re.fullmatch(r"-v\d+-rs-shadow-.+", family[len(prefix):]) is not None
+
+
 def engine_key_line(key) -> int | None:
     """The passivbot line a key runs, dropping the runtime half: '8rs' -> 8."""
     m = re.fullmatch(r"(\d+)(rs)?", str(key or ""))
@@ -414,8 +424,9 @@ def cmd_deploy_audit(a):
         td = aws(["ecs", "describe-task-definition", "--task-definition", fam], a.profile, a.region)["taskDefinition"]
         latest_by_family[fam] = td
         eng = family_engine(fam, c["passivbot_family_prefix"])
-        print(f"{eng or '?'}: {fam}:{td['revision']}  image={td['containerDefinitions'][0]['image'].split(':')[-1]}  memory={td.get('memory')}")
-        if eng is None:
+        shadow = is_shadow_family(fam, c["passivbot_family_prefix"])
+        print(f"{eng or ('shadow' if shadow else '?')}: {fam}:{td['revision']}  image={td['containerDefinitions'][0]['image'].split(':')[-1]}  memory={td.get('memory')}")
+        if eng is None and not shadow:
             findings.append(f"family {fam} maps to no engine-table key -> nothing can launch on it "
                             f"(the family suffix and var.passivbot_engines key have diverged)")
     running = aws(["ecs", "list-tasks", "--cluster", c["cluster"], "--desired-status", "RUNNING"], a.profile, a.region)["taskArns"]

@@ -440,6 +440,25 @@ Only once no bot config targets it (check `config_version` across
 a task definition does NOT stop tasks already running on it; they just can no
 longer be (re)launched -- so drain first.
 
+### Retiring a shadow run
+
+A shadow (`passivbot_shadows`, `passivbot-shadow.tf`) sits beside a bot on the
+py runtime; once that bot runs rs it is retired. The order:
+
+1. Stop its task by hand (`aws ecs stop-task`, a human's command; nothing else
+   stops a shadow, and the task-state lambda skips its events).
+2. Remove the map entry, then `terraform state rm
+   'module.passivbot_shadow["<key>"].aws_cloudwatch_log_group.main'` so the
+   parity evidence in the log group is kept.
+3. Apply `-target='module.passivbot_shadow["<key>"]'`: the plan must be `1 to
+   destroy`, the task definition only.
+
+Retention expires the events but never deletes the group, so a retired shadow
+leaves an empty, unmanaged group named `/ecs/scalable-cluster-dev/passivbot-v8-rs-shadow-<key>`.
+Those outside state today: `abot`, `dollardigger_v8ref`, `xxbot`. Re-adding a
+shadow under one of those keys fails to create its group: `terraform import`
+the group first, or delete it once its evidence is no longer needed.
+
 ## ECR repositories (module.ecr)
 
 > ⚠️ **STATE/CODE COUPLING:** the live dev state already references
