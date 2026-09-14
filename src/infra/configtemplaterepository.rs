@@ -3,6 +3,8 @@ use crate::domain::error::DomainError;
 use crate::infra::aws_error::{repo_err, sdk_err};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
+use aws_sdk_s3::primitives::ByteStream;
+use serde::Serialize;
 
 pub struct S3TemplateRepository {
     client: Client,
@@ -103,5 +105,64 @@ impl ConfigTemplateRepository for S3TemplateRepository {
                 }
             }
         }
+    }
+
+    async fn save(&self, template: &ConfigTemplate) -> Result<(), DomainError> {
+        let body = template_body(&template.config_data)?;
+        self.client
+            .put_object()
+            .bucket(&self.bucket_name)
+            .key(Self::template_key(&template.name))
+            .body(ByteStream::from(body))
+            .content_type("application/json")
+            .send()
+            .await
+            .map_err(|e| sdk_err("Failed to write template to S3", e))?;
+        Ok(())
+    }
+}
+
+/// The bytes a template is written as, indented as the catalogue scripts
+/// indent the objects they write.
+fn template_body(config_data: &serde_json::Value) -> Result<Vec<u8>, DomainError> {
+    let mut body = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut serializer = serde_json::Serializer::with_formatter(&mut body, formatter);
+    config_data
+        .serialize(&mut serializer)
+        .map_err(|e| repo_err("Failed to serialize template", e))?;
+    Ok(body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A strategy parameter must come back from a read-then-write bit for bit:
+    /// the catalogue's `trading_sha` covers it, and a float one ULP off would
+    /// read as a changed strategy and re-run its backtest.
+    #[test]
+    fn a_written_template_keeps_every_float_bit_exact() {
+        let python = r#"{"bot": {"long": {"a": 0.30000000000000004, "b": 1e-05, "c": 2.2250738585072014e-308, "n": 3}}}"#;
+        let read: serde_json::Value = serde_json::from_str(python).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_slice(&template_body(&read).unwrap()).unwrap();
+
+        let long = &written["bot"]["long"];
+        assert_eq!(
+            long["a"].as_f64().unwrap().to_bits(),
+            0.30000000000000004_f64.to_bits()
+        );
+        assert_eq!(long["b"].as_f64().unwrap().to_bits(), 1e-5_f64.to_bits());
+        assert_eq!(
+            long["c"].as_f64().unwrap().to_bits(),
+            2.2250738585072014e-308_f64.to_bits()
+        );
+        assert_eq!(
+            long["n"],
+            serde_json::json!(3),
+            "an integer stays an integer"
+        );
+        assert_eq!(written, read);
     }
 }

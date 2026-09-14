@@ -98,6 +98,11 @@ impl ConfigTemplateRepository for InMemoryTemplates {
     async fn exists(&self, template_name: &str) -> Result<bool, DomainError> {
         Ok(self.templates.lock().unwrap().contains_key(template_name))
     }
+
+    async fn save(&self, template: &ConfigTemplate) -> Result<(), DomainError> {
+        self.add(template.clone());
+        Ok(())
+    }
 }
 
 /// The collector's per-bot series, keyed by tenant and bot as the bucket is.

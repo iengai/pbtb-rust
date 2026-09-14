@@ -84,6 +84,8 @@ pub struct BotItem {
     /// Absent on a private bot. Read as stored: a value that no longer passes
     /// `Bot::validate_public_url` is the operator's to fix, not a corrupt row.
     pub public_url: Option<String>,
+    /// Absent until the operator makes a showcase choice.
+    pub showcase: Option<bool>,
     pub created_at: i64, // Unix timestamp in seconds
     pub updated_at: i64, // Unix timestamp in seconds
 }
@@ -116,6 +118,7 @@ impl BotItem {
                 .get("public_url")
                 .and_then(|v| v.as_s().ok())
                 .map(String::from),
+            showcase: item.get("showcase").and_then(|v| v.as_bool().ok()).copied(),
             created_at: item.get("created_at")?.as_n().ok()?.parse().ok()?,
             updated_at: item.get("updated_at")?.as_n().ok()?.parse().ok()?,
         })
@@ -145,6 +148,9 @@ impl BotItem {
         if let Some(url) = &self.public_url {
             map.insert("public_url".to_string(), AttributeValue::S(url.clone()));
         }
+        if let Some(shown) = self.showcase {
+            map.insert("showcase".to_string(), AttributeValue::Bool(shown));
+        }
         map.insert(
             "created_at".to_string(),
             AttributeValue::N(self.created_at.to_string()),
@@ -173,6 +179,7 @@ impl BotItem {
             enabled: self.enabled,
             runtime,
             public_url: self.public_url.clone(),
+            showcase: self.showcase,
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
@@ -189,6 +196,7 @@ impl BotItem {
             enabled: bot.enabled,
             runtime: Some(bot.runtime.as_str().to_string()),
             public_url: bot.public_url.clone(),
+            showcase: bot.showcase,
             created_at: bot.created_at,
             updated_at: bot.updated_at,
         }
