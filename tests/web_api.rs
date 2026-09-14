@@ -749,6 +749,73 @@ async fn the_operator_retires_and_publishes_a_template() {
 }
 
 #[tokio::test]
+async fn the_template_audience_switch_publishes_what_a_member_is_listed() {
+    use pbtb_rust::domain::configtemplate::ConfigTemplateRepository;
+    use pbtb_rust::domain::error::Retryability;
+
+    let h = harness!();
+    h.templates.add(a_template("tpl-a"));
+    h.templates.add(a_template("tpl-b"));
+    let set = |audience: &str| {
+        request(
+            "PUT",
+            "/templates/tpl-a/audience",
+            Some(TOKEN),
+            Some(json!({ "audience": audience })),
+        )
+    };
+    let last = || {
+        h.template_audiences
+            .published()
+            .last()
+            .map(|p| p.published.clone())
+    };
+    let member = h.http_api_with(at_level(USER, 9));
+    let operator = h.http_api(TOKEN);
+
+    assert_eq!(
+        member.handle(set("operator")).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(
+        h.template_audiences.published().is_empty(),
+        "a refused switch publishes nothing"
+    );
+
+    assert_eq!(
+        operator.handle(set("operator")).await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(last(), Some(vec!["tpl-b".to_string()]));
+    assert_eq!(h.template_audiences.published()[0].generated_at, NOW);
+
+    assert_eq!(
+        body(&operator.handle(set("everyone")).await)["status"],
+        json!("updated")
+    );
+    assert_eq!(last(), Some(vec!["tpl-a".to_string(), "tpl-b".to_string()]));
+
+    h.template_audiences.fail_with(Retryability::Transient);
+    let transient = operator.handle(set("operator")).await;
+    assert_eq!(transient.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body(&transient)["retryable"], json!(true));
+    assert!(
+        h.templates.get("tpl-a").await.unwrap().is_operator_only(),
+        "the audience is saved before the publish"
+    );
+
+    h.template_audiences.fail_with(Retryability::Permanent);
+    let permanent = operator.handle(set("operator")).await;
+    assert_eq!(permanent.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body(&permanent)["retryable"], json!(false));
+    assert_eq!(
+        h.template_audiences.published().len(),
+        4,
+        "an unchanged audience still republishes"
+    );
+}
+
+#[tokio::test]
 async fn the_showcase_switch_publishes_and_withdraws_and_keeps_the_link() {
     use pbtb_rust::domain::bot::BotRepository;
 

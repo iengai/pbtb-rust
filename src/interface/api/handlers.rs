@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
+use crate::domain::configtemplate::Audience;
 use crate::domain::engine::Runtime;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::domain::user::Role;
@@ -77,14 +78,6 @@ pub(super) struct ShowcaseBody {
 pub(super) struct AudienceBody {
     /// `everyone` publishes the template, `operator` retires it.
     pub audience: String,
-}
-
-fn audience_name(operator_only: bool) -> &'static str {
-    if operator_only {
-        "operator"
-    } else {
-        "everyone"
-    }
 }
 
 impl Handlers<'_> {
@@ -670,22 +663,17 @@ impl Handlers<'_> {
     }
 
     /// Publish a template to everyone or retire it to the operator's account.
-    /// The published catalogue page follows when its index is next rebuilt.
+    /// The public catalogue follows within its cache's half a minute: the use
+    /// case republishes the overlay the public pages read.
     pub async fn set_template_audience(&self, name: &str, body: AudienceBody) -> ApiResult {
         require(self.principal, WRITE)?;
-        let operator_only = match body.audience.as_str() {
-            "operator" => true,
-            "everyone" => false,
-            _ => {
-                return Err(ApiError::BadRequest(
-                    "audience must be `everyone` or `operator`".into(),
-                ));
-            }
-        };
+        let audience = Audience::from_str(&body.audience).map_err(|()| {
+            ApiError::BadRequest("audience must be `everyone` or `operator`".into())
+        })?;
         let outcome = self
             .deps
             .set_template_audience_usecase
-            .execute(self.role(), name, operator_only)
+            .execute(self.role(), name, audience.is_operator())
             .await
             .map_err(|e| {
                 self.audit_template("set_template_audience", name, "error");
@@ -693,10 +681,10 @@ impl Handlers<'_> {
             })?;
         let body = match outcome {
             SetAudienceOutcome::Updated { operator_only } => {
-                json!({ "status": "updated", "audience": audience_name(operator_only) })
+                json!({ "status": "updated", "audience": Audience::of(operator_only).as_str() })
             }
             SetAudienceOutcome::Unchanged { operator_only } => {
-                json!({ "status": "unchanged", "audience": audience_name(operator_only) })
+                json!({ "status": "unchanged", "audience": Audience::of(operator_only).as_str() })
             }
             SetAudienceOutcome::NotFound => {
                 self.audit_template("set_template_audience", name, "not_found");

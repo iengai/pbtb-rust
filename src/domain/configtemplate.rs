@@ -1,6 +1,48 @@
 use crate::domain::error::DomainError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+
+/// Whom a template is offered to, by the word every surface spells it with:
+/// `everyone`, or `operator` for the operator's account alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Audience {
+    Everyone,
+    Operator,
+}
+
+impl Audience {
+    pub fn of(operator_only: bool) -> Self {
+        if operator_only {
+            Self::Operator
+        } else {
+            Self::Everyone
+        }
+    }
+
+    pub fn is_operator(self) -> bool {
+        self == Self::Operator
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Everyone => "everyone",
+            Self::Operator => "operator",
+        }
+    }
+}
+
+impl FromStr for Audience {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "everyone" => Ok(Self::Everyone),
+            "operator" => Ok(Self::Operator),
+            _ => Err(()),
+        }
+    }
+}
 
 /// Configuration template entity (predefined templates)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,9 +75,11 @@ impl ConfigTemplate {
 
     /// Whether the template is addressed to the operator's account alone:
     /// `pbtb.audience` is the string `"operator"`. Absent, or any other value,
-    /// means everyone. Like the level it lives in the template file, so the
-    /// operator sets it by editing the object in S3 without a deploy. Reading
-    /// a template is never gated; listing and applying it are.
+    /// means everyone. It lives in the template file like the level, and is set
+    /// from the console's switch, which also republishes the public catalogue's
+    /// overlay; an edit of the object in S3 reaches the public pages at the
+    /// next switch or template script run. Reading a template is never gated;
+    /// listing and applying it are.
     pub fn is_operator_only(&self) -> bool {
         self.config_data
             .get("pbtb")
@@ -135,6 +179,17 @@ mod tests {
             !template(json!({ "audience": "operator" })).is_operator_only(),
             "the mark is ours, and ours lives under pbtb"
         );
+    }
+
+    #[test]
+    fn an_audience_is_spelled_everyone_or_operator() {
+        for audience in [Audience::Everyone, Audience::Operator] {
+            assert_eq!(audience.as_str().parse::<Audience>(), Ok(audience));
+        }
+        assert_eq!(Audience::of(true), Audience::Operator);
+        assert!(!Audience::of(false).is_operator());
+        assert!("members".parse::<Audience>().is_err());
+        assert!("Operator".parse::<Audience>().is_err());
     }
 
     #[test]

@@ -17,6 +17,7 @@ use pbtb_rust::domain::configtemplate::{ConfigTemplate, ConfigTemplateRepository
 use pbtb_rust::domain::error::{DomainError, Retryability};
 use pbtb_rust::domain::returncurve::ReturnCurveRepository;
 use pbtb_rust::domain::showcase::{Published, ShowcasePublisher};
+use pbtb_rust::domain::templateaudience::{PublishedTemplates, TemplateAudiencePublisher};
 use pbtb_rust::usecase::{TaskController, TaskLiveness, TaskRunner};
 
 /// A clock frozen at a known instant, so timestamps in assertions are exact
@@ -359,5 +360,39 @@ impl ShowcasePublisher for InMemoryShowcasePublisher {
 
     async fn withdraw(&self, bot: &Bot) -> Result<(), DomainError> {
         self.record("withdraw", bot)
+    }
+}
+
+/// The template audience publisher, recording every set it was given;
+/// `fail_with` makes every later call fail with that retryability.
+#[derive(Default)]
+pub struct InMemoryTemplateAudiencePublisher {
+    published: Mutex<Vec<PublishedTemplates>>,
+    fault: Mutex<Option<Retryability>>,
+}
+
+impl InMemoryTemplateAudiencePublisher {
+    pub fn fail_with(&self, retry: Retryability) {
+        *self.fault.lock().unwrap() = Some(retry);
+    }
+
+    /// Every set published so far, oldest first.
+    pub fn published(&self) -> Vec<PublishedTemplates> {
+        self.published.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl TemplateAudiencePublisher for InMemoryTemplateAudiencePublisher {
+    async fn publish(&self, published: &PublishedTemplates) -> Result<(), DomainError> {
+        self.published.lock().unwrap().push(published.clone());
+        match *self.fault.lock().unwrap() {
+            Some(retry) => Err(DomainError::repository_with(
+                "writing the template audiences",
+                retry,
+                std::io::Error::other("the fake is failing"),
+            )),
+            None => Ok(()),
+        }
     }
 }

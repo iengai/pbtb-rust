@@ -33,22 +33,43 @@ impl ListTemplatesUseCase {
     /// reads each one; the catalogue is a handful of objects and this is a
     /// per-click read.
     pub async fn execute(&self, role: Role) -> Result<Vec<TemplateListing>, DomainError> {
-        let mut listings = Vec::new();
-        for name in self.template_repository.list().await? {
-            let template = self.template_repository.get(&name).await?;
-            let operator_only = template.is_operator_only();
-            if operator_only && !role.is_operator() {
-                continue;
-            }
-            listings.push(TemplateListing {
-                title: template.title().map(str::to_owned),
-                min_vip_level: template.min_vip_level(),
-                operator_only,
-                name,
-            });
-        }
-        Ok(listings)
+        listings(self.template_repository.as_ref(), role).await
     }
+}
+
+async fn listings(
+    templates: &dyn ConfigTemplateRepository,
+    role: Role,
+) -> Result<Vec<TemplateListing>, DomainError> {
+    let mut listings = Vec::new();
+    for name in templates.list().await? {
+        let template = templates.get(&name).await?;
+        let operator_only = template.is_operator_only();
+        if operator_only && !role.is_operator() {
+            continue;
+        }
+        listings.push(TemplateListing {
+            title: template.title().map(str::to_owned),
+            min_vip_level: template.min_vip_level(),
+            operator_only,
+            name,
+        });
+    }
+    Ok(listings)
+}
+
+/// The ids of the templates offered to everyone: what a member is listed, and
+/// so what the public catalogue may name. The listing is one page of the
+/// bucket's keys, so past a thousand templates one missing here reads as
+/// retired on the public pages.
+pub(crate) async fn published_names(
+    templates: &dyn ConfigTemplateRepository,
+) -> Result<Vec<String>, DomainError> {
+    Ok(listings(templates, Role::Member)
+        .await?
+        .into_iter()
+        .map(|listing| listing.name)
+        .collect())
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use crate::domain::bot::Bot;
 use crate::domain::botconfig::BotConfig;
+use crate::domain::configtemplate::Audience;
 use crate::usecase::{TemplateListing, TemplatePreview};
 
 /// A bot as every listing shows it. No `api_key` or `secret_key`: they are
@@ -82,7 +83,7 @@ pub(crate) fn listing(listing: &TemplateListing) -> Value {
         "name": listing.name,
         "title": listing.title,
         "min_vip_level": listing.min_vip_level,
-        "audience": if listing.operator_only { "operator" } else { "everyone" },
+        "audience": Audience::of(listing.operator_only).as_str(),
     })
 }
 
