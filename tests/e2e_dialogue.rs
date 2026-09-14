@@ -95,23 +95,7 @@ async fn a_per_bot_button_with_no_bot_selected_says_so() {
 }
 
 #[tokio::test]
-async fn the_risk_prompt_shows_what_is_configured_now() {
-    let h = harness!();
-    h.given_bot(a_bot()).await;
-    h.configs.put(a_config());
-    select_bot(&h).await;
-
-    assert!(h.send(text_message(USER_ID, "Risk level")).await);
-
-    let transcript = h.transcript().await;
-    assert!(
-        transcript.contains("Long: 1.00, Short: 0.50"),
-        "the prompt should show the current exposure: {transcript}"
-    );
-}
-
-#[tokio::test]
-async fn entering_a_risk_level_writes_it_and_derives_leverage() {
+async fn a_risk_level_typed_in_changes_nothing() {
     let h = harness!();
     h.given_bot(a_bot()).await;
     h.configs.put(a_config());
@@ -124,70 +108,7 @@ async fn entering_a_risk_level_writes_it_and_derives_leverage() {
         .configs
         .get_saved(&USER_ID.to_string(), BOT_ID)
         .expect("config");
-    let risk = saved.risk_level().expect("risk level");
-    assert_eq!(risk.long, 3.0);
-    assert_eq!(risk.short, 1.5);
-    // Leverage is the domain's to derive from the exposure, not the dialogue's.
-    let leverage = saved.leverage().expect("leverage");
-    assert_eq!(leverage.long, 4.0, "max(3.0, 1.5) + 1");
-}
-
-#[tokio::test]
-async fn a_risk_level_in_the_wrong_shape_changes_nothing() {
-    let h = harness!();
-    h.given_bot(a_bot()).await;
-    h.configs.put(a_config());
-    select_bot(&h).await;
-
-    assert!(h.send(text_message(USER_ID, "Risk level")).await);
-    assert!(h.send(text_message(USER_ID, "three")).await);
-
-    assert!(
-        h.transcript().await.contains("Invalid format"),
-        "the user should be told what shape to use"
-    );
-    let saved = h
-        .configs
-        .get_saved(&USER_ID.to_string(), BOT_ID)
-        .expect("config");
     assert_eq!(saved.risk_level().expect("risk").long, 1.0, "unchanged");
-}
-
-#[tokio::test]
-async fn cancelling_the_risk_prompt_leaves_the_config_alone() {
-    let h = harness!();
-    h.given_bot(a_bot()).await;
-    h.configs.put(a_config());
-    select_bot(&h).await;
-
-    assert!(h.send(text_message(USER_ID, "Risk level")).await);
-    assert!(h.send(text_message(USER_ID, "cancel")).await);
-
-    assert!(h.transcript().await.contains("cancelled"));
-    let saved = h
-        .configs
-        .get_saved(&USER_ID.to_string(), BOT_ID)
-        .expect("config");
-    assert_eq!(saved.risk_level().expect("risk").long, 1.0);
-}
-
-#[tokio::test]
-async fn asking_for_risk_on_a_bot_with_no_config_points_at_the_template_button() {
-    let h = harness!();
-    h.given_bot(a_bot()).await;
-    select_bot(&h).await;
-
-    assert!(h.send(text_message(USER_ID, "Risk level")).await);
-
-    let transcript = h.transcript().await;
-    assert!(
-        transcript.contains("No configuration found"),
-        "got: {transcript}"
-    );
-    assert!(
-        transcript.contains("Choose config"),
-        "the reply should name the button that fixes it: {transcript}"
-    );
 }
 
 #[tokio::test]

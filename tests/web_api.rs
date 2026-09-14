@@ -140,6 +140,34 @@ async fn an_unknown_route_is_a_404_only_once_authenticated() {
 }
 
 #[tokio::test]
+async fn risk_level_and_unstuck_are_not_routes() {
+    let h = harness!();
+    let bot = a_bot(USER, "abot");
+    h.given_bot(bot.clone()).await;
+    let api = h.http_api(TOKEN);
+
+    let risk = api
+        .handle(request(
+            "PUT",
+            &format!("/bots/{}/risk", bot.id),
+            Some(TOKEN),
+            Some(json!({ "long": 3.0, "short": 1.5 })),
+        ))
+        .await;
+    assert_eq!(risk.status(), StatusCode::NOT_FOUND);
+
+    let unstuck = api
+        .handle(request(
+            "POST",
+            &format!("/bots/{}/unstuck", bot.id),
+            Some(TOKEN),
+            None,
+        ))
+        .await;
+    assert_eq!(unstuck.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn a_read_only_token_can_look_but_not_touch() {
     let h = harness!();
     h.given_bot(a_bot(USER, "abot")).await;

@@ -83,10 +83,6 @@ async fn main() -> anyhow::Result<()> {
         bot_config_repository.clone(),
         clock.clone(),
     ));
-    let update_risk_level_usecase = Arc::new(UpdateRiskLevelUseCase::new(
-        bot_config_repository.clone(),
-        clock.clone(),
-    ));
     let set_strategy_side_usecase = Arc::new(SetStrategySideUseCase::new(
         bot_config_repository.clone(),
         clock.clone(),
@@ -172,7 +168,6 @@ async fn main() -> anyhow::Result<()> {
         apply_template_usecase,
         get_bot_config_usecase,
         update_bot_config_usecase,
-        update_risk_level_usecase,
         set_strategy_side_usecase,
         set_bot_runtime_usecase,
         set_bot_public_url_usecase,

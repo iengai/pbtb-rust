@@ -130,8 +130,6 @@ export const api = {
     request<{ status: StopStatus; task_id?: string }>("POST", `/bots/${encodeURIComponent(id)}/stop`),
   restartBot: (id: string) =>
     request<{ status: RestartStatus; task_id?: string }>("POST", `/bots/${encodeURIComponent(id)}/restart`),
-  setRisk: (id: string, long: number, short: number) =>
-    request<{ status: "updated" }>("PUT", `/bots/${encodeURIComponent(id)}/risk`, { long, short }),
   setSide: (id: string, side: "long" | "short", enabled: boolean) =>
     request<{ status: "updated" }>("PUT", `/bots/${encodeURIComponent(id)}/sides`, { side, enabled }),
   setRuntime: (id: string, runtime: "py" | "rs") =>
@@ -140,7 +138,6 @@ export const api = {
     }),
   applyTemplate: (id: string, name: string) =>
     request<{ status: "applied" }>("POST", `/bots/${encodeURIComponent(id)}/template`, { name }),
-  unstuck: (id: string) => request<never>("POST", `/bots/${encodeURIComponent(id)}/unstuck`),
   /** The bot's return series; 404 until the daily collector has written one. */
   botReturns: (id: string) => request<BotReturnSeries>("GET", `/bots/${encodeURIComponent(id)}/returns`),
 

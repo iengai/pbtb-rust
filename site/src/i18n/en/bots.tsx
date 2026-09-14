@@ -82,7 +82,6 @@ export const bots = {
     balance: "Balance",
     balanceHint: "Balance lookup is not available yet.",
     dangerZone: "Danger zone",
-    unstuck: "Unstuck",
     deleteBot: "Delete bot and API key",
     deleteHint:
       "Deleting asks you to type the bot id. It removes the stored API key and config; it does not touch " +
@@ -134,15 +133,6 @@ export const bots = {
     ),
     apply: (name: string) => `Apply ${name}`,
     applied: (name: string) => `Config ${name} applied; it takes effect on the next start or Restart.`,
-  },
-
-  // --- BotDetail: wallet exposure per side ---
-  riskModal: {
-    hint:
-      "Wallet exposure limit per side. Leverage is derived as max(long, short) + 1. Applies on the next " +
-      "start or Restart.",
-    saved: (long: number, short: number) =>
-      `Risk level set to long ${long.toFixed(2)} · short ${short.toFixed(2)}.`,
   },
 
   // --- BotDetail: enable or disable one side ---

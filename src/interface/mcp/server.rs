@@ -44,15 +44,6 @@ pub struct ApplyTemplateArgs {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct RiskArgs {
-    pub bot_id: String,
-    /// Long-side wallet exposure limit.
-    pub risk_long: f64,
-    /// Short-side wallet exposure limit.
-    pub risk_short: f64,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 pub struct StrategySideArgs {
     pub bot_id: String,
     /// `long` or `short`.
@@ -570,35 +561,6 @@ impl BotTools {
             })?;
         Self::audit(&principal, "apply_template", &args.bot_id, "applied");
         Self::ok(json!({ "status": "applied", "template_name": args.template_name }))
-    }
-
-    /// Set the per-side wallet exposure limits. Applies on the bot's next start
-    /// or restart.
-    #[tool]
-    pub async fn set_risk_level(
-        &self,
-        Parameters(args): Parameters<RiskArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let principal = self.principal(SCOPE_WRITE)?;
-        self.deps
-            .update_risk_level_usecase
-            .execute(
-                &principal.user_id,
-                &args.bot_id,
-                args.risk_long,
-                args.risk_short,
-            )
-            .await
-            .map_err(|e| {
-                Self::audit(&principal, "set_risk_level", &args.bot_id, "error");
-                failed("setting the risk level", e)
-            })?;
-        Self::audit(&principal, "set_risk_level", &args.bot_id, "updated");
-        Self::ok(json!({
-            "status": "updated",
-            "risk_long": args.risk_long,
-            "risk_short": args.risk_short,
-        }))
     }
 
     /// Enable or disable one side of the strategy. Applies on the next start or
