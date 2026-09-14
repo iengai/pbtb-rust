@@ -37,6 +37,12 @@ and a Restart leaves its bot Enabled · Stopped.
 merge → (telebot-build runs) → scoped terraform apply → telebot-deploy → lambda-deploy
 ```
 
+A new optional attribute on the bot row is erased by any deployed binary that
+saves the whole row (`BotRepository::save` is a `PutItem` of the fields that
+binary knows). Every binary whose use cases call it (grep `bots.save(` under
+`src/usecase/` and follow the use case to its composition root; today telebot and
+`-f target=mcp-http`) ships before the attribute's first write.
+
 If `lambda-deploy` fails mid-window, mitigate immediately: put the key the old
 binary needs back with `aws lambda update-function-configuration --environment
 file://<full map>` (it replaces the whole map — fetch it first), smoke, fix the
