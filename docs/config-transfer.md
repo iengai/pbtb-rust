@@ -174,9 +174,11 @@ A template the owner stops publishing but still runs on their own bots is
 retired: signed in as the operator, open its page on the console's Configs list
 and press Retire (Publish undoes it). That writes `pbtb.audience: "operator"`
 into the object. Nothing moves: the operator keeps applying it, everyone else
-stops seeing it. The static catalogue (`site/templates/index.json`) follows on
-the next `annotate_templates.py --apply` and site publish; the rewrite does not
-make its backtest stale (`trading_sha`).
+stops seeing it. The public catalogue follows within about half a minute,
+through the audience overlay the switch republishes (docs/data-model.md, S3
+(return curves)); the committed snapshot keeps its own mark until the next
+template script run, and the rewrite does not make its backtest stale
+(`trading_sha`).
 
 ### Archiving one
 
