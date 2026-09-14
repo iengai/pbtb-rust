@@ -1,5 +1,5 @@
 use crate::domain::bot::BotRepository;
-use crate::domain::runtime::{BotRuntime, BotRuntimeRepository, StartClaim, StartLockRepository};
+use crate::domain::runtime::{BotRuntimeRepository, StartClaim, StartLockRepository};
 use crate::usecase::engine_routing::LaunchTargetResolver;
 use crate::usecase::run_task::TaskRunner;
 use crate::usecase::stop_task::{RESTART_REASON, TaskController};
@@ -90,14 +90,17 @@ impl ReconcileStoppedTaskUseCase {
         observed_at: i64,
         now: i64,
     ) -> Result<ReconcileOutcome> {
-        // Compute prev_version up front: it does not depend on the bot, and we
-        // need it on the bot-not-found path to record a stopped runtime.
-        let prev_version = self
-            .runtimes
-            .find(user_id, bot_id)
-            .await?
-            .map(|r| r.version)
-            .unwrap_or(0);
+        // Read the row up front, strongly consistent: its version goes into every
+        // stopped write, and its task decides whether this event may write at all.
+        let current = self.runtimes.find_consistent(user_id, bot_id).await?;
+        let prev_version = current.as_ref().map(|r| r.version).unwrap_or(0);
+        // The row tracks another task, so this is a duplicate or late STOPPED. It
+        // says nothing about that task: settling its `stopping` row would let a
+        // Run launch beside the still-live task.
+        let superseded = current
+            .as_ref()
+            .and_then(|r| r.task_id.as_deref())
+            .is_some_and(|t| t != stopped_task_id);
 
         let bot = match self.bots.find(user_id, bot_id).await? {
             Some(b) => b,
@@ -105,15 +108,11 @@ impl ReconcileStoppedTaskUseCase {
                 // A genuinely absent bot must not be left showing Running. A read
                 // *failure* (vs absence) was already propagated as Err above, so the
                 // Lambda retries rather than recording stopped on a transient blip.
-                if let Err(e) = self
-                    .runtimes
-                    .record(&BotRuntime::stopped(
-                        user_id.to_string(),
-                        bot_id.to_string(),
-                        prev_version,
-                        observed_at,
-                    ))
-                    .await
+                if !superseded
+                    && let Err(e) = self
+                        .runtimes
+                        .settle_stopped(user_id, bot_id, stopped_task_id, prev_version, observed_at)
+                        .await
                 {
                     tracing::warn!(
                         "failed to record stopped runtime for missing bot {bot_id}: {e}"
@@ -123,26 +122,21 @@ impl ReconcileStoppedTaskUseCase {
             }
         };
 
+        // The restart claim below is keyed on the row's task and would refuse this
+        // event too; returning here only keeps the early exits from writing.
+        if superseded {
+            return Ok(ReconcileOutcome::SkippedSuperseded);
+        }
         // Desired state OFF (the user stopped it) -> reflect stopped, never restart.
         if !bot.enabled {
             self.runtimes
-                .record(&BotRuntime::stopped(
-                    user_id.to_string(),
-                    bot_id.to_string(),
-                    prev_version,
-                    observed_at,
-                ))
+                .settle_stopped(user_id, bot_id, stopped_task_id, prev_version, observed_at)
                 .await?;
             return Ok(ReconcileOutcome::SkippedNotEnabled);
         }
         if !stop.is_restartable() {
             self.runtimes
-                .record(&BotRuntime::stopped(
-                    user_id.to_string(),
-                    bot_id.to_string(),
-                    prev_version,
-                    observed_at,
-                ))
+                .settle_stopped(user_id, bot_id, stopped_task_id, prev_version, observed_at)
                 .await?;
             return Ok(ReconcileOutcome::SkippedNotRestartable);
         }
@@ -166,8 +160,8 @@ impl ReconcileStoppedTaskUseCase {
             .await?
         {
             StartClaim::Acquired => {}
-            // The stopped task was already replaced or claimed by another launcher;
-            // a task is or will be running, so do not relaunch and do not record stopped.
+            // The stopped task was already replaced or claimed by another launcher:
+            // do not relaunch, and write nothing over the row that launcher holds.
             _ => return Ok(ReconcileOutcome::SkippedSuperseded),
         }
 
@@ -269,7 +263,7 @@ impl ReconcileStoppedTaskUseCase {
 mod tests {
     use super::*;
     use crate::domain::engine::{EngineVersion, Runtime};
-    use crate::domain::runtime::RuntimePhase;
+    use crate::domain::runtime::{BotRuntime, RuntimePhase};
     use crate::usecase::engine_routing::LaunchTarget;
     use crate::usecase::run_task::RunTaskUseCase;
 
@@ -737,6 +731,78 @@ mod tests {
 
         let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
         assert_eq!(rt.phase, RuntimePhase::Stopped);
+    }
+
+    /// A late STOPPED for task X (an EventBridge duplicate, or the Lambda's retry)
+    /// can arrive while the row is `stopping(Y)` for a later task. Settling the
+    /// row to `stopped` there would let a Run launch beside the still-live Y, so
+    /// no early exit may record for a task the row no longer tracks.
+    #[tokio::test]
+    async fn a_late_stopped_for_a_superseded_task_does_not_settle_a_later_tasks_stopping_row() {
+        let not_restartable = || StopInfo {
+            exit_code: 0,
+            stop_code: "EssentialContainerExited".to_string(),
+            stopped_reason: None,
+        };
+        let cases = [
+            (
+                "disabled",
+                Some(enabled_bot(false)),
+                ReconcileOutcome::SkippedSuperseded,
+            ),
+            (
+                "enabled, not restartable",
+                Some(enabled_bot(true)),
+                ReconcileOutcome::SkippedSuperseded,
+            ),
+            ("missing bot", None, ReconcileOutcome::BotNotFound),
+        ];
+        for (case, bot, expected) in cases {
+            let bots = Arc::new(match bot {
+                Some(b) => InMemoryBots::with(b),
+                None => InMemoryBots::default(),
+            });
+            let runtimes = Arc::new(InMemoryRuntimes::default());
+            runtimes
+                .record(&BotRuntime::stopping(
+                    "user-1".into(),
+                    "bot-1".into(),
+                    "task-y".into(),
+                    2,
+                    EVENT_AT + 60,
+                ))
+                .await
+                .unwrap();
+            let runner = Arc::new(MockTaskRunner::new("task-z"));
+            let uc = ReconcileStoppedTaskUseCase::new(
+                bots,
+                runtimes.clone(),
+                Arc::new(MockLock::new(StartClaim::AlreadyRunning)),
+                runner.clone(),
+                Arc::new(MockStopper::default()),
+                Arc::new(FixedTarget),
+            );
+
+            let outcome = uc
+                .execute(
+                    "user-1",
+                    "bot-1",
+                    "task-x",
+                    "cluster",
+                    "container",
+                    not_restartable(),
+                    EVENT_AT,
+                    EVENT_AT,
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome, expected, "{case}");
+
+            let rt = runtimes.find("user-1", "bot-1").await.unwrap().unwrap();
+            assert_eq!(rt.phase, RuntimePhase::Stopping, "{case}");
+            assert_eq!(rt.task_id.as_deref(), Some("task-y"), "{case}");
+            assert_eq!(runner.call_count(), 0, "{case}");
+        }
     }
 
     #[tokio::test]

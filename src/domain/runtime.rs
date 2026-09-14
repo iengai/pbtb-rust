@@ -112,6 +112,34 @@ pub trait BotRuntimeRepository: Send + Sync {
         self.find(user_id, bot_id).await
     }
     async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError>;
+    /// Settle the row to `stopped` on `task_id`'s STOPPED. A `stopping` row
+    /// settles only for the task it is stopping: a late STOPPED for a superseded
+    /// task must not mark a still-live later task stopped, or a Run would launch
+    /// beside it. The default checks that with a read before the write, which a
+    /// concurrent writer can slip between; an implementation that can make the
+    /// write conditional (the DynamoDB one) overrides it with an atomic check.
+    async fn settle_stopped(
+        &self,
+        user_id: &str,
+        bot_id: &str,
+        task_id: &str,
+        version: i64,
+        observed_at: i64,
+    ) -> Result<(), DomainError> {
+        if let Some(rt) = self.find_consistent(user_id, bot_id).await?
+            && rt.phase == RuntimePhase::Stopping
+            && rt.task_id.as_deref() != Some(task_id)
+        {
+            return Ok(());
+        }
+        self.record(&BotRuntime::stopped(
+            user_id.to_string(),
+            bot_id.to_string(),
+            version,
+            observed_at,
+        ))
+        .await
+    }
 }
 
 /// Outcome of attempting to claim the exclusive right to launch a bot's task.
@@ -228,5 +256,47 @@ mod tests {
         assert_eq!(r.phase, RuntimePhase::Stopped);
         assert_eq!(r.version, 4);
         assert_eq!(r.observed_at, 200);
+    }
+
+    /// A one-row store that takes every write, so only the default's own check
+    /// stands between a superseded STOPPED and the row.
+    #[derive(Default)]
+    struct OneRow(std::sync::Mutex<Option<BotRuntime>>);
+    #[async_trait]
+    impl BotRuntimeRepository for OneRow {
+        async fn find(&self, _u: &str, _b: &str) -> Result<Option<BotRuntime>, DomainError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn record(&self, runtime: &BotRuntime) -> Result<(), DomainError> {
+            *self.0.lock().unwrap() = Some(runtime.clone());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn default_settle_stopped_leaves_another_tasks_stopping_row() {
+        let repo = OneRow::default();
+        repo.record(&BotRuntime::stopping(
+            "u".into(),
+            "b".into(),
+            "task-y".into(),
+            2,
+            100,
+        ))
+        .await
+        .unwrap();
+
+        repo.settle_stopped("u", "b", "task-x", 2, 200)
+            .await
+            .unwrap();
+        let rt = repo.find("u", "b").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopping);
+        assert_eq!(rt.task_id.as_deref(), Some("task-y"));
+
+        repo.settle_stopped("u", "b", "task-y", 2, 50)
+            .await
+            .unwrap();
+        let rt = repo.find("u", "b").await.unwrap().unwrap();
+        assert_eq!(rt.phase, RuntimePhase::Stopped);
     }
 }
