@@ -1,8 +1,9 @@
 // Backtest metrics as passivbot's analysis.json reports them: `gain` is the
-// final/starting balance ratio, the drawdowns and `adg*` are fractions, the
-// ratios are raw. Formats for the keys the pages show, in display order; a key
-// the list does not know is rounded to three decimals. The labels live in the
-// catalog under `t.configs.metric`, keyed by the same metric key.
+// final/starting balance ratio; the drawdowns, `adg*`,
+// `backtest_completion_ratio` and `equity_balance_diff_neg_max` are fractions;
+// the other ratios are raw. Formats for the keys the pages show, in display
+// order; a key the list does not know is rounded to three decimals. The labels
+// live in the catalog under `t.configs.metric`, keyed by the same metric key.
 
 export const METRICS: { key: string; fmt: (v: number) => string }[] = [
   { key: "gain", fmt: (v) => fmtGain(v, 0) },
