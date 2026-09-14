@@ -1,11 +1,12 @@
 # ---------------------------------------------------------------------------
 # GitHub Actions OIDC role for the pages-publish workflow.
 #
-# Read-only on the chart bucket's `public/` prefix alone: the workflow copies
-# the showcase artifacts into the site before it builds. It cannot see a
-# tenant's `charts/`, the collector's `_state/` or the private `showcase/`
-# copies; the showcase CDN (showcase-cdn.tf) is the bucket's one other reader
-# from outside. OIDC provider + github_oidc_arn live in telebot.tf.
+# Read-only on the chart bucket's `public/` prefix alone. No workflow assumes
+# it: the site reads the showcase from the showcase CDN (showcase-cdn.tf). It
+# is kept as the way back to syncing the showcase into the build while the CDN
+# proves itself, then removed (#161). It cannot see a tenant's `charts/`, the
+# collector's `_state/` or the private `showcase/` copies. OIDC provider +
+# github_oidc_arn live in telebot.tf.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_pages_publish" {

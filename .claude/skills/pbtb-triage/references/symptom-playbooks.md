@@ -146,10 +146,11 @@ scoped `terraform apply`. Before reading code:
    means the collector never wrote the bot.
 2. A stale *page*: `gh run list -R iengai/pbtb-rust --workflow=pages-publish.yml --limit 3`;
    `gh api repos/iengai/pbtb-rust/pages --jq .build_type` must be `workflow`.
-3. A stale *showcase* (`data/index.json`, behind `/p` and the live runs on `/configs/:name`): the collector writes `public/` at 01:00 UTC and
-   the 01:40 UTC scheduled publish copies it; `aws s3 ls s3://scalable-cluster-dev-return-charts/public/ --recursive`
-   timestamps say which half is late. A `::warning::` about `AWS_PAGES_PUBLISH_ROLE_ARN` in the run
-   means the sync was skipped. The Pages CDN can serve `data/*.json` up to ~10 min old.
+3. A stale *showcase* (`/p`, `/p/bots/:id`, the live runs on `/configs/:name`): the pages read it from the
+   showcase CDN, `curl -sI https://d1rxu490g9jchv.cloudfront.net/index.json` (`Last-Modified`, `Cache-Control: public, max-age=30`).
+   `aws s3 ls s3://scalable-cluster-dev-return-charts/public/ --recursive` timestamps: a switch rewrites its bot's file
+   and `index.json` at once, the collector all of them at 01:00 UTC (docs/data-model.md, S3 (return curves)). A switch
+   answering `published: false` for a shown bot means it has no `showcase/bots/<id>.json` yet: no collected curve.
 
 ## engine-routing
 

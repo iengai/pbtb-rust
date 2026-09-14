@@ -4,7 +4,8 @@
 # its owner, both via their own IAM roles. The one prefix that leaves the
 # bucket is `public/`, the showcase artifacts, read through the showcase CDN
 # (whose bucket policy lives beside the distribution, envs/dev/showcase-cdn.tf)
-# and by the pages-publish role; every other prefix stays closed.
+# and readable by the pages-publish role (envs/dev/pages-publish-ci.tf, which
+# no workflow assumes); every other prefix stays closed.
 resource "aws_s3_bucket" "this" {
   bucket = var.bucket_name
 
