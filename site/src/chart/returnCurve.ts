@@ -8,6 +8,8 @@
 // because a series written before they existed has none and the public one
 // never does. No chart library.
 
+import type { Frame, Margins } from "./frame";
+
 export type DailyPoint = {
   ts: number;
   index: number;
@@ -226,11 +228,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
 
 // The top margin holds the period labels, so it is taller than the bottom
 // one's axis ticks need.
-const W = 900,
-  H = 300,
-  M = { l: 56, r: 12, t: 30, b: 30 };
-const PW = W - M.l - M.r,
-  PH = H - M.t - M.b;
+export const RETURN_MARGINS: Margins = { l: 56, r: 12, t: 30, b: 30 };
 
 // A band narrower than this gets no label: the name would be a few clipped
 // glyphs, and the tooltip names the config anyway.
@@ -245,7 +243,7 @@ type Scales = {
   vmax: number;
 };
 
-function scales(pts: ViewPoint[]): Scales {
+function scales(pts: ViewPoint[], { M, PW, PH }: Frame): Scales {
   const t0 = pts[0]!.ts,
     t1 = pts[pts.length - 1]!.ts;
   let vmin = 0,
@@ -319,8 +317,10 @@ export function chartSVG(
   periods: DrawnPeriod[],
   labels: ChartLabels,
   idPrefix: string,
+  frame: Frame,
 ): string {
-  const sc = scales(pts);
+  const { W, H, M, PW, PH, cols: COLS } = frame;
+  const sc = scales(pts, frame);
   const up = pts[pts.length - 1]!.return_pct >= 0;
 
   // Horizontal grid + y labels (percent).
@@ -339,7 +339,6 @@ export function chartSVG(
 
   // X labels.
   let xlab = "";
-  const COLS = 5;
   for (let i = 0; i <= COLS; i++) {
     const t = sc.t0 + ((sc.t1 - sc.t0) * i) / COLS;
     xlab += `<text x="${sc.x(t).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === COLS ? "end" : "middle"}" fill="var(--muted)" font-size="11">${escapeXml(labels.axisDate(t))}</text>`;
@@ -392,22 +391,36 @@ export function chartSVG(
   </svg>`;
 }
 
+// Puts a fixed tooltip beside the pointer and inside the viewport. Under a
+// finger it goes above the touch point, where the finger does not cover it.
+export function placeTip(tip: HTMLElement, x: number, y: number, touch: boolean): void {
+  const w = tip.offsetWidth,
+    h = tip.offsetHeight;
+  const left = Math.max(8, Math.min(x + 14, window.innerWidth - w - 8));
+  const top = touch && y - h - 16 >= 8 ? y - h - 16 : Math.max(8, Math.min(y + 14, window.innerHeight - h - 8));
+  tip.style.left = left + "px";
+  tip.style.top = top + "px";
+}
+
 // Hover: a cursor line + dot snapped to the nearest daily point, the band of
 // the config active on that day lit, and a fixed tooltip beside the pointer.
-// Returns the teardown.
+// A touch reads the same way: a tap or a sideways drag moves the cursor, and
+// the reading stays after the finger lifts until a press elsewhere. A scroll
+// hides it, as the tooltip is fixed to the viewport. Returns the teardown.
 export function wireHover(
   container: HTMLElement,
   tip: HTMLElement,
   pts: ViewPoint[],
   labels: ChartLabels,
-  periods: DrawnPeriod[] = [],
+  periods: DrawnPeriod[],
+  frame: Frame,
 ): () => void {
   const svg = container.querySelector("svg");
   const hit = container.querySelector<SVGElement>('[data-part="hit"]');
   const cursor = container.querySelector<SVGElement>('[data-part="cursor"]');
   const dot = container.querySelector<SVGElement>('[data-part="dot"]');
   if (!svg || !hit || !cursor || !dot) return () => {};
-  const sc = scales(pts);
+  const sc = scales(pts, frame);
   const bands = Array.from(container.querySelectorAll<SVGElement>(".period"));
 
   // The period a day belongs to; at a switch instant the later one wins.
@@ -427,9 +440,9 @@ export function wireHover(
     tip.style.opacity = on ? "1" : "0";
   };
 
-  const move = (e: MouseEvent) => {
+  const move = (e: PointerEvent) => {
     const rect = svg.getBoundingClientRect();
-    const vx = ((e.clientX - rect.left) / rect.width) * W;
+    const vx = ((e.clientX - rect.left) / rect.width) * frame.W;
     let best = 0,
       bd = Infinity;
     for (let i = 0; i < pts.length; i++) {
@@ -457,20 +470,33 @@ export function wireHover(
       (pi >= 0
         ? `<div class="row"><span>${escapeXml(labels.configRow)}</span><b>${escapeXml(periods[pi]!.label)}</b></div>`
         : "");
-    tip.style.left = Math.min(e.clientX + 14, window.innerWidth - 150) + "px";
-    tip.style.top = e.clientY + 14 + "px";
+    placeTip(tip, e.clientX, e.clientY, e.pointerType !== "mouse");
   };
-  const leave = () => {
+  const hide = () => {
     light(-1);
     show(false);
   };
+  const leave = (e: PointerEvent) => {
+    if (e.pointerType === "mouse") hide();
+  };
+  const outside = (e: PointerEvent) => {
+    if (!svg.contains(e.target as Node)) hide();
+  };
 
-  hit.addEventListener("mousemove", move);
-  hit.addEventListener("mouseleave", leave);
+  hit.addEventListener("pointermove", move);
+  hit.addEventListener("pointerdown", move);
+  hit.addEventListener("pointerleave", leave);
+  hit.addEventListener("pointercancel", hide);
+  document.addEventListener("pointerdown", outside);
+  window.addEventListener("scroll", hide, { capture: true, passive: true });
   return () => {
-    hit.removeEventListener("mousemove", move);
-    hit.removeEventListener("mouseleave", leave);
-    leave();
+    hit.removeEventListener("pointermove", move);
+    hit.removeEventListener("pointerdown", move);
+    hit.removeEventListener("pointerleave", leave);
+    hit.removeEventListener("pointercancel", hide);
+    document.removeEventListener("pointerdown", outside);
+    window.removeEventListener("scroll", hide, { capture: true });
+    hide();
   };
 }
 

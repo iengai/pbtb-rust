@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useLang, useT } from "../i18n/locale";
 import {
   type ComboSeries,
@@ -15,24 +15,24 @@ import {
   rebase,
   valueAt,
 } from "./combo";
-import { fmtDate, fmtSignedPct } from "./returnCurve";
+import { type Frame, type Margins, frameOf } from "./frame";
+import { fmtDate, fmtSignedPct, placeTip } from "./returnCurve";
+import { useWidth } from "./useWidth";
 
 // The chart and the brush share the horizontal margins so a date sits at the
 // same x in both.
-const W = 900,
-  H = 300,
-  M = { l: 56, r: 12, t: 14, b: 30 };
-const PW = W - M.l - M.r,
-  PH = H - M.t - M.b;
+const M: Margins = { l: 56, r: 12, t: 14, b: 30 };
 const BH = 56; // the brush strip's height
-// Within this many viewBox units of a handle a press takes the handle.
+// Within this many pixels of a handle a press takes the handle; a fingertip
+// is far less precise than a mouse pointer.
 const GRIP = 10;
+const TOUCH_GRIP = 22;
 
-const xOf = (span: Span) => (t: number) => M.l + ((t - span.from) / (span.to - span.from || 1)) * PW;
-const tOf = (span: Span) => (x: number) => span.from + ((x - M.l) / PW) * (span.to - span.from);
+const xOf = (f: Frame, span: Span) => (t: number) => f.M.l + ((t - span.from) / (span.to - span.from || 1)) * f.PW;
+const tOf = (f: Frame, span: Span) => (x: number) => span.from + ((x - f.M.l) / f.PW) * (span.to - span.from);
 
 // The pointer's x in viewBox units.
-function viewX(e: { clientX: number; currentTarget: Element }): number {
+function viewX(e: { clientX: number; currentTarget: Element }, W: number): number {
   const rect = e.currentTarget.getBoundingClientRect();
   return ((e.clientX - rect.left) / rect.width) * W;
 }
@@ -99,15 +99,21 @@ export function PresetBar({
 
 // The series over the chosen span, each re-based there and drawn on the
 // chosen scale, with a hover that names every curve present on the pointed
-// day.
+// day. A touch reads the same way: a tap or a sideways drag moves the cursor,
+// and the reading stays after the finger lifts until a press elsewhere.
 export function ComboChart({ series, span, scale }: { series: ComboSeries[]; span: Span; scale: Scale }) {
   const t = useT();
   const { lang } = useLang();
-  const [hover, setHover] = useState<{ ts: number; cx: number; cy: number } | null>(null);
+  const [measure, width, narrow] = useWidth();
+  const f = frameOf(width, M, narrow);
+  const { W, H, PW, PH } = f;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ ts: number; cx: number; cy: number; touch: boolean } | null>(null);
   const curves = useMemo(() => rebase(series, span), [series, span]);
   const axis = useMemo(() => axisOf(curves, scale), [curves, scale]);
   const y = (v: number) => M.t + (1 - axis.pos(v)) * PH;
-  const x = xOf(span);
+  const x = xOf(f, span);
   const month = useMemo(
     () => new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short", timeZone: "UTC" }),
     [lang],
@@ -119,10 +125,31 @@ export function ComboChart({ series, span, scale }: { series: ComboSeries[]; spa
     return long ? d.toISOString().slice(0, 7) : t.returns.chart.axisDate(month.format(d), d.getUTCDate());
   };
 
+  // The tooltip is fixed to the viewport, so a scroll hides the reading rather
+  // than leaving it behind; a touch reading also ends at a press outside the chart.
+  const shown = hover != null;
+  const touching = hover?.touch ?? false;
+  useEffect(() => {
+    if (!shown) return;
+    const hide = () => setHover(null);
+    const outside = (e: globalThis.PointerEvent) => {
+      if (!svgRef.current?.contains(e.target as Node)) hide();
+    };
+    window.addEventListener("scroll", hide, { capture: true, passive: true });
+    if (touching) document.addEventListener("pointerdown", outside);
+    return () => {
+      window.removeEventListener("scroll", hide, { capture: true });
+      document.removeEventListener("pointerdown", outside);
+    };
+  }, [shown, touching]);
+  // The tooltip is placed from its own rendered size, so after every render.
+  useLayoutEffect(() => {
+    if (hover && tipRef.current) placeTip(tipRef.current, hover.cx, hover.cy, hover.touch);
+  });
+
   if (curves.length === 0) return <div className="msg">{t.configs.chart.notEnough}</div>;
 
-  const COLS = 5;
-  const cols = Array.from({ length: COLS + 1 }, (_, i) => span.from + ((span.to - span.from) * i) / COLS);
+  const cols = Array.from({ length: f.cols + 1 }, (_, i) => span.from + ((span.to - span.from) * i) / f.cols);
   const rows = hover
     ? curves
         .map((c) => ({ c, v: valueAt(c.view, hover.ts) }))
@@ -131,16 +158,21 @@ export function ComboChart({ series, span, scale }: { series: ComboSeries[]; spa
 
   // The handlers sit on the plot rect, so the pointer's fraction of the
   // rect's own box is its fraction of the span.
-  const move = (e: MouseEvent<SVGRectElement>) => {
+  const move = (e: PointerEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    setHover({ ts: span.from + f * (span.to - span.from), cx: e.clientX, cy: e.clientY });
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    setHover({
+      ts: span.from + frac * (span.to - span.from),
+      cx: e.clientX,
+      cy: e.clientY,
+      touch: e.pointerType !== "mouse",
+    });
   };
 
   return (
     <>
-      <div className="chart">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t.configs.chart.aria}>
+      <div className="chart" ref={measure}>
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t.configs.chart.aria}>
           {axis.ticks.map((v) => (
             <g key={v}>
               <line x1={M.l} y1={y(v)} x2={W - M.r} y2={y(v)} stroke="var(--grid)" />
@@ -155,7 +187,7 @@ export function ComboChart({ series, span, scale }: { series: ComboSeries[]; spa
               key={c}
               x={x(c)}
               y={H - 8}
-              textAnchor={i === 0 ? "start" : i === COLS ? "end" : "middle"}
+              textAnchor={i === 0 ? "start" : i === f.cols ? "end" : "middle"}
               fill="var(--muted)"
               fontSize={11}
             >
@@ -187,19 +219,14 @@ export function ComboChart({ series, span, scale }: { series: ComboSeries[]; spa
             width={PW}
             height={PH}
             fill="transparent"
-            onMouseMove={move}
-            onMouseLeave={() => setHover(null)}
+            onPointerMove={move}
+            onPointerDown={move}
+            onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+            onPointerCancel={() => setHover(null)}
           />
         </svg>
       </div>
-      <div
-        className="tip"
-        style={
-          hover
-            ? { opacity: 1, left: Math.min(hover.cx + 14, window.innerWidth - 200), top: hover.cy + 14 }
-            : { opacity: 0 }
-        }
-      >
+      <div ref={tipRef} className="tip" style={{ opacity: hover ? 1 : 0 }}>
         {hover && (
           <>
             <div className="d">{fmtDate(hover.ts)}</div>
@@ -237,9 +264,11 @@ export function Brush({
   onSpan: (s: Span) => void;
 }) {
   const t = useT();
+  const [measure, width, narrow] = useWidth();
+  const f = frameOf(width, M, narrow);
   const drag = useRef<Drag | null>(null);
-  const x = xOf(domain);
-  const toTs = tOf(domain);
+  const x = xOf(f, domain);
+  const toTs = tOf(f, domain);
   const [curve] = rebase([overview], domain);
   const line = useMemo(() => {
     if (!curve) return "";
@@ -252,18 +281,19 @@ export function Brush({
     if (lo === hi) hi = lo + 1;
     const y = (v: number) => 4 + (1 - (v - lo) / (hi - lo)) * (BH - 8);
     return path(curve.view, x, y);
-    // The domain is the only input that moves the strip's own curve.
+    // The domain and the drawn width are the only inputs that move the strip's own curve.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview, domain.from, domain.to]);
+  }, [overview, domain.from, domain.to, f.W]);
 
   const x0 = x(span.from),
     x1 = x(span.to);
 
   const down = (e: PointerEvent<SVGSVGElement>) => {
-    const vx = viewX(e);
+    const vx = viewX(e, f.W);
     const ts = toTs(vx);
-    if (Math.abs(vx - x0) <= GRIP) drag.current = { mode: "left", anchor: span.to };
-    else if (Math.abs(vx - x1) <= GRIP) drag.current = { mode: "right", anchor: span.from };
+    const grip = e.pointerType === "mouse" ? GRIP : TOUCH_GRIP;
+    if (Math.abs(vx - x0) <= grip) drag.current = { mode: "left", anchor: span.to };
+    else if (Math.abs(vx - x1) <= grip) drag.current = { mode: "right", anchor: span.from };
     else if (vx > x0 && vx < x1) drag.current = { mode: "move", anchor: ts, start: span };
     else drag.current = { mode: "new", anchor: ts };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -271,7 +301,7 @@ export function Brush({
   const moved = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     if (!d) return;
-    const ts = toTs(viewX(e));
+    const ts = toTs(viewX(e, f.W));
     if (d.mode === "move") {
       const len = d.start.to - d.start.from;
       const from = Math.min(Math.max(d.start.from + ts - d.anchor, domain.from), domain.to - len);
@@ -286,8 +316,9 @@ export function Brush({
 
   return (
     <svg
+      ref={measure}
       className="brush"
-      viewBox={`0 0 ${W} ${BH}`}
+      viewBox={`0 0 ${f.W} ${BH}`}
       role="slider"
       aria-label={t.configs.chart.brushAria}
       aria-valuetext={`${fmtDate(span.from)} → ${fmtDate(span.to)}`}
@@ -296,7 +327,7 @@ export function Brush({
       onPointerUp={up}
       onPointerCancel={up}
     >
-      <rect x={M.l} y={0} width={PW} height={BH} fill="var(--panel)" />
+      <rect x={M.l} y={0} width={f.PW} height={BH} fill="var(--panel)" />
       {line && <path d={line} fill="none" stroke="var(--balance)" strokeWidth={1.5} />}
       <rect className="window" x={x0} y={0} width={Math.max(0, x1 - x0)} height={BH} />
       <rect className="outline" x={x0} y={0.5} width={Math.max(0, x1 - x0)} height={BH - 1} />

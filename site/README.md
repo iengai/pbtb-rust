@@ -8,6 +8,13 @@ the per-bot return curves come from: each account sees its own.
 No UI kit and no chart library: the charts are the dependency-free SVG code of
 the original return-curve page, moved into `src/chart/`.
 
+The pages work down to phone width, with one breakpoint at 760px in
+`src/styles.css`: the header's links fold onto a row of their own that scrolls
+sideways, and the grids drop to one or two columns. A chart is drawn at its
+container's measured width, one viewBox unit to a CSS pixel (`chart/frame.ts`,
+`chart/useWidth.ts`), so its text does not shrink on a small screen. It reads
+by touch as well as by mouse.
+
 ## Layout
 
 ```
