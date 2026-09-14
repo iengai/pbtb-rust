@@ -13,6 +13,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: chore
+    # dtolnay/rust-toolchain's ref names a Rust release, not an action major,
+    # and its tags run ahead of published releases. It follows
+    # rust-toolchain.toml.
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       github-actions:
         patterns: ["*"]
