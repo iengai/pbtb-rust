@@ -92,7 +92,7 @@ jobs:
       group: issue-fix-${{ github.event.inputs.issue_number || github.event.issue.number }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # git log is one of the model's tools; the gate diffs against main
           # A fix is made on main. A dry run is made on the ref it was
@@ -122,7 +122,7 @@ jobs:
       # starts.
       - run: docker info > /dev/null
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -156,7 +156,7 @@ jobs:
           [ -f "$f" ] && cat "$f"
           true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fix-${{ env.ISSUE }}
           path: ${{ runner.temp }}/fix
@@ -173,13 +173,13 @@ jobs:
       issues: write
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: fix-${{ env.ISSUE }}
           path: ${{ runner.temp }}/fix
