@@ -294,7 +294,7 @@ export function installMock(): void {
       const current = showcase[id] ?? { public_url: null, public: false };
       const status = current.public === shown ? "unchanged" : "updated";
       showcase[id] = { ...current, public: shown };
-      return delay({ status, public: shown });
+      return delay({ status, public: shown, published: shown });
     },
     listTemplates: () => delay({ templates: templates.map((tpl) => ({ ...tpl })) }),
     getTemplate: (name: string) => delay({ name, version: "8.1.0", description: null, min_vip_level: 0 }),
