@@ -75,5 +75,12 @@ export const configs: typeof en = {
     position_held_hours_mean: "平均持仓时长（小时）",
     loss_profit_ratio: "亏损/盈利比",
     backtest_completion_ratio: "回测完成度",
+    drawdown_worst_mean_1pct: "回撤（最差 1% 均值）",
+    omega_ratio: "欧米伽比率",
+    sterling_ratio: "斯特林比率",
+    position_unchanged_hours_max: "最长未变持仓（小时）",
+    equity_balance_diff_neg_max: "最大浮亏",
+    exposure_ratios_mean_long: "平均多头敞口",
+    exposure_ratios_mean_short: "平均空头敞口",
   },
 };
