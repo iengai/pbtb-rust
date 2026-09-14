@@ -1,12 +1,13 @@
 services:
   dynamodb-local:
-    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
+    # In memory: the integration tests create a table per test and never drop it,
+    # and an on-disk instance keeps every one until DynamoDB-backed tests time out.
+    # Nothing here is meant to outlive the container; post-start recreates `bots`.
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
     image: "amazon/dynamodb-local:latest"
     container_name: dynamodb-local
     ports:
       - "8000:8000"
-    volumes:
-      - "./docker/dynamodb:/home/dynamodblocal/data"
     working_dir: /home/dynamodblocal
     # Restart with the machine/Docker so a reboot doesn't leave app-node up but its
     # DB dependency down (app-node is unless-stopped too).
