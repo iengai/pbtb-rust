@@ -43,7 +43,47 @@ pub async fn run(bot: Bot, deps: Deps, site_url: String) -> anyhow::Result<()> {
         .dependencies(deps_map(deps))
         .enable_ctrlc_handler()
         .build();
+    shutdown_on_sigterm(dispatcher.shutdown_token());
 
     dispatcher.dispatch().await;
     Ok(())
 }
+
+/// Shut the dispatcher down on SIGTERM, the signal systemd and `docker stop` end
+/// the container with. teloxide's own handler listens for SIGINT only, and the
+/// binary runs as PID 1 in its container, where an unhandled SIGTERM is ignored:
+/// without this a stop waits out its timeout and ends in SIGKILL, cutting off any
+/// update mid-handler, a Run between its start-lock claim and the task-id attach
+/// included. The shutdown lets in-flight handlers finish first.
+#[cfg(unix)]
+fn shutdown_on_sigterm(token: teloxide::dispatching::ShutdownToken) {
+    use tokio::signal::unix::{SignalKind, signal};
+    // Registered before the spawn, so a SIGTERM that lands before the task is
+    // first polled is queued rather than lost.
+    let mut term = match signal(SignalKind::terminate()) {
+        Ok(term) => term,
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot listen for SIGTERM; a stop will end in SIGKILL");
+            return;
+        }
+    };
+    tokio::spawn(async move {
+        term.recv().await;
+        tracing::info!("SIGTERM received, shutting the dispatcher down");
+        // A SIGTERM during startup (the webhook deletion and `get_me` before
+        // dispatching begins) finds the dispatcher idle, and shutdown refuses an
+        // idle dispatcher; the request is held until dispatching has begun.
+        loop {
+            match token.shutdown() {
+                Ok(done) => {
+                    done.await;
+                    return;
+                }
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(200)).await,
+            }
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn shutdown_on_sigterm(_token: teloxide::dispatching::ShutdownToken) {}
