@@ -12,12 +12,15 @@
 //! rounded capital figure per config switch and reset. Nothing here is
 //! Bybit-specific.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use pbtb_rust::domain::Bot;
 use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
+use pbtb_rust::domain::showcase::{
+    PublicBotSeries, PublicPoint, PublicReset, PublicSwitch, public_id,
+};
 
 use crate::bybit::LedgerEntry;
 
@@ -301,89 +304,6 @@ pub fn compute_points(days: &[DayAgg], first_pre_balance: f64) -> ReturnSeries {
     }
 }
 
-/// One day of a public curve: where the index stands, and nothing about money.
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicPoint {
-    pub ts: i64,
-    pub index: f64,
-    pub return_pct: f64,
-}
-
-/// A config switch on a public curve, with the capital the bot ran the new
-/// config at: the wallet balance at the close of the last day before the
-/// switch, rounded to a magnitude.
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicSwitch {
-    pub ts: i64,
-    pub template_name: String,
-    pub cap_usdt: f64,
-}
-
-/// A capital reset on a public curve, with the capital the new era started
-/// at: the close of the reset day itself, since the day before held the dust
-/// the re-funding replaced.
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicReset {
-    pub ts: i64,
-    pub cap_usdt: f64,
-}
-
-/// The showcase artifact for one bot the operator made public. A type of its
-/// own rather than the private series with fields removed: it has no place
-/// for realized PnL or a balance, so a money field added to the private
-/// series later cannot leak through it. `cap_usdt` is the one balance-derived
-/// figure, rounded to a magnitude. `id` is the opaque public id, not the bot
-/// id: bot ids are per-tenant keys two tenants may share.
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicBotSeries {
-    pub id: String,
-    pub name: String,
-    pub exchange: String,
-    /// The copy-trading page the showcase links to; `None` on a bot shown
-    /// without one.
-    pub public_url: Option<String>,
-    pub generated_at: i64,
-    pub current_return_pct: f64,
-    pub points: Vec<PublicPoint>,
-    pub config_switches: Vec<PublicSwitch>,
-    pub capital_resets: Vec<PublicReset>,
-}
-
-/// The showcase listing: every public bot with what a list row needs, and a
-/// 30-day sparkline. Written on every run, empty when nothing is public, so
-/// the page can tell "nothing public" from "never synced".
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicIndex {
-    pub generated_at: i64,
-    pub bots: Vec<PublicIndexBot>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PublicIndexBot {
-    pub id: String,
-    pub name: String,
-    pub exchange: String,
-    pub public_url: Option<String>,
-    pub current_return_pct: f64,
-    pub spark: Vec<f64>,
-}
-
-const SPARK_DAYS: usize = 30;
-
-/// `sha256("{user_id}#{bot_id}")`, twelve hex characters: stable for the life
-/// of the bot, distinct across tenants, and safe as an S3 key and a URL
-/// segment whatever the bot was named.
-pub fn public_id(user_id: &str, bot_id: &str) -> String {
-    use sha2::{Digest, Sha256};
-    hex::encode(&Sha256::digest(format!("{user_id}#{bot_id}"))[..6])
-}
-
-/// Whether a bot is published: it is on the showcase, on the operator's
-/// account. The same choice on any other account's row is inert.
-pub fn is_published(bot: &Bot, operator: bool) -> bool {
-    operator && bot.on_showcase()
-}
-
 /// Round a balance to one significant digit (706 → 700, 1 234 → 1 000,
 /// 1 500 → 2 000, 95 → 100); a tie goes up. Coarse on purpose: it is the one
 /// balance-derived figure the public sees, and it reads as the round sum the
@@ -426,83 +346,90 @@ fn close_on(days: &[DayAgg], ts: i64) -> f64 {
         .unwrap_or(0.0)
 }
 
-impl PublicBotSeries {
-    pub fn new(
-        bot: &Bot,
-        series: &ReturnSeries,
-        switches: &[ConfigSwitchEvent],
-        days: &[DayAgg],
-        generated_at: i64,
-    ) -> Self {
-        let points: Vec<PublicPoint> = series
-            .points
-            .iter()
-            .map(|p| PublicPoint {
-                ts: p.ts,
-                index: p.index,
-                return_pct: p.return_pct,
-            })
-            .collect();
-        let current_return_pct = points.last().map(|p| p.return_pct).unwrap_or(0.0);
-        let config_switches = switches
-            .iter()
-            .map(|s| PublicSwitch {
-                ts: s.applied_at,
-                template_name: s.template_name.clone(),
-                cap_usdt: round_cap(close_before(days, s.applied_at)),
-            })
-            .collect();
-        let capital_resets = series
-            .capital_resets
-            .iter()
-            .map(|&ts| PublicReset {
-                ts,
-                cap_usdt: round_cap(close_on(days, ts)),
-            })
-            .collect();
-        Self {
-            id: public_id(&bot.user_id, &bot.id),
-            name: bot.name.clone(),
-            exchange: bot.exchange.as_str().to_string(),
-            public_url: bot.public_url.clone(),
-            generated_at,
-            current_return_pct,
-            points,
-            config_switches,
-            capital_resets,
-        }
+/// The showcase artifact of one bot, built from its stored history.
+pub fn public_series(
+    bot: &Bot,
+    series: &ReturnSeries,
+    switches: &[ConfigSwitchEvent],
+    days: &[DayAgg],
+    generated_at: i64,
+) -> PublicBotSeries {
+    let points: Vec<PublicPoint> = series
+        .points
+        .iter()
+        .map(|p| PublicPoint {
+            ts: p.ts,
+            index: p.index,
+            return_pct: p.return_pct,
+        })
+        .collect();
+    let current_return_pct = points.last().map(|p| p.return_pct).unwrap_or(0.0);
+    let config_switches = switches
+        .iter()
+        .map(|s| PublicSwitch {
+            ts: s.applied_at,
+            template_name: s.template_name.clone(),
+            cap_usdt: round_cap(close_before(days, s.applied_at)),
+        })
+        .collect();
+    let capital_resets = series
+        .capital_resets
+        .iter()
+        .map(|&ts| PublicReset {
+            ts,
+            cap_usdt: round_cap(close_on(days, ts)),
+        })
+        .collect();
+    PublicBotSeries {
+        id: public_id(&bot.user_id, &bot.id),
+        name: bot.name.clone(),
+        exchange: bot.exchange.as_str().to_string(),
+        public_url: bot.public_url.clone(),
+        generated_at,
+        current_return_pct,
+        points,
+        config_switches,
+        capital_resets,
     }
 }
 
-impl PublicIndex {
-    pub fn new(series: &[PublicBotSeries], generated_at: i64) -> Self {
-        let bots = series
-            .iter()
-            .map(|s| PublicIndexBot {
-                id: s.id.clone(),
-                name: s.name.clone(),
-                exchange: s.exchange.clone(),
-                public_url: s.public_url.clone(),
-                current_return_pct: s.current_return_pct,
-                spark: s
-                    .points
-                    .iter()
-                    .rev()
-                    .take(SPARK_DAYS)
-                    .map(|p| p.return_pct)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect(),
-            })
-            .collect();
-        Self { generated_at, bots }
-    }
+/// The showcase artifact a bot contributes: every bot on the operator's
+/// account has one, shown or not, so the showcase switch can publish it
+/// without waiting for a run. A bot on any other account has none.
+pub fn showcase_artifact(
+    bot: &Bot,
+    operator: bool,
+    series: &ReturnSeries,
+    switches: &[ConfigSwitchEvent],
+    days: &[DayAgg],
+    generated_at: i64,
+) -> Option<PublicBotSeries> {
+    operator.then(|| public_series(bot, series, switches, days, generated_at))
+}
+
+/// What a run's final publish writes and removes, given `published`, the
+/// public ids of the bots published on the rows as re-read after the build:
+/// the artifacts built this run for those bots, and every listed artifact
+/// whose bot is not published now. A bot published now whose build failed
+/// keeps its file; one hidden since the build loses it.
+pub fn publish_plan<'a>(
+    built: &'a [PublicBotSeries],
+    published: &HashSet<String>,
+    listed: &[String],
+) -> (Vec<&'a PublicBotSeries>, Vec<String>) {
+    let writes = built.iter().filter(|s| published.contains(&s.id)).collect();
+    let removes = listed
+        .iter()
+        .filter(|pid| !published.contains(*pid))
+        .cloned()
+        .collect();
+    (writes, removes)
 }
 
 #[cfg(test)]
 mod public_tests {
     use super::*;
+    use pbtb_rust::domain::showcase::PublicIndex;
 
     const LINK: &str = "https://www.bybit.com/copyTrade/x";
 
@@ -545,7 +472,7 @@ mod public_tests {
             day(2, 20.0, 1025.0),
         ];
         let series = compute_points(&days, 1000.0);
-        let public = PublicBotSeries::new(
+        let public = public_series(
             &a_public_bot(),
             &series,
             &[switch(DAY_S + 100, "tpl-a")],
@@ -601,7 +528,7 @@ mod public_tests {
         ];
         let series = compute_points(&days, 1000.0);
         assert_eq!(series.capital_resets, vec![2 * DAY_S]);
-        let public = PublicBotSeries::new(
+        let public = public_series(
             &a_public_bot(),
             &series,
             &[switch(DAY_S + 3600, "tpl-a"), switch(-DAY_S, "tpl-0")],
@@ -630,37 +557,69 @@ mod public_tests {
         assert_ne!(id, public_id("u-2", "shown"), "per tenant");
         assert_eq!(a_public_bot().user_id, "u-1");
         assert_eq!(
-            PublicBotSeries::new(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0).id,
+            public_series(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0).id,
             id
         );
     }
 
     #[test]
-    fn a_bot_is_published_when_it_is_on_the_operators_showcase() {
-        let private = Bot::create("u-1".into(), "quiet".into(), "ak".into(), "sk".into(), 1);
-        assert!(!is_published(&private, true));
-        assert!(is_published(&a_public_bot(), true));
-        assert!(!is_published(&a_public_bot(), false), "not an operator");
-    }
-
-    #[test]
-    fn a_hidden_bot_is_not_published_and_an_unlinked_one_can_be() {
+    fn showcase_artifact_for_every_operator_bot_shown_or_not() {
         let mut hidden = a_public_bot();
         hidden.set_showcase(false, 2);
-        assert!(!is_published(&hidden, true));
+        let series = showcase_artifact(&hidden, true, &ReturnSeries::default(), &[], &[], 0)
+            .expect("an operator's hidden bot still yields its artifact");
+        assert_eq!(series.id, public_id("u-1", "shown"));
+        assert_eq!(series.public_url.as_deref(), Some(LINK));
 
         let mut unlinked = Bot::create("u-1".into(), "bare".into(), "ak".into(), "sk".into(), 1);
         unlinked.set_showcase(true, 2);
-        assert!(is_published(&unlinked, true));
-        let series = PublicBotSeries::new(&unlinked, &ReturnSeries::default(), &[], &[], 0);
-        assert_eq!(series.public_url, None);
+        let bare =
+            showcase_artifact(&unlinked, true, &ReturnSeries::default(), &[], &[], 0).unwrap();
         assert_eq!(
-            serde_json::to_value(&series).unwrap()["public_url"],
+            serde_json::to_value(&bare).unwrap()["public_url"],
             serde_json::Value::Null
         );
+    }
+
+    #[test]
+    fn showcase_no_artifact_for_a_member_bot() {
+        assert!(
+            showcase_artifact(
+                &a_public_bot(),
+                false,
+                &ReturnSeries::default(),
+                &[],
+                &[],
+                0
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn showcase_publish_follows_rows_reread_after_the_build() {
+        let shown = public_series(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0);
+        let other = Bot::create("u-1".into(), "other".into(), "ak".into(), "sk".into(), 1);
+        let hidden_mid_run = public_series(&other, &ReturnSeries::default(), &[], &[], 0);
+        let failed_but_shown = public_id("u-1", "failed");
+        let published: HashSet<String> = [shown.id.clone(), failed_but_shown.clone()].into();
+        let listed = vec![
+            hidden_mid_run.id.clone(),
+            failed_but_shown.clone(),
+            "0000stale000".to_string(),
+        ];
+        let built = vec![shown.clone(), hidden_mid_run.clone()];
+
+        let (writes, removes) = publish_plan(&built, &published, &listed);
+
         assert_eq!(
-            PublicBotSeries::new(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0).public_url,
-            Some(LINK.to_string())
+            writes.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
+            vec![shown.id.clone()]
+        );
+        assert_eq!(
+            removes,
+            vec![hidden_mid_run.id.clone(), "0000stale000".to_string()],
+            "a bot hidden since the build loses its file; one shown whose build failed keeps it"
         );
     }
 
@@ -668,7 +627,7 @@ mod public_tests {
     fn the_index_sparkline_is_the_last_thirty_days_oldest_first() {
         let days: Vec<DayAgg> = (0..40).map(|d| day(d, 1.0, 1000.0 + d as f64)).collect();
         let series = compute_points(&days, 1000.0);
-        let public = PublicBotSeries::new(&a_public_bot(), &series, &[], &days, 0);
+        let public = public_series(&a_public_bot(), &series, &[], &days, 0);
         let index = PublicIndex::new(&[public], 0);
         let spark = &index.bots[0].spark;
         assert_eq!(spark.len(), 30);

@@ -43,9 +43,9 @@ module "base" {
   )
 }
 
-# Enumerate bots (Scan), read each bot's config-switch timeline (Query), and
-# read the account row of a bot with a public link (GetItem: only the
-# operator's account publishes).
+# Enumerate bots (Scan, again at the end of a run to publish on current rows),
+# read each bot's config-switch timeline (Query), and read each bot's account
+# row (GetItem: only the operator's account has showcase artifacts).
 resource "aws_iam_role_policy" "dynamodb" {
   name = "${var.project}-${var.env}-daily-pnl-snapshot-dynamodb"
   role = module.base.role_name
@@ -64,7 +64,8 @@ resource "aws_iam_role_policy" "dynamodb" {
 }
 
 # Read each bot's api-keys.json from the bot-configs bucket; read/write the
-# per-bot series + private incremental state on the separate chart bucket, and
+# per-bot series, the private incremental state and the private showcase copies
+# on the separate chart bucket, write the public showcase artifacts, and
 # remove a showcase artifact under its public prefix when a bot leaves the page.
 resource "aws_iam_role_policy" "s3" {
   name = "${var.project}-${var.env}-daily-pnl-snapshot-s3"

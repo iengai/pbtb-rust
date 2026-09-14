@@ -28,8 +28,8 @@ use teloxide::prelude::*;
 use teloxide::types::Me;
 
 use fakes::{
-    FixedClock, InMemoryApiKeys, InMemoryBotConfigs, InMemoryReturnCurves, InMemoryTemplates,
-    RecordingEcs,
+    FixedClock, InMemoryApiKeys, InMemoryBotConfigs, InMemoryReturnCurves,
+    InMemoryShowcasePublisher, InMemoryTemplates, RecordingEcs,
 };
 use telegram::FakeTelegram;
 
@@ -58,6 +58,7 @@ pub struct Harness {
     pub ecs: Arc<RecordingEcs>,
     pub templates: Arc<InMemoryTemplates>,
     pub curves: Arc<InMemoryReturnCurves>,
+    pub showcase: Arc<InMemoryShowcasePublisher>,
     schema: teloxide::dispatching::UpdateHandler<DependencyMap>,
     deps_map: DependencyMap,
     bot: Bot,
@@ -116,6 +117,7 @@ impl Harness {
             ecs,
             templates,
             curves: Arc::new(InMemoryReturnCurves::default()),
+            showcase: Arc::new(InMemoryShowcasePublisher::default()),
             schema: router::schema(SITE_URL.to_string()),
             deps_map: router::deps_map(deps),
             bot,
@@ -255,7 +257,11 @@ impl Harness {
                 clock.clone(),
             )),
             signup_usecase: Arc::new(SignupUseCase::new(identities, users, clock.clone())),
-            showcase_usecase: Arc::new(BotShowcaseUseCase::new(bots_dyn, clock)),
+            showcase_usecase: Arc::new(BotShowcaseUseCase::new(
+                bots_dyn,
+                clock,
+                Some(self.showcase.clone()),
+            )),
             set_template_audience_usecase: Arc::new(SetTemplateAudienceUseCase::new(
                 self.templates.clone(),
             )),

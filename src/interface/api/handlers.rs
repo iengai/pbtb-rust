@@ -600,8 +600,9 @@ impl Handlers<'_> {
         )
     }
 
-    /// Show one of the operator's bots on the showcase page or hide it. The
-    /// link stays either way; the page follows on the collector's next run.
+    /// Show one of the operator's bots on the showcase page or hide it, and
+    /// bring its public artifact in line. The link stays either way.
+    /// `published` says whether the artifact is on the public prefix now.
     pub async fn set_showcase(&self, bot_id: &str, body: ShowcaseBody) -> ApiResult {
         require(self.principal, WRITE)?;
         let outcome = self
@@ -614,11 +615,11 @@ impl Handlers<'_> {
                 ApiError::from_domain("setting the showcase", e)
             })?;
         let body = match outcome {
-            SetShowcaseOutcome::Updated { shown } => {
-                json!({ "status": "updated", "public": shown })
+            SetShowcaseOutcome::Updated { shown, published } => {
+                json!({ "status": "updated", "public": shown, "published": published })
             }
-            SetShowcaseOutcome::Unchanged { shown } => {
-                json!({ "status": "unchanged", "public": shown })
+            SetShowcaseOutcome::Unchanged { shown, published } => {
+                json!({ "status": "unchanged", "public": shown, "published": published })
             }
             SetShowcaseOutcome::BotNotFound => {
                 self.audit("set_showcase", bot_id, "bot_not_found");

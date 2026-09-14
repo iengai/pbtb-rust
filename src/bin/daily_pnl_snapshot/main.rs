@@ -5,8 +5,9 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 
 use crate::config::DailyPnlSnapshotConfig;
 use pbtb_rust::config::configs::load_config;
+use pbtb_rust::domain::SystemClock;
 use pbtb_rust::infra::client::{create_dynamodb_client, create_s3_client};
-use pbtb_rust::infra::{DynamoBotRepository, S3ApiKeyRepository};
+use pbtb_rust::infra::{DynamoBotRepository, S3ApiKeyRepository, S3ShowcaseStore};
 use pbtb_rust::observability::Telemetry;
 
 mod bybit;
@@ -27,6 +28,9 @@ pub struct AppState {
     /// Writes the per-bot chart JSON (to the chart bucket, not the S3 config
     /// above — the client is shared, the bucket name is not).
     s3: aws_sdk_s3::Client,
+    /// The chart bucket's showcase halves, in the layout the API's showcase
+    /// switch writes too.
+    showcase: Arc<S3ShowcaseStore>,
     http: reqwest::Client,
 }
 
@@ -50,6 +54,12 @@ async fn main() -> Result<(), Error> {
         configs.s3.bucket_name.clone(),
     ));
 
+    let showcase = Arc::new(S3ShowcaseStore::new(
+        s3_client.clone(),
+        &configs.chart,
+        Arc::new(SystemClock),
+    ));
+
     let http = reqwest::Client::builder()
         .build()
         .map_err(|e| Error::from(format!("Failed to build HTTP client: {e}")))?;
@@ -59,6 +69,7 @@ async fn main() -> Result<(), Error> {
         bots,
         api_keys,
         s3: s3_client,
+        showcase,
         http,
     });
 
