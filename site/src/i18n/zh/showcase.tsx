@@ -24,7 +24,8 @@ export const showcase: typeof en = {
     show: "公开",
     hide: "隐藏",
     empty: "还没有机器人。",
-    note: "公开页面会在下一次每日采集并发布站点后更新。",
+    note: "切换后约半分钟内，公开页面随之更新。",
+    noCurveYet: (name) => `${name} 已设为公开，但还没有采集到收益曲线；下一次每日采集后才会出现。`,
   },
   runs: {
     title: "实盘运行",

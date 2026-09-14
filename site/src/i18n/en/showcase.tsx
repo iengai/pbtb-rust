@@ -25,7 +25,9 @@ export const showcase = {
     show: "Show",
     hide: "Hide",
     empty: "No bots yet.",
-    note: "The public page follows after the next daily collection and site publish.",
+    note: "The public page follows a switch within about half a minute.",
+    noCurveYet: (name: string) =>
+      `${name} is set to public but has no collected curve yet; it appears after the next daily collection.`,
   },
   runs: {
     title: "Live runs",

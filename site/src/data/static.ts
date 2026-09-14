@@ -1,11 +1,13 @@
-// The static JSON published beside the app, none of it tenant data and none
-// of it behind a token: `templates/`, the backtests of the strategy templates
-// (committed), and `data/`, the showcase the daily collector writes for the
-// operator's public bots (synced from the chart bucket by pages-publish;
-// absent in a checkout that never ran `npm run fixtures`). A signed-in
-// account's own return curves are not here: they come through the API.
+// The static JSON the pages read without a token, none of it tenant data:
+// `templates/`, the backtests of the strategy templates (committed, published
+// beside the app), and the showcase, the operator's shown bots, read from
+// `VITE_SHOWCASE_URL` (the showcase CDN over the chart bucket's `public/`
+// prefix). Unset, the showcase is `data/` beside the app, the sample
+// `npm run fixtures` copies in. A signed-in account's own return curves are
+// not here: they come through the API.
 
 const BASE = import.meta.env.BASE_URL;
+const SHOWCASE = (import.meta.env.VITE_SHOWCASE_URL || `${BASE}data/`).replace(/\/?$/, "/");
 
 // One row of a backtest curve: equity and balance, each normalized to 100 at
 // the backtest start.
@@ -34,9 +36,9 @@ export type TemplateBacktest = TemplateSummary & {
   strategies: { name: string; side: string }[];
 };
 
-// One showcase bot in `data/index.json`: an opaque id (the collector's hash,
-// stable across renames), the copy-trading page it links to (null on a bot
-// shown without one), and the last 30 daily returns as a sparkline.
+// One showcase bot in the showcase `index.json`: an opaque id (the collector's
+// hash, stable across renames), the copy-trading page it links to (null on a
+// bot shown without one), and the last 30 daily returns as a sparkline.
 export type ShowcaseEntry = {
   id: string;
   name: string;
@@ -48,8 +50,8 @@ export type ShowcaseEntry = {
 
 export type ShowcaseIndex = { generated_at: number; bots: ShowcaseEntry[] };
 
-// `data/bots/{id}.json`: the curve as a return index per day, the config
-// switches and the capital resets, each with the capital the bot ran at
+// The showcase `bots/{id}.json`: the curve as a return index per day, the
+// config switches and the capital resets, each with the capital the bot ran at
 // rounded to a magnitude. Percentages only; no balance and no realized figure.
 export type ShowcasePoint = { ts: number; index: number; return_pct: number };
 export type ShowcaseSwitch = { ts: number; template_name: string; cap_usdt: number };
@@ -66,36 +68,64 @@ export type ShowcaseBot = {
   capital_resets: ShowcaseReset[];
 };
 
-async function getJSON<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, { cache: "no-cache" });
-  if (!r.ok) throw new Error(`${path} -> HTTP ${r.status}`);
+// A bot's copy-trading link as a page may put it in an href: an https URL on
+// bybit.com, or null. The link is typed in by the operator, and an href runs
+// whatever scheme it is given.
+export function bybitLink(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  const onBybit = host === "bybit.com" || host.endsWith(".bybit.com");
+  return parsed.protocol === "https:" && onBybit ? parsed.href : null;
+}
+
+function withBybitLink<T extends { public_url: string | null }>(item: T): T {
+  return { ...item, public_url: bybitLink(item.public_url) };
+}
+
+async function getJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
   return r.json() as Promise<T>;
 }
 
 // A file the publisher may legitimately not have written: no showcase yet, or
-// a bot id that is not (or no longer) public. Pages answers 404 for those,
+// a bot id that is not (or no longer) public. The host answers 404 for those,
 // which to a page is "nothing here", not an error.
-async function getJSONOrNull<T>(path: string): Promise<T | null> {
-  const r = await fetch(`${BASE}${path}`, { cache: "no-cache" });
+async function getJSONOrNull<T>(url: string): Promise<T | null> {
+  const r = await fetch(url, { cache: "no-cache" });
   if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`${path} -> HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
   return r.json() as Promise<T>;
 }
 
+async function showcaseIndex(): Promise<ShowcaseIndex | null> {
+  const index = await getJSONOrNull<ShowcaseIndex>(`${SHOWCASE}index.json`);
+  return index && { ...index, bots: index.bots.map(withBybitLink) };
+}
+
+async function showcaseBot(id: string): Promise<ShowcaseBot | null> {
+  const bot = await getJSONOrNull<ShowcaseBot>(`${SHOWCASE}bots/${encodeURIComponent(id)}.json`);
+  return bot && withBybitLink(bot);
+}
+
 export const staticData = {
-  templates: () => getJSON<TemplateSummary[]>("templates/index.json"),
-  template: (name: string) => getJSON<TemplateBacktest>(`templates/${encodeURIComponent(name)}.json`),
-  showcase: () => getJSONOrNull<ShowcaseIndex>("data/index.json"),
-  showcaseBot: (id: string) => getJSONOrNull<ShowcaseBot>(`data/bots/${encodeURIComponent(id)}.json`),
+  templates: () => getJSON<TemplateSummary[]>(`${BASE}templates/index.json`),
+  template: (name: string) => getJSON<TemplateBacktest>(`${BASE}templates/${encodeURIComponent(name)}.json`),
+  showcase: showcaseIndex,
+  showcaseBot,
   // Every showcase bot's full series, for the config page's live runs. A bot
   // listed in the index whose file is missing (a publish caught mid-run) is
   // left out rather than failing the page.
   showcaseBots: async (): Promise<ShowcaseBot[]> => {
-    const index = await getJSONOrNull<ShowcaseIndex>("data/index.json");
+    const index = await showcaseIndex();
     if (!index) return [];
-    const bots = await Promise.all(
-      index.bots.map((b) => getJSONOrNull<ShowcaseBot>(`data/bots/${encodeURIComponent(b.id)}.json`)),
-    );
+    const bots = await Promise.all(index.bots.map((b) => showcaseBot(b.id)));
     return bots.filter((b): b is ShowcaseBot => b != null);
   },
 };

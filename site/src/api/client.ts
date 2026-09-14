@@ -146,8 +146,10 @@ export const api = {
 
   /** The operator's own bots and whether each is on the public showcase page; 403 `operator_only` otherwise. */
   showcaseCandidates: () => request<{ bots: ShowcaseCandidate[] }>("GET", "/showcase"),
+  /** `published`: whether the bot's file is on the public showcase now; `false` for a shown bot
+   *  with no collected curve yet, null where the API writes no showcase files. */
   setShowcase: (id: string, shown: boolean) =>
-    request<{ status: "updated" | "unchanged"; public: boolean }>(
+    request<{ status: "updated" | "unchanged"; public: boolean; published: boolean | null }>(
       "PUT",
       `/bots/${encodeURIComponent(id)}/showcase`,
       { public: shown },
