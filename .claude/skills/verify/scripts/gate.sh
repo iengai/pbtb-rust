@@ -101,11 +101,27 @@ echo "$OUT" | grep -E "test result:" | sed 's/^/  /'
 [ $RC -ne 0 ] && show "$OUT" "FAILED|panicked"
 # The dynamodb-local suites skip themselves when no server is reachable, and a
 # skip reads as a pass. app-node has no docker socket, so in the container they
-# depend on APP__DYNAMODB__ENDPOINT_URL pointing at the compose service.
+# depend on APP__DYNAMODB__ENDPOINT_URL pointing at the compose service. The
+# endpoint is printed so a slow or degraded shared instance reads as the
+# instance, not as a slow branch.
 if [ "$MODE" = container ]; then
-  docker exec app-node bash -lc '[ -n "${APP__DYNAMODB__ENDPOINT_URL:-}" ]' >/dev/null 2>&1     || echo "  (app-node has no APP__DYNAMODB__ENDPOINT_URL: the dynamodb-local suites just self-skipped)"
+  EP=$(docker exec app-node bash -lc 'printf %s "${APP__DYNAMODB__ENDPOINT_URL:-}"' 2>/dev/null)
+  if [ -z "$EP" ]; then
+    echo "  (app-node has no APP__DYNAMODB__ENDPOINT_URL: the dynamodb-local suites just self-skipped)"
+  elif docker exec app-node bash -lc 'curl -s -m 5 -o /dev/null "$APP__DYNAMODB__ENDPOINT_URL"' >/dev/null 2>&1; then
+    echo "  (dynamodb-local suites ran against $EP)"
+  else
+    echo "  ($EP does not answer from app-node: the dynamodb-local suites self-skipped)"
+  fi
+  # A dynamodb-local container whose command persists to disk keeps every test
+  # table until it is recreated from the compose file.
+  DCMD=$(docker inspect dynamodb-local --format '{{join .Config.Cmd " "}}' 2>/dev/null)
+  case "$DCMD" in
+    ""|*-inMemory*) ;;
+    *) echo "  (dynamodb-local is not -inMemory: recreate it from .devcontainer/docker-compose.yaml)";;
+  esac
 else
-  echo "  (host: dynamodb-local suites self-skip unless Docker or APP__DYNAMODB__ENDPOINT_URL is available)"
+  echo "  (host: dynamodb-local suites ran against ${APP__DYNAMODB__ENDPOINT_URL:-a testcontainers instance, or self-skipped without Docker})"
 fi
 fi
 

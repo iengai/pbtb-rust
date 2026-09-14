@@ -41,6 +41,7 @@ docker exec -it app-node bash
 ### Networking and caching
 
 - The app connects to DynamoDB Local by compose service name: `http://dynamodb-local:8000`. The same endpoint is injected as `APP__DYNAMODB__ENDPOINT_URL` on the `app-node` service in `docker-compose.yaml`.
+- `dynamodb-local` runs `-inMemory`: its tables live as long as the container. `app-node`'s post-start creates the `bots` table; after restarting `dynamodb-local` alone, run `bash .devcontainer/scripts/init-dynamodb.sh` in `app-node` to get it back.
 - Named volumes (`pbtb-rust-cargo-registry`, `pbtb-rust-cargo-git`, `pbtb-rust-cargo-target`) cache the Cargo registry/git and the build target on native volume speed instead of the bind-mounted Windows source, keeping rebuilds fast. They match `CARGO_HOME=/usr/local/cargo` and `CARGO_TARGET_DIR=/app/target` set in `devcontainer.json`.
 - `remoteUser: vscode` keeps UID/GID consistent with the host and avoids file-permission issues (the `vscode` user is created by the common-utils feature).
 - Windows: ensure your drive is shared in Docker Desktop; for performance, consider the WSL2 backend.
@@ -49,7 +50,8 @@ docker exec -it app-node bash
 
 - **Slow builds:** verify named volumes exist (`docker volume ls` shows `pbtb-rust-cargo-*`) and your network/proxy is configured.
 - **Permission issues:** confirm the container user is `vscode` (`whoami`) and check host file permissions; recreate the container if needed.
-- **Cannot reach DynamoDB Local:** check container network and port usage, or access it from the host at `http://localhost:8000`. For data migration, see the `.devcontainer/docker/dynamodb` directory.
+- **Cannot reach DynamoDB Local:** check container network and port usage, or access it from the host at `http://localhost:8000`.
+- **DynamoDB-backed tests slow or timing out with no diff in the test:** the shared instance is degraded. `bash .claude/skills/verify/scripts/gate.sh` prints the endpoint the tests used and warns when `dynamodb-local` is not `-inMemory` (a container created from an older compose file); recreate it with `docker compose -p pbtb-rust_devcontainer -f .devcontainer/docker-compose.yaml up -d --no-deps --force-recreate dynamodb-local` (the project name the Dev Container gave the stack; without `-p` compose derives another one and the name clashes), then run `init-dynamodb.sh` in `app-node`.
 
 ## Worktree / bind-mount caveat
 
@@ -103,7 +105,7 @@ Run `cargo fmt && cargo clippy` before committing.
 
 ## Testing
 
-- Repository integration tests (`tests/botrepository_test.rs` and the `tests/common` harness) need a real DynamoDB. The fixture in `tests/common/dynamo.rs` takes `APP__DYNAMODB__ENDPOINT_URL` (the compose service inside the Dev Container) and otherwise starts one `amazon/dynamodb-local` per test binary via `testcontainers`. With neither available the suite self-skips and reports a pass locally; on CI a skip panics. Two consequences: a green `cargo test` without a DynamoDB proves nothing about a `condition_expression` / CAS change (the in-memory mocks never validate expression rules, and one such bug shipped as a silent no-op), and the testcontainers branch is exercised only by CI, so a change to `tests/common/` needs the CI run even when the local gate is green.
+- Repository integration tests (`tests/botrepository_test.rs` and the `tests/common` harness) need a real DynamoDB. The fixture in `tests/common/dynamo.rs` takes `APP__DYNAMODB__ENDPOINT_URL` (the compose service inside the Dev Container) and otherwise starts one `amazon/dynamodb-local` per test binary via `testcontainers`. Every test creates a `pbtb-test-*` table and never drops it; the compose service is `-inMemory`, so those tables go when the container is restarted or recreated. Until then they accumulate in memory, which DynamoDB Local tolerates: after 50 test runs (about 5,800 tables) each DynamoDB-backed suite still finishes in under a second. With neither available the suite self-skips and reports a pass locally; on CI a skip panics. Two consequences: a green `cargo test` without a DynamoDB proves nothing about a `condition_expression` / CAS change (the in-memory mocks never validate expression rules, and one such bug shipped as a silent no-op), and the testcontainers branch is exercised only by CI, so a change to `tests/common/` needs the CI run even when the local gate is green.
 - Use-case unit tests use in-memory mock repositories, so they run anywhere with no external services.
 
 ### End-to-end harness (`tests/common`)
