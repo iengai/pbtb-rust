@@ -18,9 +18,13 @@ multiple, as the site does. Basket, style and capital come from ``pbtb``. The
 direction and exposure come from the config: the sides passivbot trades, one
 with an exposure limit and positions to hold, whatever ``pbtb.strategies``
 declares. The character and the 🧪 windows come from PUBLIC. The 🧪 windows are
-the lab's separate runs over one stretch each, started on their own. They
-differ from the site backtest over the same dates, which arrives there
-carrying whatever it gained or lost before.
+the lab's separate runs over one stretch each, started on their own with the
+template's capital. They differ from the site backtest over the same dates,
+which arrives there carrying whatever it gained or lost before; a fresh small
+account can fail a window the grown one passes, so an entry names the
+``capital`` its windows were run at, and a template whose ``capital_usdt`` is
+another is refused until the lab has run them at that capital
+(passivbot ``strategy_lab/``: NOTES.md, ``scripts/harvest_round*.py``).
 
 A template with no PUBLIC entry or no backtest artifact is left as it is. Bot
 configs built from a template are restamped with its description.
@@ -66,82 +70,82 @@ def window(label: str, drawdown: float | str, gain: float | None = None) -> dict
 
 
 PUBLIC: dict[str, dict] = {
-    "tpl-2vewmtjy": {"character": "收益与回撤取中间档",
+    "tpl-2vewmtjy": {"capital": 1000, "character": "收益与回撤取中间档",
                      "stress": [window(CRASH_2025, 0.239),
                                 window(BEAR_2026, 0.710, 0.055)]},
-    "tpl-35c6wt6w": {"character": "收益优先",
+    "tpl-35c6wt6w": {"capital": 700, "character": "收益优先",
                      "stress": [window(CRASH_2025, 0.243),
                                 window(BEAR_2026, 0.758, -0.689)]},
-    "tpl-3dqk7fam": {"character": "熊市段训练过，熊市两个起跑日都赚钱",
+    "tpl-3dqk7fam": {"capital": 1000, "character": "熊市段训练过，熊市两个起跑日都赚钱",
                      "stress": [window(CRASH_2025, 0.217),
                                 window(BEAR_2026, 0.325, 0.225),
                                 window(SINCE_JUL_2026, 0.055, 0.066)]},
-    "tpl-3en2ktxp": {"character": "熊市段训练过，熊市两个起跑日都赚钱",
+    "tpl-3en2ktxp": {"capital": 700, "character": "熊市段训练过，熊市两个起跑日都赚钱",
                      "stress": [window(CRASH_2025, 0.217),
                                 window(BEAR_2026, 0.333, 0.200),
                                 window(SINCE_JUL_2026, 0.055, 0.069)]},
-    "tpl-3x8we339": {"character": "高敞口，止盈空间很薄、交易频繁，引擎版本不同结果差别很大",
+    "tpl-3x8we339": {"capital": 100, "character": "高敞口，止盈空间很薄、交易频繁，引擎版本不同结果差别很大",
                      "stress": [window(CRASH_2025, LIQUIDATED),
                                 window(BEAR_2026, 0.325, 0.895),
                                 window(SINCE_CRASH_2026, 0.116, 0.678)]},
-    "tpl-5syk2duu": {"character": "盈利仓位多拿一段，收益优先",
+    "tpl-5syk2duu": {"capital": 1000, "character": "盈利仓位多拿一段，收益优先",
                      "stress": [window(CRASH_2025, 0.289),
                                 window(BEAR_2026, 0.684, -0.365),
                                 window(CRASH_2026, 0.229, 0.297)]},
-    "tpl-8brpubqf": {"character": "收益优先",
+    "tpl-8brpubqf": {"capital": 700, "character": "收益优先",
                      "stress": [window(CRASH_2025, 0.243),
                                 window(BEAR_2026, 0.806, -0.383),
                                 window(SINCE_CRASH_2026, 0.063, 0.158)]},
-    "tpl-8bzdh8ay": {"character": "盈利仓位多拿一段，收益优先",
+    "tpl-8bzdh8ay": {"capital": 500, "character": "盈利仓位多拿一段，收益优先",
                      "stress": [window(CRASH_2025, 0.250),
                                 window(BEAR_2026, 0.572, 0.012)]},
-    "tpl-8ctkayqd": {"character": "在八个币之间轮动，敞口低",
+    "tpl-8ctkayqd": {"capital": 300, "character": "在八个币之间轮动，敞口低",
                      "stress": [window(CRASH_2025, 0.348),
                                 window(BEAR_2026, 0.793, -0.534)]},
-    "tpl-9fw5sgfr": {"character": "熊市段训练过，套得越深越晚补仓、止盈跟得紧",
+    "tpl-9fw5sgfr": {"capital": 300, "character": "熊市段训练过，套得越深越晚补仓、止盈跟得紧",
                      "stress": [window(CRASH_2025, 0.260),
                                 window(BEAR_2026, 0.285, 0.610),
                                 window(SINCE_JUL_2026, 0.067, 0.048)]},
-    "tpl-agy2juuf": {"character": "盈利仓位多拿一段，收益优先",
+    "tpl-agy2juuf": {"capital": 500, "character": "盈利仓位多拿一段，收益优先",
                      "stress": [window(CRASH_2025, 0.250),
                                 window(BEAR_2026, 0.466, 0.123),
                                 window(SINCE_CRASH_2026, 0.049, 0.144)]},
-    "tpl-bzwt9jn2": {"character": "盈利仓位多拿一段，收益与回撤取中间档",
+    "tpl-bzwt9jn2": {"capital": 1000, "character": "盈利仓位多拿一段，收益与回撤取中间档",
                      "stress": [window(CRASH_2025, 0.248),
                                 window(BEAR_2026, 0.490, 0.184),
                                 window(CRASH_2026, 0.200, 0.262)]},
-    "tpl-fhhjk83e": {"character": "敞口在 XRP 模板里最低，偏保守",
+    "tpl-fhhjk83e": {"capital": 10000, "character": "敞口在 XRP 模板里最低，偏保守",
                      "stress": [window(BEAR_2026, 0.492, 0.195)]},
-    "tpl-hfpuyzcm": {"character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
+    "tpl-hfpuyzcm": {"capital": 100, "character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
                      "stress": [window(CRASH_2025, LIQUIDATED),
                                 window(BEAR_2026, LIQUIDATED),
                                 window(SINCE_CRASH_2026, 0.053, 0.115)]},
-    "tpl-jwzxkxkh": {"character": "首仓占比大、加仓倍数低（浅网格）",
+    "tpl-jwzxkxkh": {"capital": 100, "character": "首仓占比大、加仓倍数低（浅网格）",
                      "stress": [window(BEAR_2026, 0.916, 0.544)]},
-    "tpl-kypvfxgd": {"character": "自定义网格止盈，最多同时持 3 仓",
+    "tpl-kypvfxgd": {"capital": 10000, "character": "自定义网格止盈，最多同时持 3 仓",
                      "stress": [window(BEAR_2026, LIQUIDATED)]},
-    "tpl-m5xse3az": {"character": "在八个币之间轮动，敞口低",
+    "tpl-m5xse3az": {"capital": 300, "character": "在八个币之间轮动，敞口低",
                      "stress": [window(CRASH_2025, 0.348),
                                 window(BEAR_2026, 0.790, -0.534),
                                 window("2026-06-28～09-04", 0.072, 0.110)]},
-    "tpl-mvgw3zk4": {"character": "几乎不换币，回撤控制优先；横盘时回本可能要 226 天",
+    "tpl-mvgw3zk4": {"capital": 500, "character": "几乎不换币，回撤控制优先；横盘时回本可能要 226 天",
                      "stress": [window(CRASH_2025, 0.014),
                                 window(BEAR_2026, 0.035, -0.012)]},
-    "tpl-nkh4sfw4": {"character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
+    "tpl-nkh4sfw4": {"capital": 100, "character": "高敞口，扛不住急跌，只适合模拟盘或小额试跑",
                      "stress": [window(CRASH_2025, LIQUIDATED),
                                 window(BEAR_2026, 0.332, 0.805)]},
-    "tpl-rwqvrc6u": {"character": "高敞口、标准加仓",
+    "tpl-rwqvrc6u": {"capital": 10000, "character": "高敞口、标准加仓",
                      "stress": [window(BEAR_2026, LIQUIDATED)]},
-    "tpl-san8qrvj": {"character": "为小资金调校，回撤低",
+    "tpl-san8qrvj": {"capital": 100, "character": "为小资金调校，回撤低",
                      "stress": [window(CRASH_2025, 0.150),
                                 window(BEAR_2026, 0.085, 0.026),
                                 window(SINCE_CRASH_2026, 0.020, 0.023)]},
-    "tpl-sappt9w2": {"character": "高敞口，以移动止盈为主",
+    "tpl-sappt9w2": {"capital": 100, "character": "高敞口，以移动止盈为主",
                      "stress": [window(BEAR_2026, LIQUIDATED)]},
-    "tpl-tavc364d": {"character": "换币不频繁",
+    "tpl-tavc364d": {"capital": 500, "character": "换币不频繁",
                      "stress": [window(CRASH_2025, 0.202),
                                 window(BEAR_2026, 0.505, 0.204)]},
-    "tpl-xhdfc2ws": {"character": "换币不频繁",
+    "tpl-xhdfc2ws": {"capital": 1000, "character": "换币不频繁",
                      "stress": [window(CRASH_2025, 0.155),
                                 window(BEAR_2026, 0.667, 0.229),
                                 window("2026-04-25～09-04", 0.369)]},
@@ -162,6 +166,15 @@ def basket(meta: dict, coins: list[str]) -> str:
         return name
     listed = "、".join(coins) if len(coins) <= 3 else f"{coins[0]}、{coins[1]} 等 {len(coins)} 个币"
     return f"{name}（{listed}）"
+
+
+def stale_windows(meta: dict, entry: dict) -> str | None:
+    """Why `entry`'s windows do not describe the template, or None when they do."""
+    capital = meta.get("capital_usdt")
+    if capital is not None and int(capital) == entry["capital"]:
+        return None
+    return (f"the stress windows were run at ${entry['capital']}, the template says "
+            f"${capital}: run them at that capital and update PUBLIC")
 
 
 def describe(config: dict, artifact: dict, entry: dict) -> str:
@@ -211,6 +224,7 @@ def main() -> int:
 
     metas: dict[str, dict] = {}
     listed: set[str] = set()
+    refused: list[str] = []
     artifacts = False
     for prefix in (PREFIX, ARCHIVED_PREFIX):
         listing = aws(["s3", "ls", f"s3://{BUCKET}/{prefix}"], args.profile)
@@ -231,6 +245,12 @@ def main() -> int:
                 reason = ("no PUBLIC entry" if entry is None
                           else "no backtest artifact" if not path.exists() else "trades no side")
                 print(f"  {tid}  left as it is: {reason}")
+                continue
+
+            stale = stale_windows(raw["pbtb"], entry)
+            if stale:
+                print(f"  {tid}  REFUSED: {stale}")
+                refused.append(tid)
                 continue
 
             artifact = json.loads(path.read_text(encoding="utf-8"))
@@ -263,6 +283,9 @@ def main() -> int:
     restamp_bots(metas, args.profile, args.apply)
     if not args.apply:
         print("\n(dry run) re-run with --apply to write.")
+    if refused:
+        print(f"refused, description left as it was: {', '.join(refused)}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -58,6 +58,14 @@ template: the transfer refuses a config whose parameters (`params_sha`, the
 strategy without its `backtest` block) a template in site/templates/index.json
 already carries. --allow-same-params lets it through, for the tuning moving to
 a lower capital; the template it replaces is then retired.
+
+Before an upload the config passes the cold-start gate (scripts/stress_gate.py):
+every stress window run on its own from `capital_usdt`, completed inside its
+drawdown cap. The run is kept as `lab.stress`; an overwrite of the same
+parameters at the same capital that already holds a passed run over today's
+windows is not run again. A config that fails is refused.
+--allow-failed-stress uploads it all the same, retired (`audience: operator`),
+with the failed run on record: publishing it is then the owner's switch.
 """
 
 import argparse
@@ -69,6 +77,7 @@ import tempfile
 
 from pathlib import Path
 
+import stress_gate
 from backtest_templates import params_sha
 from template_naming import FACETS, base_titles, engine_of, new_id, style_of
 
@@ -169,6 +178,9 @@ def main() -> int:
     parser.add_argument("--profile", default=None, help="AWS CLI profile for the upload")
     parser.add_argument("--allow-same-params", dest="allow_same_params", action="store_true",
                         help="transfer a tuning a listed template already carries")
+    parser.add_argument("--allow-failed-stress", dest="allow_failed_stress", action="store_true",
+                        help="upload a config that fails the cold-start gate, retired")
+    stress_gate.add_engine_args(parser)
     parser.add_argument("--upload", action="store_true",
                         help="actually upload (default is a dry-run preview)")
     parser.add_argument("--out", default=None,
@@ -240,8 +252,32 @@ def main() -> int:
         print(f"wrote local copy: {args.out}")
 
     if not args.upload:
-        print("\n(dry-run) re-run with --upload to push to S3.")
+        print("\n(dry-run) re-run with --upload to push to S3; the cold-start gate runs then.")
         return 0
+
+    capital = meta.get("capital_usdt")
+    if capital is None:
+        print("error: no capital to start the stress windows from; pass --capital", file=sys.stderr)
+        return 1
+    stress = (result.get("lab") or {}).get("stress")
+    if stress_gate.covers(stress, raw, int(capital)):
+        print(f"\ncold-start gate: passed at ${capital} on record, not run again")
+    else:
+        print(f"\ncold-start gate at ${capital}:")
+        stress = stress_gate.run(raw, name, int(capital), {"v8": args.pb_v8, "v7": args.pb_v7},
+                                 args.stress_cache_dir, args.stress_timeout)
+        result["lab"] = {**(result.get("lab") or {}), "stress": stress}
+        if not stress["passed"]:
+            if not args.allow_failed_stress:
+                print(f"error: the config fails the cold-start gate at ${capital}; not uploaded. "
+                      "A higher --capital may pass.", file=sys.stderr)
+                return 1
+            result["pbtb"]["audience"] = "operator"
+            print("failed; uploading retired (audience: operator) as asked")
+        body = json.dumps(result, indent=4, ensure_ascii=False)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as fh:
+                fh.write(body)
 
     # Upload via the AWS CLI so we reuse the configured profile/credentials and
     # don't take a boto3 dependency.
