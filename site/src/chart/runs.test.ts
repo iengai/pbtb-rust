@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { ShowcaseBot } from "../data/static";
 import { selectWindow } from "./returnCurve";
-import { MAX_BOTS_PER_TEMPLATE, asSeries, botsForTemplate, deriveRuns, fmtCap, headline } from "./showcase";
+import {
+  MAX_BOTS_PER_TEMPLATE,
+  asSeries,
+  botsForTemplate,
+  currentTemplate,
+  deriveRuns,
+  fmtCap,
+  headline,
+} from "./showcase";
 
 const DAY = 86400;
 
@@ -156,5 +164,19 @@ describe("fmtCap", () => {
       "$1.5k",
       "—",
     ]);
+  });
+});
+
+describe("currentTemplate", () => {
+  it("is the latest switch's config, whatever order the file lists them in", () => {
+    const switches = [
+      { ts: 5 * DAY, template_name: "tpl-new", cap_usdt: 500 },
+      { ts: 1 * DAY, template_name: "tpl-old", cap_usdt: 500 },
+    ];
+    expect(currentTemplate(bot(10, { config_switches: switches }))).toBe("tpl-new");
+  });
+
+  it("is null on a bot with no switch on record", () => {
+    expect(currentTemplate(bot(10))).toBeNull();
   });
 });

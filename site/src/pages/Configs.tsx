@@ -8,6 +8,8 @@ import {
   CapitalPills,
   Chips,
   ErrorBanner,
+  type HolderBot,
+  HolderBots,
   Loading,
   Sparkline,
   TemplateTags,
@@ -15,6 +17,7 @@ import {
   familyColor,
   templateTitle,
 } from "../components/ui";
+import { currentTemplate } from "../chart/showcase";
 import { isRetired, paramFamilies, sameParams, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
@@ -72,6 +75,42 @@ export function Configs() {
       ),
     [offered, engine, sort],
   );
+  // The bots holding each template now. The account's own come from the API,
+  // one read per bot since the list carries no config; the showcase's from the
+  // public files, left out for the operator, whose own bots they are.
+  const mine = useLoad(
+    async () => {
+      if (!session) return [];
+      const { bots } = await api.listBots();
+      // A bot whose read fails (deleted since the list, a 5xx) is left out alone.
+      const read = await Promise.all(bots.map((b) => api.getBot(b.bot_id).catch(() => null)));
+      return read.filter((b) => b != null);
+    },
+    session ? "bots:configs" : "bots:configs:none",
+  );
+  const showcase = useLoad(() => staticData.showcaseBots(), "showcase:bots");
+  const holders = useMemo(() => {
+    const by = new Map<string, { mine: HolderBot[]; showcase: HolderBot[] }>();
+    const at = (name: string) => by.get(name) ?? by.set(name, { mine: [], showcase: [] }).get(name)!;
+    for (const b of mine.data ?? []) {
+      if (!b.config) continue;
+      at(b.config.template_name).mine.push({
+        key: b.bot_id,
+        name: b.name,
+        to: `/bots/${encodeURIComponent(b.bot_id)}`,
+        phase: b.phase,
+        mine: true,
+      });
+    }
+    // A session's role is not known until `GET /me` settles; one it fails for
+    // is a visitor's.
+    const visitor = session ? !me.loading && !operator : true;
+    for (const b of visitor ? (showcase.data ?? []) : []) {
+      const name = currentTemplate(b);
+      if (name) at(name).showcase.push({ key: b.id, name: b.name, to: `/p/bots/${encodeURIComponent(b.id)}`, mine: false });
+    }
+    return by;
+  }, [mine.data, showcase.data, operator, session, me.loading]);
   const families = useMemo(() => paramFamilies(data ?? []), [data]);
   // The parameter set of the card pointed at: its other capitals light up too.
   const [pointed, setPointed] = useState<string | null>(null);
@@ -144,6 +183,7 @@ export function Configs() {
               siblings={sameParams(tpl, offered)}
               family={families.get(tpl.params_sha ?? "")}
               kin={pointed != null && pointed === tpl.params_sha}
+              holders={holders.get(tpl.name)}
               onPoint={setPointed}
             />
           ))}
@@ -159,12 +199,14 @@ function TemplateCard({
   siblings,
   family,
   kin,
+  holders,
   onPoint,
 }: {
   tpl: TemplateSummary;
   siblings: TemplateSummary[];
   family: number | undefined;
   kin: boolean;
+  holders: { mine: HolderBot[]; showcase: HolderBot[] } | undefined;
   onPoint: (params: string | null) => void;
 }) {
   const t = useT();
@@ -221,6 +263,10 @@ function TemplateCard({
           family={colour}
           label={t.configs.list.sameParams}
         />
+      )}
+      {holders && holders.mine.length > 0 && <HolderBots bots={holders.mine} label={t.configs.list.myBots} />}
+      {holders && holders.showcase.length > 0 && (
+        <HolderBots bots={holders.showcase} label={t.configs.list.showcaseBots} />
       )}
       <div className="hint">
         <span className="mono">{tpl.name}</span>

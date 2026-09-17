@@ -133,7 +133,10 @@ which interpolate numbers and `escapeXml` every string that comes from data
 (labels, titles, the `data-href` attribute); the config page's chart is JSX.
 
 `/configs`, `/configs/:name`, `/p` and `/p/bots/:id` render without a token (static
-data). Every other page requires one; `/bots/:id` polls the API every 15 s. Return curves
+data). A `/configs` card names the bots that hold its template now: the
+showcase's, by each public file's latest switch, for everyone but the operator
+(whose own bots they are), and with a token the account's own, from `GET /bots`
+and one `GET /bots/{id}` per bot. Every other page requires a token; `/bots/:id` polls the API every 15 s. Return curves
 (`/returns`, and the chart on `/bots/:id`) come from `GET
 /api/v1/bots/{id}/returns` — a `BotReturnSeries` (`points[{ts, index,
 return_pct}]`, `config_switches[{ts, template_name}]`, `capital_resets[ts]`)

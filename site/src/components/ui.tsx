@@ -79,6 +79,29 @@ export function CapitalPills({
   );
 }
 
+// A bot holding a template, as a card names it: the account's own with its
+// phase as the dot and its page behind it, a showcase bot with its public page.
+export type HolderBot = { key: string; name: string; to: string; phase?: Phase | null; mine: boolean };
+
+// The phase pill's tones: running, in transition, anything else at rest.
+function holderTone(phase: Phase | null | undefined): "ok" | "warn" | "off" {
+  return phase === "running" ? "ok" : phase === "starting" || phase === "stopping" ? "warn" : "off";
+}
+
+export function HolderBots({ bots, label }: { bots: HolderBot[]; label: string }) {
+  return (
+    <div className="holders">
+      <span className="holders-label">{label}</span>
+      {bots.map((b) => (
+        <RouterLink key={b.key} to={b.to} className={`holder${b.mine ? " mine" : ""}`}>
+          <i className={b.mine ? holderTone(b.phase) : "pub"} />
+          {b.name}
+        </RouterLink>
+      ))}
+    </div>
+  );
+}
+
 export function Chips({ items, max, tight }: { items: string[]; max?: number; tight?: boolean }) {
   const shown = max && items.length > max ? items.slice(0, max) : items;
   const rest = items.length - shown.length;
