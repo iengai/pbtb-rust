@@ -100,6 +100,14 @@ function runOf(bot: ShowcaseBot, points: ShowcaseBot["points"], template: string
   };
 }
 
+// The config a showcase bot holds now: its latest switch's, or null on a bot
+// with no switch on record.
+export function currentTemplate(bot: ShowcaseBot): string | null {
+  const switches = bot.config_switches ?? [];
+  if (switches.length === 0) return null;
+  return switches.reduce((last, sw) => (sw.ts >= last.ts ? sw : last)).template_name;
+}
+
 /** Every run of one config on one bot, newest first. */
 export type BotRuns = { bot: Run["bot"]; runs: Run[] };
 

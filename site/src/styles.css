@@ -285,6 +285,16 @@ h1.lg { font-size: 22px; }
 .cap { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--fam); color: var(--fam); font-weight: 550; font-variant-numeric: tabular-nums; }
 a.cap:hover { background: color-mix(in srgb, var(--fam) 14%, transparent); color: var(--fam); }
 .cap.on { background: var(--fam); color: var(--bg); }
+/* The bots holding a template, above the card's stretched link like the pills. */
+.holders { position: relative; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 12px; }
+.holders-label { color: var(--muted); margin-right: 2px; }
+.holder { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-weight: 550; }
+.holder:hover { border-color: var(--accent); color: var(--text); }
+.holder.mine { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.holder i { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--muted); }
+.holder i.ok { background: var(--ok); }
+.holder i.warn { background: var(--warn); }
+.holder i.pub { background: transparent; border: 1.5px solid var(--accent); }
 .tcard .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .tcard .name { font-size: 14px; font-weight: 640; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tcard .mid { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }

@@ -19,6 +19,8 @@ export const configs: typeof en = {
     sortBy: "排序",
     sorts: { capital: "本金", gain: "收益", drawdown: "最大回撤", sharpe: "夏普" },
     sameParams: "同一套参数",
+    myBots: "我的机器人",
+    showcaseBots: "公开展示",
     backtestRange: (start, end, exchange) => `回测 ${start} → ${end} · ${exchange}`,
   },
 

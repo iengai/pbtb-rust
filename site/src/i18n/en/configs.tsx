@@ -29,6 +29,9 @@ export const configs = {
     // One tuning offered at several capitals is one template per capital; the
     // label of the capitals a card's parameter set is listed at.
     sameParams: "Same parameters",
+    // The bots that hold the template now: the account's own, and the showcase's.
+    myBots: "My bots",
+    showcaseBots: "Showcase",
     backtestRange: (start: string, end: string, exchange: string) => `Backtest ${start} → ${end} · ${exchange}`,
   },
 
