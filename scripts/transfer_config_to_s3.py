@@ -264,8 +264,12 @@ def main() -> int:
         print(f"\ncold-start gate: passed at ${capital} on record, not run again")
     else:
         print(f"\ncold-start gate at ${capital}:")
-        stress = stress_gate.run(raw, name, int(capital), {"v8": args.pb_v8, "v7": args.pb_v7},
-                                 args.stress_cache_dir, args.stress_timeout)
+        try:
+            stress = stress_gate.run(raw, name, int(capital), {"v8": args.pb_v8, "v7": args.pb_v7},
+                                     args.stress_cache_dir, args.stress_timeout)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            print(f"error: cold-start gate did not run, not uploaded: {exc}", file=sys.stderr)
+            return 1
         result["lab"] = {**(result.get("lab") or {}), "stress": stress}
         if not stress["passed"]:
             if not args.allow_failed_stress:

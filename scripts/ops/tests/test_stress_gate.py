@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import annotate_templates  # noqa: E402
 import stress_gate  # noqa: E402
 
 FEB26 = next(w for w in stress_gate.WINDOWS if w.label == "FEB26")
@@ -19,6 +20,8 @@ def record(config: dict, capital: int, passed: bool = True) -> dict:
     return {
         "capital": capital,
         "params_sha": stress_gate.bt.params_sha(config),
+        "engine": stress_gate.bt.ENGINE_VERSION[stress_gate.bt.detect_engine(config)],
+        "ohlcv_source_dir": (config.get("backtest") or {}).get("ohlcv_source_dir"),
         "passed": passed,
         "windows": {w.label: {"start": w.start, "end": w.end, "drawdown_cap": w.drawdown_cap}
                     for w in stress_gate.WINDOWS},
@@ -62,10 +65,26 @@ class Covers(unittest.TestCase):
         self.assertFalse(stress_gate.covers(record(CONFIG, 700, passed=False), CONFIG, 700))
         self.assertFalse(stress_gate.covers(None, CONFIG, 700))
 
+    def test_a_run_on_another_candle_directory_or_engine_does_not(self):
+        moved = {**CONFIG, "backtest": {**CONFIG["backtest"], "ohlcv_source_dir": "caches/other"}}
+        self.assertFalse(stress_gate.covers(record(CONFIG, 700), moved, 700))
+        self.assertFalse(stress_gate.covers({**record(CONFIG, 700), "engine": "v0"}, CONFIG, 700))
+
     def test_a_run_over_other_windows_does_not(self):
         old = record(CONFIG, 700)
         del old["windows"]["FEB26"]
         self.assertFalse(stress_gate.covers(old, CONFIG, 700))
+
+
+class AnnotateKeepsTheRun(unittest.TestCase):
+    RAW = {"bot": {"long": {}, "short": {}}, "live": {}, "pbtb": {"name": "tpl-x"}}
+
+    def test_on_a_template_with_a_frozen_lineage_and_on_one_without(self):
+        stress = {"capital": 700, "passed": True}
+        frozen = next(iter(annotate_templates.LINEAGE))
+        for readable in (frozen, "not-in-the-tables"):
+            out = annotate_templates.annotate({**self.RAW, "lab": {"stress": stress}}, readable)
+            self.assertEqual(out["lab"]["stress"], stress, readable)
 
 
 if __name__ == "__main__":

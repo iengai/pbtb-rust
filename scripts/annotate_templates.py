@@ -76,7 +76,7 @@ OURS = ("pbtb", LAB_KEY)
 LEAD = ("name", "title", "title_zh", *FACETS, "audience")
 ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "strategies", "audience")
 # What annotate writes into `lab` itself, beside the lineage.
-LAB_OWN = ("original_name", "readable_id", "status", "notes")
+LAB_OWN = ("original_name", "readable_id", "status", "notes", "stress")
 
 GENOME = "6501db3f96"
 
@@ -264,6 +264,8 @@ def annotate(raw: dict, readable: str) -> dict:
         **entry,
         "status": status,
         "notes": notes or None,
+        # The transfer's cold-start run, which a frozen lineage does not carry.
+        "stress": previous.get("stress"),
     }
 
     meta["style"] = style_of(raw)

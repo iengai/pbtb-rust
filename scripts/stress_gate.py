@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -89,12 +90,15 @@ def run(config: dict, name: str, capital: int, pb_dirs: dict[str, Path], cache_d
         analysis = json.loads((result_dir / "analysis.json").read_text(encoding="utf-8"))
         metrics = bt.pick_metrics(analysis)
         why = failure(window, metrics)
+        gain, drawdown = metrics.get("gain"), metrics.get("drawdown_worst")
+        engine, source = bt.ENGINE_VERSION[template.engine], template.backtest.get("ohlcv_source_dir")
         windows[window.label] = {
             "start": window.start, "end": window.end, "drawdown_cap": window.drawdown_cap,
-            "gain": metrics.get("gain"), "drawdown_worst": metrics.get("drawdown_worst"),
+            # The window's return as a fraction, the unit PUBLIC's windows take.
+            "return": None if gain is None else gain - 1,
+            "drawdown_worst": drawdown,
             "completion": metrics.get("backtest_completion_ratio"), "failure": why,
         }
-        gain, drawdown = metrics.get("gain"), metrics.get("drawdown_worst")
         shown = (f"{gain - 1:+.1%} / dd {drawdown:.1%}"
                  if gain is not None and drawdown is not None else "no result")
         log(f"  {window.label:8} {window.start} -> {window.end}  {shown}  "
@@ -102,6 +106,8 @@ def run(config: dict, name: str, capital: int, pb_dirs: dict[str, Path], cache_d
     return {
         "capital": capital,
         "params_sha": bt.params_sha(config),
+        "engine": engine,
+        "ohlcv_source_dir": source,
         "passed": all(w["failure"] is None for w in windows.values()),
         "checked_at": int(time.time()),
         "windows": windows,
@@ -109,8 +115,9 @@ def run(config: dict, name: str, capital: int, pb_dirs: dict[str, Path], cache_d
 
 
 def covers(record: dict | None, config: dict, capital: int) -> bool:
-    """Whether `record` is a passed run of these parameters at this capital over
-    today's windows, so the run need not be repeated."""
+    """Whether `record` is a passed run of these parameters at this capital, on
+    this engine and candle directory, over today's windows, so the run need
+    not be repeated."""
     if not record or not record.get("passed"):
         return False
     same_windows = {
@@ -118,7 +125,9 @@ def covers(record: dict | None, config: dict, capital: int) -> bool:
         for label, w in (record.get("windows") or {}).items()
     } == {w.label: (w.start, w.end, w.drawdown_cap) for w in WINDOWS}
     return (same_windows and record.get("capital") == capital
-            and record.get("params_sha") == bt.params_sha(config))
+            and record.get("params_sha") == bt.params_sha(config)
+            and record.get("engine") == bt.ENGINE_VERSION[bt.detect_engine(config)]
+            and record.get("ohlcv_source_dir") == (config.get("backtest") or {}).get("ohlcv_source_dir"))
 
 
 def add_engine_args(parser: argparse.ArgumentParser) -> None:
@@ -137,8 +146,12 @@ def main() -> int:
     add_engine_args(parser)
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    record = run(config, Path(args.config).stem, args.capital,
-                 {"v8": args.pb_v8, "v7": args.pb_v7}, args.stress_cache_dir, args.stress_timeout)
+    try:
+        record = run(config, Path(args.config).stem, args.capital,
+                     {"v8": args.pb_v8, "v7": args.pb_v7}, args.stress_cache_dir, args.stress_timeout)
+    except (RuntimeError, subprocess.TimeoutExpired) as exc:
+        print(f"error: cold-start gate did not run: {exc}", file=sys.stderr)
+        return 1
     print("passed" if record["passed"] else "FAILED")
     return 0 if record["passed"] else 1
 
