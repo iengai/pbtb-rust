@@ -14,6 +14,10 @@ export function useLoad<T>(fn: () => Promise<T>, key: string, pollMs?: number): 
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  // The key the last load answered for. The render in which `key` changes runs
+  // before the effect that starts its load, so `loading` alone would still read
+  // the previous key's settled flag there.
+  const [answered, setAnswered] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const fnRef = useRef(fn);
   fnRef.current = fn;
@@ -29,7 +33,11 @@ export function useLoad<T>(fn: () => Promise<T>, key: string, pollMs?: number): 
         setError(null);
       })
       .catch((e) => alive && setError(e))
-      .finally(() => alive && setLoading(false));
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+        setAnswered(key);
+      });
     return () => {
       alive = false;
     };
@@ -50,7 +58,7 @@ export function useLoad<T>(fn: () => Promise<T>, key: string, pollMs?: number): 
   }, [pollMs, key]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
-  return { data, error, loading, reload };
+  return { data, error, loading: loading || answered !== key, reload };
 }
 
 // A write in flight: one at a time, with its error kept until the next attempt.

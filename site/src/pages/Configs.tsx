@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
@@ -16,7 +16,7 @@ import {
   templateTitle,
 } from "../components/ui";
 import { currentTemplate } from "../chart/showcase";
-import { isRetired, staticData, type TemplateSummary } from "../data/static";
+import { SLOW_EDGE_MS, isRetired, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
 
@@ -87,6 +87,13 @@ export function Configs() {
     session ? "bots:configs" : "bots:configs:none",
   );
   const showcase = useLoad(() => staticData.showcaseBots(), "showcase:bots");
+  // The showcase bots are waited on no longer than the overlay is: past that
+  // the list draws and their row fills in when they come.
+  const [showcaseLate, setShowcaseLate] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShowcaseLate(true), SLOW_EDGE_MS);
+    return () => clearTimeout(timer);
+  }, []);
   const holders = useMemo(() => {
     const by = new Map<string, { mine: HolderBot[]; showcase: HolderBot[] }>();
     const at = (name: string) => by.get(name) ?? by.set(name, { mine: [], showcase: [] }).get(name)!;
@@ -110,13 +117,24 @@ export function Configs() {
     return by;
   }, [mine.data, showcase.data, operator, session, me.loading]);
   const exchanges = Array.from(new Set(shown.map((tpl) => tpl.exchange))).join(", ");
+  // The list is drawn once what decides it has answered: which templates it
+  // holds (the role, then the live audience or the overlay) and the showcase
+  // bots a visitor's cards name, up to the slow-edge deadline. Drawn from the
+  // snapshot first, a retired template would show and then leave, moving every
+  // card after it. The account's own bots are not waited on; their row fills
+  // in under the cards.
+  const settled =
+    data != null &&
+    (!session || !me.loading) &&
+    (operator ? !live.loading : !overlay.loading) &&
+    (operator || !showcase.loading || showcaseLate);
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>{t.configs.list.title}</h1>
-          <div className="sub">{data ? t.configs.list.lead(shown.length, offered.length, exchanges) : " "}</div>
+          <div className="sub">{settled ? t.configs.list.lead(shown.length, offered.length, exchanges) : " "}</div>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {operator && (
@@ -168,8 +186,8 @@ export function Configs() {
         </div>
       </div>
       <ErrorBanner error={error} onRetry={reload} />
-      {loading && !data && <Loading what={t.configs.list.templates} />}
-      {data && (
+      {(loading || (data && !settled)) && <Loading what={t.configs.list.templates} />}
+      {settled && (
         <div className="cards">
           {shown.map((tpl) => (
             <TemplateCard key={tpl.name} tpl={tpl} holders={holders.get(tpl.name)} />

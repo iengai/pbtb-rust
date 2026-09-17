@@ -134,13 +134,14 @@ export function isRetired(tpl: { name: string; audience?: "operator" | null }, p
   return published ? !published.has(tpl.name) : tpl.audience === "operator";
 }
 
-// The catalogue renders from the snapshot whatever happens to the overlay, so
-// a slow edge is given up on rather than waited for.
-const OVERLAY_TIMEOUT_MS = 3000;
+// How long the catalogue waits on the showcase edge (the overlay, the showcase
+// bots) before it draws without it: from the snapshot's audience marks, and
+// with no showcase row.
+export const SLOW_EDGE_MS = 3000;
 
 async function templatesPublished(): Promise<Set<string> | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), OVERLAY_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), SLOW_EDGE_MS);
   try {
     const r = await fetch(`${SHOWCASE}templates/audience.json`, { cache: "no-cache", signal: controller.signal });
     if (!r.ok) return null;
