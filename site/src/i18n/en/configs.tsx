@@ -26,9 +26,9 @@ export const configs = {
     maxDd: "Max DD",
     sortBy: "Sort",
     sorts: { capital: "Capital", gain: "Gain", drawdown: "Max DD", sharpe: "Sharpe" },
-    // One tuning offered at several capitals is one template per capital; a card
-    // names the capitals its parameter set is also listed at.
-    sameParams: (capitals: string) => `Same parameters also at ${capitals}`,
+    // One tuning offered at several capitals is one template per capital; the
+    // label of the capitals a card's parameter set is listed at.
+    sameParams: "Same parameters",
     backtestRange: (start: string, end: string, exchange: string) => `Backtest ${start} → ${end} · ${exchange}`,
   },
 

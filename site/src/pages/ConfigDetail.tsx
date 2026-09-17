@@ -5,6 +5,7 @@ import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import {
   Badge,
+  CapitalPills,
   Chips,
   Crumbs,
   ErrorBanner,
@@ -15,7 +16,7 @@ import {
   templateTitle,
 } from "../components/ui";
 import { fmtCap } from "../chart/showcase";
-import { isRetired, sameParams, staticData, type TemplateBacktest } from "../data/static";
+import { isRetired, paramFamilies, sameParams, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
 import { fmtGain, fmtMetric, metricRows, wipedOut } from "./metrics";
@@ -56,9 +57,9 @@ export function ConfigDetail() {
     const audience = live.data?.templates.find((other) => other.name === tpl.name)?.audience;
     return audience ? audience === "operator" : isRetired(tpl, overlay.data ?? null);
   };
-  const siblings = data
-    ? sameParams(data, index.data ?? []).filter((tpl) => operator || !retiredNow(tpl))
-    : [];
+  const listed = (index.data ?? []).filter((tpl) => operator || !retiredNow(tpl));
+  const siblings = data ? sameParams(data, listed) : [];
+  const family = paramFamilies(index.data ?? []).get(data?.params_sha ?? "");
   const [applying, setApplying] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -101,6 +102,16 @@ export function ConfigDetail() {
                 ))}
                 {wipedOut(data.metrics) && <Badge>{t.configs.liquidatedBadge}</Badge>}
               </div>
+              {family != null && siblings.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <CapitalPills
+                    members={[data, ...siblings].sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0))}
+                    current={data.name}
+                    family={family}
+                    label={t.configs.list.sameParams}
+                  />
+                </div>
+              )}
               <div className="sub" style={{ marginTop: 4 }}>
                 <span className="mono">{data.name}</span> ·{" "}
                 {t.configs.detail.lead(data.exchange, data.start, data.end, data.coins.length)}

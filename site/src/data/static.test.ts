@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bybitLink, isRetired, parsePublished, sameParams, staticData } from "./static";
+import { bybitLink, isRetired, paramFamilies, parsePublished, sameParams, staticData } from "./static";
 
 describe("bybitLink", () => {
   it("keeps an https link on bybit.com or a subdomain of it", () => {
@@ -102,6 +102,11 @@ describe("sameParams", () => {
   it("lists the other templates of the parameter set, smallest capital first", () => {
     expect(sameParams(all[0]!, all).map((tpl) => tpl.name)).toEqual(["tpl-b", "tpl-d"]);
     expect(sameParams(all[2]!, all)).toEqual([]);
+  });
+
+  it("numbers the sets listed at more than one capital in sha order", () => {
+    const twice = [...all, { name: "tpl-g", params_sha: "b" }, { name: "tpl-h", params_sha: "b" }];
+    expect([...paramFamilies(twice)]).toEqual([["b", 0], ["x", 1]]);
   });
 
   it("groups no template that carries no params_sha", () => {
