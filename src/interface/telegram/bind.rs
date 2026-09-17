@@ -53,7 +53,7 @@ async fn bind(bot: Bot, msg: Message, token: StartToken, deps: Deps) -> anyhow::
         .await?;
         return Ok(());
     }
-    let Some(sender) = msg.from() else {
+    let Some(sender) = msg.from.as_ref() else {
         return Ok(());
     };
     let telegram_id = sender.id.to_string();

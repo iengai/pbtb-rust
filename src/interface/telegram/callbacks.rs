@@ -94,7 +94,7 @@ async fn handle_callback(
         types::CallbackData::Unknown => {
             // 未知的 callback
             if let Some(message) = q.message {
-                bot.send_message(message.chat.id, "⚠️ Unknown action")
+                bot.send_message(message.chat().id, "⚠️ Unknown action")
                     .await?;
             }
         }
@@ -115,7 +115,7 @@ async fn handle_action(
 
     match action {
         types::CallbackAction::Hello => {
-            bot.send_message(message.chat.id, "👋 Hello! How can I help you?")
+            bot.send_message(message.chat().id, "👋 Hello! How can I help you?")
                 .await?;
         }
     }
@@ -139,7 +139,7 @@ async fn handle_bot_selection(
         let user_id = sender.user_id.clone();
 
         // Answer callback to remove loading state
-        bot.answer_callback_query(&q.id)
+        bot.answer_callback_query(q.id.clone())
             .text("✅ Bot selected!")
             .await?;
 
@@ -178,7 +178,7 @@ async fn handle_bot_selection(
 
         // Confirm to user, re-attaching the menu keyboard so the command
         // buttons are available right after picking a bot from the inline list.
-        if let Some(Message { chat, .. }) = q.message {
+        if let Some(chat) = q.message.as_ref().map(|m| m.chat()) {
             bot.send_message(
                 chat.id,
                 format!(
@@ -217,7 +217,7 @@ async fn handle_template_selection(
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
         None => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text("❌ No bot selected")
                 .show_alert(true)
                 .await?;
@@ -225,7 +225,7 @@ async fn handle_template_selection(
         }
     };
 
-    bot.answer_callback_query(&q.id).await?;
+    bot.answer_callback_query(q.id.clone()).await?;
 
     match deps
         .apply_template_usecase
@@ -239,7 +239,7 @@ async fn handle_template_selection(
         .await
     {
         Ok(preview) => {
-            if let Some(Message { chat, .. }) = q.message {
+            if let Some(chat) = q.message.as_ref().map(|m| m.chat()) {
                 bot.send_message(
                     chat.id,
                     super::views::format_template_confirm(&template_name, &preview),
@@ -249,7 +249,7 @@ async fn handle_template_selection(
             }
         }
         Err(e) => {
-            if let Some(Message { chat, .. }) = q.message {
+            if let Some(chat) = q.message.as_ref().map(|m| m.chat()) {
                 bot.send_message(chat.id, redact("loading the config", &e))
                     .await?;
             }
@@ -281,7 +281,7 @@ async fn handle_confirm_template(
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
         None => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text("❌ No bot selected")
                 .show_alert(true)
                 .await?;
@@ -289,7 +289,7 @@ async fn handle_confirm_template(
         }
     };
 
-    bot.answer_callback_query(&q.id)
+    bot.answer_callback_query(q.id.clone())
         .text("⏳ Applying config...")
         .await?;
 
@@ -305,7 +305,7 @@ async fn handle_confirm_template(
         .await
     {
         Ok(_) => {
-            if let Some(Message { chat, .. }) = q.message {
+            if let Some(chat) = q.message.as_ref().map(|m| m.chat()) {
                 bot.send_message(
                     chat.id,
                     format!(
@@ -320,7 +320,7 @@ async fn handle_confirm_template(
             }
         }
         Err(e) => {
-            if let Some(Message { chat, .. }) = q.message {
+            if let Some(chat) = q.message.as_ref().map(|m| m.chat()) {
                 bot.send_message(chat.id, redact("applying the config", &e))
                     .await?;
             }
@@ -350,7 +350,7 @@ async fn handle_toggle_side(
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
         None => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text("❌ No bot selected")
                 .show_alert(true)
                 .await?;
@@ -373,7 +373,7 @@ async fn handle_toggle_side(
         .await
     {
         Ok(now_enabled) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(format!(
                     "{} {} — applies on the next 'Run bot' or 'Restart bot'",
                     side,
@@ -383,9 +383,9 @@ async fn handle_toggle_side(
 
             // Re-render both toggles from the freshly saved config.
             if let Ok(cfg) = deps.get_bot_config_usecase.execute(&user_id, &bot_id).await
-                && let Some(Message { id, chat, .. }) = q.message
+                && let Some(Message { id, chat, .. }) = q.regular_message()
             {
-                bot.edit_message_reply_markup(chat.id, id)
+                bot.edit_message_reply_markup(chat.id, *id)
                     .reply_markup(super::keyboards::strategy_sides_keyboard(
                         cfg.side_enabled("long"),
                         cfg.side_enabled("short"),
@@ -395,7 +395,7 @@ async fn handle_toggle_side(
             }
         }
         Err(e) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(redact("changing the strategy side", &e))
                 .show_alert(true)
                 .await?;
@@ -423,7 +423,7 @@ async fn handle_set_runtime(
         .and_then(|d| d.strip_prefix("set_runtime:"))
         .and_then(|s| s.parse::<Runtime>().ok())
     else {
-        bot.answer_callback_query(&q.id)
+        bot.answer_callback_query(q.id.clone())
             .text("❌ Unknown runtime")
             .show_alert(true)
             .await?;
@@ -434,7 +434,7 @@ async fn handle_set_runtime(
     let bot_id = match bot_context.get().await?.unwrap_or_default().selected_bot_id {
         Some(id) => id,
         None => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text("❌ No bot selected")
                 .show_alert(true)
                 .await?;
@@ -448,7 +448,7 @@ async fn handle_set_runtime(
         .await
     {
         Ok(SetRuntimeOutcome::Updated { previous, runtime }) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(format!(
                     "{previous} → {runtime} — applies on the next 'Run bot' or 'Restart bot'"
                 ))
@@ -456,20 +456,20 @@ async fn handle_set_runtime(
             Some(runtime)
         }
         Ok(SetRuntimeOutcome::Unchanged { runtime }) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(format!("Already on {runtime}"))
                 .await?;
             Some(runtime)
         }
         Ok(SetRuntimeOutcome::BotNotFound) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(format!("❌ Bot {bot_id} not found"))
                 .show_alert(true)
                 .await?;
             None
         }
         Err(e) => {
-            bot.answer_callback_query(&q.id)
+            bot.answer_callback_query(q.id.clone())
                 .text(redact("changing the runtime", &e))
                 .show_alert(true)
                 .await?;
@@ -483,8 +483,8 @@ async fn handle_set_runtime(
         }
     };
 
-    if let (Some(stored), Some(Message { id, chat, .. })) = (stored, q.message) {
-        bot.edit_message_reply_markup(chat.id, id)
+    if let (Some(stored), Some(Message { id, chat, .. })) = (stored, q.regular_message()) {
+        bot.edit_message_reply_markup(chat.id, *id)
             .reply_markup(super::keyboards::runtime_keyboard(stored))
             .await
             .ok();
@@ -496,13 +496,13 @@ async fn handle_set_runtime(
 /// Handle cancel template selection callback
 async fn handle_cancel_template_selection(bot: Bot, q: CallbackQuery) -> anyhow::Result<()> {
     // Answer callback
-    bot.answer_callback_query(&q.id)
+    bot.answer_callback_query(q.id.clone())
         .text("❌ Cancelled")
         .await?;
 
     // Update message
-    if let Some(Message { id, chat, .. }) = q.message {
-        bot.edit_message_text(chat.id, id, "❌ Template selection cancelled.")
+    if let Some(Message { id, chat, .. }) = q.regular_message() {
+        bot.edit_message_text(chat.id, *id, "❌ Template selection cancelled.")
             .await?;
     }
 

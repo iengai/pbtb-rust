@@ -3,7 +3,7 @@ use crate::interface::telegram::{
     Deps, bind, callbacks, commands, dialogue, middlewares,
     states::{BotContext, DialogueState},
 };
-use teloxide::dispatching::dialogue::InMemStorage;
+use teloxide::dispatching::{DefaultKey, dialogue::InMemStorage};
 use teloxide::{dispatching::Dispatcher, prelude::*};
 
 /// The handler tree every update is routed through.
@@ -38,11 +38,24 @@ pub fn deps_map(deps: Deps) -> DependencyMap {
     ]
 }
 
-pub async fn run(bot: Bot, deps: Deps, site_url: String) -> anyhow::Result<()> {
-    let mut dispatcher = Dispatcher::builder(bot, schema(site_url))
-        .dependencies(deps_map(deps))
+/// The dispatcher `run` drives.
+///
+/// Building it type-checks the handler tree against the dependencies and panics
+/// on a value some handler extracts but nothing provides, so a test builds it
+/// to catch at test time what would otherwise crash the telebot at startup.
+pub fn dispatcher(
+    bot: Bot,
+    deps: DependencyMap,
+    site_url: String,
+) -> Dispatcher<Bot, DependencyMap, DefaultKey> {
+    Dispatcher::builder(bot, schema(site_url))
+        .dependencies(deps)
         .enable_ctrlc_handler()
-        .build();
+        .build()
+}
+
+pub async fn run(bot: Bot, deps: Deps, site_url: String) -> anyhow::Result<()> {
+    let mut dispatcher = dispatcher(bot, deps_map(deps), site_url);
     shutdown_on_sigterm(dispatcher.shutdown_token());
 
     dispatcher.dispatch().await;

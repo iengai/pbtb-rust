@@ -157,6 +157,17 @@ impl Harness {
         }
     }
 
+    /// Build the production dispatcher over this harness's dependencies. `send`
+    /// dispatches the schema directly and so skips the type check the build
+    /// runs, which panics when a handler extracts a value nothing provides.
+    pub fn build_dispatcher(&self) {
+        let _ = router::dispatcher(
+            self.bot.clone(),
+            self.deps_map.clone(),
+            SITE_URL.to_string(),
+        );
+    }
+
     /// Everything the chat was told so far.
     pub async fn transcript(&self) -> String {
         self.telegram.transcript().await
@@ -530,6 +541,7 @@ fn me_stub() -> Me {
         "can_join_groups": false,
         "can_read_all_group_messages": false,
         "supports_inline_queries": false,
+        "has_main_web_app": false,
     }))
     .expect("valid Me json")
 }

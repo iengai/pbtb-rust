@@ -20,15 +20,15 @@ pub fn install() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
         match &u.kind {
             UpdateKind::Message(m) => log::info!(
                 "update {} Message chat={chat:?} text_len={}",
-                u.id,
+                u.id.0,
                 m.text().map(str::len).unwrap_or(0)
             ),
             UpdateKind::CallbackQuery(q) => log::info!(
                 "update {} CallbackQuery chat={chat:?} data={}",
-                u.id,
+                u.id.0,
                 q.data.as_deref().unwrap_or("")
             ),
-            _ => log::info!("update {} (other kind) chat={chat:?}", u.id),
+            _ => log::info!("update {} (other kind) chat={chat:?}", u.id.0),
         }
     }))
 }
@@ -54,7 +54,7 @@ pub enum Sender {
 /// `user_id`, so no handler has a fallback tenant of its own.
 pub fn resolve_sender() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
     dptree::entry().map_async(|u: Update, deps: Deps| async move {
-        let Some(telegram_id) = u.user().map(|user| user.id.0.to_string()) else {
+        let Some(telegram_id) = u.from().map(|user| user.id.0.to_string()) else {
             return Sender::Nobody;
         };
         match deps.resolve_sender_usecase.execute(&telegram_id).await {
@@ -86,8 +86,8 @@ pub fn refuse_unresolved(site_url: String) -> teloxide::dispatching::UpdateHandl
         async move {
             log::warn!(
                 "refused update {} from user={:?} chat={:?}: {}",
-                u.id,
-                u.user().map(|user| user.id.0),
+                u.id.0,
+                u.from().map(|user| user.id.0),
                 u.chat().map(|c| c.id.0),
                 match &sender {
                     Sender::Unbound => "no account bound to this telegram id",
