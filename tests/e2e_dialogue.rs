@@ -207,3 +207,9 @@ async fn the_runtime_command_moves_a_bot_between_images() {
         "the reply should name the new runtime: {transcript}"
     );
 }
+
+#[tokio::test]
+async fn the_production_dispatcher_accepts_the_handler_tree() {
+    let h = harness!();
+    h.build_dispatcher();
+}

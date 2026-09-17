@@ -26,8 +26,7 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
             KeyboardButton::new("Runtime"),
         ],
     ])
-    .resize_keyboard(true)
-    .one_time_keyboard(false)
+    .resize_keyboard()
 }
 
 /// Inline keyboard to toggle a bot's strategy sides on/off. Each button shows
