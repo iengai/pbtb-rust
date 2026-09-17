@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import {
   Badge,
-  CapitalPills,
   Chips,
   Crumbs,
   ErrorBanner,
@@ -16,10 +15,10 @@ import {
   templateTitle,
 } from "../components/ui";
 import { fmtCap } from "../chart/showcase";
-import { isRetired, paramFamilies, sameParams, staticData, type TemplateBacktest } from "../data/static";
+import { isRetired, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
-import { fmtGain, fmtMetric, metricRows, wipedOut } from "./metrics";
+import { metricRows, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
   const { name = "" } = useParams();
@@ -50,16 +49,6 @@ export function ConfigDetail() {
       ? isRetired(data, overlay.data ?? null)
       : false;
   const canApply = !retired || operator;
-  // The templates trading this one's parameter set at another capital, among
-  // those the viewer's catalogue lists: the operator's holds the retired ones.
-  const index = useLoad(() => staticData.templates(), "templates");
-  const retiredNow = (tpl: { name: string; audience?: "operator" | null }) => {
-    const audience = live.data?.templates.find((other) => other.name === tpl.name)?.audience;
-    return audience ? audience === "operator" : isRetired(tpl, overlay.data ?? null);
-  };
-  const listed = (index.data ?? []).filter((tpl) => operator || !retiredNow(tpl));
-  const siblings = data ? sameParams(data, listed) : [];
-  const family = paramFamilies(index.data ?? []).get(data?.params_sha ?? "");
   const [applying, setApplying] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -102,16 +91,6 @@ export function ConfigDetail() {
                 ))}
                 {wipedOut(data.metrics) && <Badge>{t.configs.liquidatedBadge}</Badge>}
               </div>
-              {family != null && siblings.length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <CapitalPills
-                    members={[data, ...siblings].sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0))}
-                    current={data.name}
-                    family={family}
-                    label={t.configs.list.sameParams}
-                  />
-                </div>
-              )}
               <div className="sub" style={{ marginTop: 4 }}>
                 <span className="mono">{data.name}</span> ·{" "}
                 {t.configs.detail.lead(data.exchange, data.start, data.end, data.coins.length)}
@@ -161,31 +140,11 @@ export function ConfigDetail() {
                   <div>{data.generation != null ? t.configs.generation(data.generation) : "—"}</div>
                   <div className="k">{t.configs.detail.engine}</div>
                   <div>{t.configs.detail.engineValue(engineLabel(data.engine))}</div>
-                  {siblings.length > 0 && (
-                    <>
-                      <div className="k">{t.configs.detail.sameParams}</div>
-                      <div>
-                        {siblings.map((tpl) => (
-                          <div key={tpl.name}>
-                            <Link to={`/configs/${encodeURIComponent(tpl.name)}`}>
-                              {fmtCap(tpl.starting_balance ?? 0)}
-                            </Link>{" "}
-                            <span className="muted tnum">
-                              {wipedOut(tpl.metrics) ? t.configs.wipedOut : fmtGain(tpl.metrics.gain, 0)} ·{" "}
-                              {t.configs.list.maxDd} {fmtMetric("drawdown_worst", tpl.metrics.drawdown_worst)}
-                            </span>
-                            {retiredNow(tpl) && (
-                              <>
-                                {" "}
-                                <Badge>{t.configs.retiredBadge}</Badge>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                        <div className="hint">{t.configs.detail.sameParamsHint}</div>
-                      </div>
-                    </>
-                  )}
+                  <div className="k">{t.configs.detail.minCapital}</div>
+                  <div>
+                    {fmtCap(data.starting_balance ?? 0)}
+                    <div className="hint">{t.configs.detail.minCapitalHint}</div>
+                  </div>
                 </div>
               </div>
             </div>

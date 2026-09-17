@@ -11,7 +11,7 @@ What a reader is told lives in ``pbtb`` as properties, each read off the config
 or the strategy lab:
 
     universe       mix3 | mix8 | mix10 | xrp          the coin basket
-    capital_usdt   100 … 10000                         the balance it was tuned at
+    capital_usdt   100 … 10000                         the least capital it is offered for
     style          grid | martingale | ema_anchor      the strategy family
     profile        guard | steady | balanced | bold | extreme
     generation     the lab iteration; absent on a template that predates the lab

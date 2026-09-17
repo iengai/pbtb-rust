@@ -170,9 +170,8 @@ def trading_sha(config: dict) -> str:
 
 def params_sha(config: dict) -> str:
     """The sha of what the bot trades by: the strategy without its ``backtest``
-    block. A tuning offered at several capitals is one template per capital
-    whose bodies differ in ``backtest.starting_balance`` alone, and the site
-    tells a reader they are one parameter set by this."""
+    block. The same tuning at another ``backtest.starting_balance`` carries
+    the same one, which is how the transfer refuses a second template of it."""
     return trading_sha({k: v for k, v in config.items() if k != "backtest"})
 
 

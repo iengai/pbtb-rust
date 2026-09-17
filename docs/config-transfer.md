@@ -73,11 +73,13 @@ is the console's, `lab` is ours.
   holds per template, then copies it onto the bots built from the template;
   run it after `backtest_templates.py` or after adding a template. The
   character and the stress windows describe the template at its
-  `capital_usdt` only: a tuning offered at several capitals is one template
-  per capital, each with that capital's own runs. Their bodies differ in
-  `backtest.starting_balance` alone, so their site artifacts share one
-  `params_sha` (the strategy without its `backtest` block), and the console
-  lists each one's other capitals on its card and its page.
+  `capital_usdt`, the least capital the tuning holds up at: above it the
+  same parameters backtest alike, so a tuning is one template, at that
+  capital. The transfer refuses a config whose `params_sha` (the strategy
+  without its `backtest` block) a template in `site/templates/index.json`
+  already carries (so only a template `backtest_templates.py` has indexed in
+  this checkout); `--allow-same-params` moves a tuning to a lower capital,
+  and the template it replaces is retired.
   `--description` on the transfer sets one until then; absent, a view shows `—`.
   It never reaches the published site data.
 
@@ -132,7 +134,7 @@ or the strategy lab:
 | Property | Values | From |
 |---|---|---|
 | `universe` | `mix3`, `mix8`, `mix10`, `xrp` | the backtest's coins |
-| `capital_usdt` | `100` … `10000` | the backtest's starting balance |
+| `capital_usdt` | `100` … `10000` | the backtest's starting balance: the least capital the tuning is offered for |
 | `style` | `grid`, `martingale`, `ema_anchor` | v8 `live.strategy_kind`; every v7 config is the grid |
 | `profile` | `guard` (<10%), `steady` (<25%), `balanced` (<35%), `bold` (<60%), `extreme` | the tier the worst measured drawdown falls in; one tuning on both engine lines keeps the more cautious |
 | `generation` | the lab iteration | `lab.iter`, counted per capital tier; absent on a template that predates the lab |

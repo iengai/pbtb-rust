@@ -52,6 +52,12 @@ Usage:
   python scripts/transfer_config_to_s3.py --config <raw.json> --description "XRP grid, low leverage" --upload --profile dev
 
 A new id is generated; --name overwrites an existing template instead.
+
+`capital_usdt` is the least capital the tuning holds up at, so a tuning is one
+template: the transfer refuses a config whose parameters (`params_sha`, the
+strategy without its `backtest` block) a template in site/templates/index.json
+already carries. --allow-same-params lets it through, for the tuning moving to
+a lower capital; the template it replaces is then retired.
 """
 
 import argparse
@@ -61,11 +67,25 @@ import subprocess
 import sys
 import tempfile
 
+from pathlib import Path
+
+from backtest_templates import params_sha
 from template_naming import FACETS, base_titles, engine_of, new_id, style_of
 
 DEFAULT_BUCKET = "scalable-cluster-dev-bot-configs"
 DEFAULT_PREFIX = "predefined/"
 VALID_SIDES = ("long", "short")
+SITE_INDEX = Path(__file__).resolve().parent.parent / "site" / "templates" / "index.json"
+
+
+def same_params(raw: dict, name: str, index: list[dict]) -> list[dict]:
+    """The index rows of other templates that trade `raw`'s parameters. None for
+    a template that carries them itself: overwriting it adds no template."""
+    sha = params_sha(raw)
+    carriers = [row for row in index if row.get("params_sha") == sha]
+    if any(row.get("name") == name for row in carriers):
+        return []
+    return carriers
 
 
 def existing_template(target: str, profile: str | None) -> dict:
@@ -129,7 +149,7 @@ def main() -> int:
     parser.add_argument("--name", default=None,
                         help="an existing template id to overwrite (default: a new tpl- id)")
     parser.add_argument("--universe", default=None, help="coin basket: mix3, mix8, mix10, xrp")
-    parser.add_argument("--capital", type=int, default=None, help="balance tuned at, in USDT")
+    parser.add_argument("--capital", type=int, default=None, help="the least capital the tuning is offered for, in USDT")
     parser.add_argument("--risk-profile", dest="risk_profile", default=None,
                         help="guard, steady, balanced, bold or extreme")
     parser.add_argument("--generation", type=int, default=None, help="the lab iteration")
@@ -147,6 +167,8 @@ def main() -> int:
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
     parser.add_argument("--prefix", default=DEFAULT_PREFIX)
     parser.add_argument("--profile", default=None, help="AWS CLI profile for the upload")
+    parser.add_argument("--allow-same-params", dest="allow_same_params", action="store_true",
+                        help="transfer a tuning a listed template already carries")
     parser.add_argument("--upload", action="store_true",
                         help="actually upload (default is a dry-run preview)")
     parser.add_argument("--out", default=None,
@@ -163,6 +185,24 @@ def main() -> int:
 
     with open(args.config, "r", encoding="utf-8") as fh:
         raw = json.load(fh)
+
+    if not isinstance(raw, dict):
+        print("error: input does not look like a passivbot config (not a JSON object)", file=sys.stderr)
+        return 1
+    if SITE_INDEX.exists():
+        index = json.loads(SITE_INDEX.read_text(encoding="utf-8"))
+    else:
+        index = []
+        print(f"warning: {SITE_INDEX} is missing; not checked against the listed templates",
+              file=sys.stderr)
+    twins = same_params(raw, name, index)
+    if twins and not args.allow_same_params:
+        listed = ", ".join(f"{row['name']} (${row.get('starting_balance')})" for row in twins)
+        print(f"error: these parameters are already a template: {listed}. capital_usdt is the "
+              "least capital a tuning holds up at, so a tuning is one template; pass "
+              "--allow-same-params to move it to a lower capital, and retire the other.",
+              file=sys.stderr)
+        return 1
 
     lab = None
     if args.lab:

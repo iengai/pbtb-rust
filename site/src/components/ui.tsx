@@ -1,9 +1,8 @@
-import { type CSSProperties, type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { ApiError, AuthRefused, errorText } from "../api/client";
 import type { Phase } from "../api/types";
 import { sparklinePoints } from "../chart/returnCurve";
-import { fmtCap } from "../chart/showcase";
 import { type Lang, useT } from "../i18n/locale";
 import type { Messages } from "../i18n/messages";
 import { Alert, Chevron } from "./icons";
@@ -36,47 +35,6 @@ export function Pill({ tone, children }: { tone?: "ok" | "warn" | "bad"; childre
 
 export function Badge({ children }: { children: ReactNode }) {
   return <span className="badge">{children}</span>;
-}
-
-// How many `--fam-N` colours the stylesheet holds; a set past them wraps.
-const FAMILY_COLORS = 6;
-
-export function familyColor(family: number): string {
-  return `var(--fam-${family % FAMILY_COLORS})`;
-}
-
-// One parameter set's capitals, smallest first, in the set's colour: the one
-// being looked at filled, the others links to their own pages.
-export function CapitalPills({
-  members,
-  current,
-  family,
-  label,
-}: {
-  members: { name: string; starting_balance?: number | null }[];
-  current: string;
-  family: number;
-  label: string;
-}) {
-  return (
-    <div className="caps" style={{ "--fam": familyColor(family) } as CSSProperties}>
-      <span className="caps-label">
-        <span className="caps-dot" />
-        {label}
-      </span>
-      {members.map((m) =>
-        m.name === current ? (
-          <span key={m.name} className="cap on" aria-current="true">
-            {fmtCap(m.starting_balance ?? 0)}
-          </span>
-        ) : (
-          <RouterLink key={m.name} className="cap" to={`/configs/${encodeURIComponent(m.name)}`}>
-            {fmtCap(m.starting_balance ?? 0)}
-          </RouterLink>
-        ),
-      )}
-    </div>
-  );
 }
 
 // A bot holding a template, as a card names it: the account's own with its

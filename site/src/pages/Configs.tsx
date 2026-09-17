@@ -1,11 +1,10 @@
-import { type CSSProperties, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import {
   Badge,
-  CapitalPills,
   Chips,
   ErrorBanner,
   type HolderBot,
@@ -14,11 +13,10 @@ import {
   Sparkline,
   TemplateTags,
   engineLabel,
-  familyColor,
   templateTitle,
 } from "../components/ui";
 import { currentTemplate } from "../chart/showcase";
-import { isRetired, paramFamilies, sameParams, staticData, type TemplateSummary } from "../data/static";
+import { isRetired, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
 
@@ -111,9 +109,6 @@ export function Configs() {
     }
     return by;
   }, [mine.data, showcase.data, operator, session, me.loading]);
-  const families = useMemo(() => paramFamilies(data ?? []), [data]);
-  // The parameter set of the card pointed at: its other capitals light up too.
-  const [pointed, setPointed] = useState<string | null>(null);
   const exchanges = Array.from(new Set(shown.map((tpl) => tpl.exchange))).join(", ");
 
   return (
@@ -177,15 +172,7 @@ export function Configs() {
       {data && (
         <div className="cards">
           {shown.map((tpl) => (
-            <TemplateCard
-              key={tpl.name}
-              tpl={tpl}
-              siblings={sameParams(tpl, offered)}
-              family={families.get(tpl.params_sha ?? "")}
-              kin={pointed != null && pointed === tpl.params_sha}
-              holders={holders.get(tpl.name)}
-              onPoint={setPointed}
-            />
+            <TemplateCard key={tpl.name} tpl={tpl} holders={holders.get(tpl.name)} />
           ))}
           {shown.length === 0 && <div className="msg">{t.configs.list.empty[catalogue]}</div>}
         </div>
@@ -196,18 +183,10 @@ export function Configs() {
 
 function TemplateCard({
   tpl,
-  siblings,
-  family,
-  kin,
   holders,
-  onPoint,
 }: {
   tpl: TemplateSummary;
-  siblings: TemplateSummary[];
-  family: number | undefined;
-  kin: boolean;
   holders: { mine: HolderBot[]; showcase: HolderBot[] } | undefined;
-  onPoint: (params: string | null) => void;
 }) {
   const t = useT();
   const { lang } = useLang();
@@ -215,19 +194,8 @@ function TemplateCard({
   // A backtest the engine cut short is an account that got liquidated inside
   // the window; its gain is the balance before the wipe, not a result.
   const wiped = wipedOut(tpl.metrics);
-  // A set the list shows at this capital alone wears no colour.
-  const set = family != null && siblings.length > 0;
-  const colour = family ?? 0;
-  const members = [tpl, ...siblings].sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0));
   return (
-    <div
-      className={`tcard${set ? " fam" : ""}${set && kin ? " kin" : ""}`}
-      style={set ? ({ "--fam": familyColor(colour) } as CSSProperties) : undefined}
-      onMouseEnter={() => set && onPoint(tpl.params_sha ?? null)}
-      onMouseLeave={() => set && onPoint(null)}
-      onFocus={() => set && onPoint(tpl.params_sha ?? null)}
-      onBlur={() => set && onPoint(null)}
-    >
+    <div className="tcard">
       <div className="head">
         <div className="name">
           <Link to={`/configs/${encodeURIComponent(tpl.name)}`}>{templateTitle(tpl, lang)}</Link>
@@ -256,14 +224,6 @@ function TemplateCard({
         <TemplateSpark name={tpl.name} up={gain == null || gain >= 1} />
       </div>
       <Chips items={tpl.coins} max={5} tight />
-      {set && (
-        <CapitalPills
-          members={members}
-          current={tpl.name}
-          family={colour}
-          label={t.configs.list.sameParams}
-        />
-      )}
       {holders && holders.mine.length > 0 && <HolderBots bots={holders.mine} label={t.configs.list.myBots} />}
       {holders && holders.showcase.length > 0 && (
         <HolderBots bots={holders.showcase} label={t.configs.list.showcaseBots} />
