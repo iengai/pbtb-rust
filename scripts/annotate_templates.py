@@ -65,7 +65,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import republish_template_audiences, trading_sha, write_index, write_json
+from backtest_templates import params_sha, republish_template_audiences, trading_sha, write_index, write_json
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, CATALOG, PREFIX, TABLE, aws, body_bytes
 from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
@@ -314,7 +314,8 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
     if art.get("source_sha") != sha(old) and art.get("trading_sha") != strategy:
         print("    artifact was already stale; source_sha left for backtest_templates.py")
     else:
-        for field, value in (("source_sha", sha(new)), ("trading_sha", strategy)):
+        stamps = (("source_sha", sha(new)), ("trading_sha", strategy), ("params_sha", params_sha(json.loads(old))))
+        for field, value in stamps:
             if art.get(field) != value:
                 art[field] = value
                 changed = True

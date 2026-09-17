@@ -60,3 +60,35 @@ export function metricRows(metrics: Record<string, number>): { key: string; valu
   }
   return rows;
 }
+
+// What the catalogue sorts by, each with the direction a reader wants first:
+// the smallest capital, the largest gain, the shallowest drawdown, the highest
+// Sharpe.
+export const SORTS = {
+  capital: { value: (tpl: Sortable) => tpl.starting_balance, desc: false },
+  gain: { value: (tpl: Sortable) => tpl.metrics.gain, desc: true },
+  drawdown: { value: (tpl: Sortable) => tpl.metrics.drawdown_worst, desc: false },
+  sharpe: { value: (tpl: Sortable) => tpl.metrics.sharpe_ratio, desc: true },
+} as const;
+export type SortKey = keyof typeof SORTS;
+export const SORT_KEYS = Object.keys(SORTS) as SortKey[];
+
+type Sortable = { starting_balance?: number | null; metrics: Record<string, number> };
+
+// A sorted copy. `flip` reverses the key's own direction. A wiped-out template
+// goes last whichever way the list runs, since its metrics describe the run up
+// to the wipe, and so does one without the value; ties fall back to gain.
+export function sortTemplates<T extends Sortable>(list: T[], key: SortKey, flip = false): T[] {
+  const { value, desc } = SORTS[key];
+  const sign = desc !== flip ? -1 : 1;
+  const rank = (tpl: T) => {
+    const v = value(tpl);
+    return wipedOut(tpl.metrics) ? 2 : v == null || !Number.isFinite(v) ? 1 : 0;
+  };
+  return [...list].sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      sign * ((value(a) ?? 0) - (value(b) ?? 0)) ||
+      (b.metrics.gain ?? 0) - (a.metrics.gain ?? 0),
+  );
+}

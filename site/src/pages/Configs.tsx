@@ -13,9 +13,10 @@ import {
   engineLabel,
   templateTitle,
 } from "../components/ui";
-import { isRetired, staticData, type TemplateSummary } from "../data/static";
+import { fmtCap } from "../chart/showcase";
+import { isRetired, sameParams, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
-import { fmtGain, fmtMetric, wipedOut } from "./metrics";
+import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
 
 // The two classes of the catalogue: published (offered to everyone) and
 // retired (`audience: operator`, the operator's account alone).
@@ -32,6 +33,9 @@ export function Configs() {
   const operator = me.data?.role === "operator";
   const [tab, setTab] = useState<Catalogue>("published");
   const [engine, setEngine] = useState<string>("all");
+  // The key the list is sorted by, and whether its own direction is reversed:
+  // a second press on the chosen key turns the list around.
+  const [sort, setSort] = useState<{ key: SortKey; flip: boolean }>({ key: "gain", flip: false });
   const catalogue: Catalogue = operator ? tab : "published";
   // Each template's audience: the operator's tabs read it live from the API,
   // so a retire or publish shows at once; everyone else's list reads the public
@@ -58,10 +62,15 @@ export function Configs() {
     [data, catalogue, liveRetired, overlay.data],
   );
   const engines = useMemo(() => Array.from(new Set(offered.map((tpl) => tpl.engine))).sort().reverse(), [offered]);
-  const shown = useMemo(() => {
-    const list = offered.filter((tpl) => engine === "all" || tpl.engine === engine);
-    return list.sort((a, b) => (b.metrics.gain ?? 0) - (a.metrics.gain ?? 0));
-  }, [offered, engine]);
+  const shown = useMemo(
+    () =>
+      sortTemplates(
+        offered.filter((tpl) => engine === "all" || tpl.engine === engine),
+        sort.key,
+        sort.flip,
+      ),
+    [offered, engine, sort],
+  );
   const exchanges = Array.from(new Set(shown.map((tpl) => tpl.exchange))).join(", ");
 
   return (
@@ -101,6 +110,23 @@ export function Configs() {
               </button>
             ))}
           </div>
+          <div className="ranges" role="group" aria-label={t.configs.list.sortBy}>
+            {SORT_KEYS.map((key) => {
+              const on = sort.key === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={on}
+                  className={`range${on ? " on" : ""}`}
+                  onClick={() => setSort({ key, flip: on && !sort.flip })}
+                >
+                  {t.configs.list.sorts[key]}
+                  {on && (SORTS[key].desc !== sort.flip ? " ↓" : " ↑")}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       <ErrorBanner error={error} onRetry={reload} />
@@ -108,7 +134,7 @@ export function Configs() {
       {data && (
         <div className="cards">
           {shown.map((tpl) => (
-            <TemplateCard key={tpl.name} tpl={tpl} />
+            <TemplateCard key={tpl.name} tpl={tpl} siblings={sameParams(tpl, offered)} />
           ))}
           {shown.length === 0 && <div className="msg">{t.configs.list.empty[catalogue]}</div>}
         </div>
@@ -117,7 +143,7 @@ export function Configs() {
   );
 }
 
-function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
+function TemplateCard({ tpl, siblings }: { tpl: TemplateSummary; siblings: TemplateSummary[] }) {
   const t = useT();
   const { lang } = useLang();
   const gain = tpl.metrics.gain;
@@ -155,6 +181,12 @@ function TemplateCard({ tpl }: { tpl: TemplateSummary }) {
       <div className="hint">
         <span className="mono">{tpl.name}</span>
         <br />
+        {siblings.length > 0 && (
+          <>
+            {t.configs.list.sameParams(siblings.map((s) => fmtCap(s.starting_balance ?? 0)).join(" · "))}
+            <br />
+          </>
+        )}
         {t.configs.list.backtestRange(tpl.start.slice(0, 7), tpl.end.slice(0, 7), tpl.exchange)}
       </div>
     </Link>

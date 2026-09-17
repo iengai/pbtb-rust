@@ -74,7 +74,10 @@ is the console's, `lab` is ours.
   run it after `backtest_templates.py` or after adding a template. The
   character and the stress windows describe the template at its
   `capital_usdt` only: a tuning offered at several capitals is one template
-  per capital, each with that capital's own runs.
+  per capital, each with that capital's own runs. Their bodies differ in
+  `backtest.starting_balance` alone, so their site artifacts share one
+  `params_sha` (the strategy without its `backtest` block), and the console
+  lists each one's other capitals on its card and its page.
   `--description` on the transfer sets one until then; absent, a view shows `—`.
   It never reaches the published site data.
 

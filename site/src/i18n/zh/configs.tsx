@@ -10,12 +10,15 @@ export const configs: typeof en = {
   list: {
     title: "配置",
     lead: (shown, total, exchanges) =>
-      `共 ${total} 个策略模板，显示 ${shown} 个 · 基于 ${exchanges || "交易所"} 数据回测 · 按收益排序`,
+      `共 ${total} 个策略模板，显示 ${shown} 个 · 基于 ${exchanges || "交易所"} 数据回测`,
     tabs: { published: "已发布", retired: "已退役" },
     allEngines: "全部",
     templates: "模板列表",
     empty: { published: "还没有发布任何模板。", retired: "没有已退役的模板。" },
     maxDd: "最大回撤",
+    sortBy: "排序",
+    sorts: { capital: "本金", gain: "收益", drawdown: "最大回撤", sharpe: "夏普" },
+    sameParams: (capitals) => `同一套参数另有 ${capitals} 版本`,
     backtestRange: (start, end, exchange) => `回测 ${start} → ${end} · ${exchange}`,
   },
 
@@ -34,6 +37,8 @@ export const configs: typeof en = {
     generation: "进化代数",
     engine: "引擎",
     engineValue: (version) => `passivbot ${version} · 可在 py 或 rs 上运行`,
+    sameParams: "同参数版本",
+    sameParamsHint: "同一套参数，按各自的起始本金分别回测。",
     metricsTitle: "回测指标",
     metricsHint: "USD 数值来自 analysis.json",
   },
