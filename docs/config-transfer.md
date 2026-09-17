@@ -78,8 +78,10 @@ is the console's, `lab` is ours.
   Above it the full-window backtest reads alike; below it a cold-start
   window can fail while the full window still looks the same (96e827a3e2:
   FEB26 dd 0.319 at $700, 0.615 at $500, both 29–30x over the full window),
-  so a lower `capital_usdt` needs the stress windows run at it, not the
-  site backtest alone. The transfer refuses a config whose `params_sha` (the strategy
+  which is what the cold-start gate below runs at every upload. A PUBLIC
+  entry names the `capital` its windows were run at, and
+  `describe_templates.py` refuses a template whose `capital_usdt` is another.
+  The transfer refuses a config whose `params_sha` (the strategy
   without its `backtest` block) a template in `site/templates/index.json`
   already carries (so only a template `backtest_templates.py` has indexed in
   this checkout); `--allow-same-params` moves a tuning to a lower capital,
@@ -172,6 +174,24 @@ python scripts/describe_templates.py --apply --profile dev
 # single-direction
 python scripts/transfer_config_to_s3.py --config <raw.json> --sides long --upload --profile dev
 ```
+
+### The cold-start gate
+
+`--upload` first runs `scripts/stress_gate.py` on the config: each stress
+window on its own, from `starting_balance = capital_usdt`, which must complete
+(no liquidation) inside its drawdown cap. The windows and caps are the
+strategy lab's eligibility gates (passivbot
+`strategy_lab/scripts/harvest_round16.py`; a lab round that changes them edits
+`WINDOWS`). It needs the passivbot checkout of the config's engine (`--pb-v8`
+/ `--pb-v7`, the defaults are `backtest_templates.py`'s) and takes a few
+minutes. The run is kept as `lab.stress` (`capital`, `params_sha`, `passed`,
+each window's gain, drawdown and failure); an overwrite of the same parameters
+at the same capital holding a passed run over today's windows is not run
+again. A failing config is refused, and the message says a higher `--capital`
+may pass. `--allow-failed-stress` uploads it retired (`audience: operator`)
+with the failed run on record, and publishing it is the owner's switch.
+`python scripts/stress_gate.py --config <raw.json> --capital <n>` runs the
+gate alone.
 
 > A combined bot mixes strategies per side (e.g. one strategy's `long`, another's
 > `short`). Each predefined file still describes only its own strategy; the
