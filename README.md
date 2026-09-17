@@ -15,7 +15,7 @@ A Telegram bot, written in Rust, for managing [Passivbot](https://github.com/ena
 | Area | Choice |
 |------|--------|
 | Language / runtime | Rust 2024, Tokio |
-| Telegram | teloxide 0.12 |
+| Telegram | teloxide 0.17 |
 | AWS | DynamoDB, S3, ECS, Lambda (`provided.al2023`), EventBridge |
 | IaC / dev | Terraform (S3 backend), Docker / Dev Container |
 
