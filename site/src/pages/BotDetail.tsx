@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, isRetryConflict } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import type { BotDetail as Detail, TemplateListing } from "../api/types";
@@ -41,6 +41,9 @@ export function BotDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const bot = useLoad(() => api.getBot(id), `bot:${id}`, POLL_MS);
+  // The published backtests' index: the bot's template links to its page when
+  // the index holds one.
+  const catalog = useLoad(() => staticData.templates(), "templates:titles");
   const [series, setSeries] = useState<BotReturnSeries | null | undefined>(undefined);
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -203,9 +206,20 @@ export function BotDetail() {
                 <div className="kv">
                   <div className="k">{t.bots.detail.template}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <span className="ellipsis" title={d.config.template_name}>
-                      {templateTitle({ ...d.config, name: d.config.template_name }, lang)}
-                    </span>
+                    {/* A template the catalogue holds no backtest of has no page to open. */}
+                    {catalog.data?.some((tpl) => tpl.name === d.config?.template_name) ? (
+                      <Link
+                        className="ellipsis"
+                        title={d.config.template_name}
+                        to={`/configs/${encodeURIComponent(d.config.template_name)}`}
+                      >
+                        {templateTitle({ ...d.config, name: d.config.template_name }, lang)}
+                      </Link>
+                    ) : (
+                      <span className="ellipsis" title={d.config.template_name}>
+                        {templateTitle({ ...d.config, name: d.config.template_name }, lang)}
+                      </span>
+                    )}
                     {d.config.template_version && <Badge>{engineLabel(d.config.template_version)}</Badge>}
                   </div>
                   <div className="k">{t.bots.detail.tunedOn}</div>

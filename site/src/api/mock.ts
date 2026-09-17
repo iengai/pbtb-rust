@@ -91,7 +91,7 @@ let bots: BotDetail[] = [
     task_id: "arn:task/def",
     observed_at: now() - 3600 * 5,
     restarts: 1,
-    config: config("bybit-cap1000-iter4-winner-v712", "7.12.0", ["SOL", "XRP", "DOGE", "ADA", "LINK"]),
+    config: config("tpl-3en2ktxp", "8.1.0", ["SOL", "XRP", "DOGE", "ADA", "LINK"]),
   },
   {
     bot_id: "b-abot",
