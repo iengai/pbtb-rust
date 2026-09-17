@@ -18,7 +18,7 @@ export const configs: typeof en = {
     maxDd: "最大回撤",
     sortBy: "排序",
     sorts: { capital: "本金", gain: "收益", drawdown: "最大回撤", sharpe: "夏普" },
-    sameParams: (capitals) => `同一套参数另有 ${capitals} 版本`,
+    sameParams: "同一套参数",
     backtestRange: (start, end, exchange) => `回测 ${start} → ${end} · ${exchange}`,
   },
 

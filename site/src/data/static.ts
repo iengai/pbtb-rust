@@ -149,6 +149,17 @@ export function sameParams<T extends Pick<TemplateSummary, "name" | "params_sha"
     .sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0));
 }
 
+// The parameter sets `all` lists at more than one capital, each numbered in the
+// order of its sha: the number picks the colour a set wears. Numbered over the
+// whole index, a set wears one colour on every card and page, whichever
+// templates the viewer's list holds.
+export function paramFamilies(all: Pick<TemplateSummary, "params_sha">[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const { params_sha } of all) if (params_sha) counts.set(params_sha, (counts.get(params_sha) ?? 0) + 1);
+  const shared = [...counts].filter(([, n]) => n > 1).map(([sha]) => sha).sort();
+  return new Map(shared.map((sha, i) => [sha, i]));
+}
+
 // The catalogue renders from the snapshot whatever happens to the overlay, so
 // a slow edge is given up on rather than waited for.
 const OVERLAY_TIMEOUT_MS = 3000;

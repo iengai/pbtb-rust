@@ -1,20 +1,21 @@
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
 import {
   Badge,
+  CapitalPills,
   Chips,
   ErrorBanner,
   Loading,
   Sparkline,
   TemplateTags,
   engineLabel,
+  familyColor,
   templateTitle,
 } from "../components/ui";
-import { fmtCap } from "../chart/showcase";
-import { isRetired, sameParams, staticData, type TemplateSummary } from "../data/static";
+import { isRetired, paramFamilies, sameParams, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
 
@@ -71,6 +72,9 @@ export function Configs() {
       ),
     [offered, engine, sort],
   );
+  const families = useMemo(() => paramFamilies(data ?? []), [data]);
+  // The parameter set of the card pointed at: its other capitals light up too.
+  const [pointed, setPointed] = useState<string | null>(null);
   const exchanges = Array.from(new Set(shown.map((tpl) => tpl.exchange))).join(", ");
 
   return (
@@ -134,7 +138,14 @@ export function Configs() {
       {data && (
         <div className="cards">
           {shown.map((tpl) => (
-            <TemplateCard key={tpl.name} tpl={tpl} siblings={sameParams(tpl, offered)} />
+            <TemplateCard
+              key={tpl.name}
+              tpl={tpl}
+              siblings={sameParams(tpl, offered)}
+              family={families.get(tpl.params_sha ?? "")}
+              kin={pointed != null && pointed === tpl.params_sha}
+              onPoint={setPointed}
+            />
           ))}
           {shown.length === 0 && <div className="msg">{t.configs.list.empty[catalogue]}</div>}
         </div>
@@ -143,17 +154,42 @@ export function Configs() {
   );
 }
 
-function TemplateCard({ tpl, siblings }: { tpl: TemplateSummary; siblings: TemplateSummary[] }) {
+function TemplateCard({
+  tpl,
+  siblings,
+  family,
+  kin,
+  onPoint,
+}: {
+  tpl: TemplateSummary;
+  siblings: TemplateSummary[];
+  family: number | undefined;
+  kin: boolean;
+  onPoint: (params: string | null) => void;
+}) {
   const t = useT();
   const { lang } = useLang();
   const gain = tpl.metrics.gain;
   // A backtest the engine cut short is an account that got liquidated inside
   // the window; its gain is the balance before the wipe, not a result.
   const wiped = wipedOut(tpl.metrics);
+  // A set the list shows at this capital alone wears no colour.
+  const set = family != null && siblings.length > 0;
+  const colour = family ?? 0;
+  const members = [tpl, ...siblings].sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0));
   return (
-    <Link to={`/configs/${encodeURIComponent(tpl.name)}`} className="tcard">
+    <div
+      className={`tcard${set ? " fam" : ""}${set && kin ? " kin" : ""}`}
+      style={set ? ({ "--fam": familyColor(colour) } as CSSProperties) : undefined}
+      onMouseEnter={() => set && onPoint(tpl.params_sha ?? null)}
+      onMouseLeave={() => set && onPoint(null)}
+      onFocus={() => set && onPoint(tpl.params_sha ?? null)}
+      onBlur={() => set && onPoint(null)}
+    >
       <div className="head">
-        <div className="name">{templateTitle(tpl, lang)}</div>
+        <div className="name">
+          <Link to={`/configs/${encodeURIComponent(tpl.name)}`}>{templateTitle(tpl, lang)}</Link>
+        </div>
         {wiped && <Badge>{t.configs.liquidatedBadge}</Badge>}
         <TemplateTags tpl={tpl} />
         <Badge>{engineLabel(tpl.engine)}</Badge>
@@ -178,18 +214,20 @@ function TemplateCard({ tpl, siblings }: { tpl: TemplateSummary; siblings: Templ
         <TemplateSpark name={tpl.name} up={gain == null || gain >= 1} />
       </div>
       <Chips items={tpl.coins} max={5} tight />
+      {set && (
+        <CapitalPills
+          members={members}
+          current={tpl.name}
+          family={colour}
+          label={t.configs.list.sameParams}
+        />
+      )}
       <div className="hint">
         <span className="mono">{tpl.name}</span>
         <br />
-        {siblings.length > 0 && (
-          <>
-            {t.configs.list.sameParams(siblings.map((s) => fmtCap(s.starting_balance ?? 0)).join(" · "))}
-            <br />
-          </>
-        )}
         {t.configs.list.backtestRange(tpl.start.slice(0, 7), tpl.end.slice(0, 7), tpl.exchange)}
       </div>
-    </Link>
+    </div>
   );
 }
 
