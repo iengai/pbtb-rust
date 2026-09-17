@@ -73,9 +73,13 @@ is the console's, `lab` is ours.
   holds per template, then copies it onto the bots built from the template;
   run it after `backtest_templates.py` or after adding a template. The
   character and the stress windows describe the template at its
-  `capital_usdt`, the least capital the tuning holds up at: above it the
-  same parameters backtest alike, so a tuning is one template, at that
-  capital. The transfer refuses a config whose `params_sha` (the strategy
+  `capital_usdt`, the least capital the tuning passes the lab's gates at,
+  stress windows included, so a tuning is one template, at that capital.
+  Above it the full-window backtest reads alike; below it a cold-start
+  window can fail while the full window still looks the same (96e827a3e2:
+  FEB26 dd 0.319 at $700, 0.615 at $500, both 29–30x over the full window),
+  so a lower `capital_usdt` needs the stress windows run at it, not the
+  site backtest alone. The transfer refuses a config whose `params_sha` (the strategy
   without its `backtest` block) a template in `site/templates/index.json`
   already carries (so only a template `backtest_templates.py` has indexed in
   this checkout); `--allow-same-params` moves a tuning to a lower capital,
