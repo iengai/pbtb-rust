@@ -111,10 +111,13 @@ its `tier` and `iter`), the optimizer `run` and population `member`, the
 descends from; a template with no family is its own) and `branch` within it,
 `migrated_from` on a v8 conversion of a v7 template, the lab's `status` verdict
 and free-text `notes`. The name before the rename stays as `original_name`.
+`stress` is the transfer's cold-start run (below), which the transfer reads
+back to decide whether an overwrite runs the gate again.
 
-No surface reads `lab`, and `BotConfig::from_template` leaves it out of a bot's
+No product surface reads `lab`, and `BotConfig::from_template` leaves it out of a bot's
 copy, so the MCP `get_bot_config` tool never returns it. Write it with
-`transfer_config_to_s3.py --lab <file.json>`; `scripts/annotate_templates.py`
+`transfer_config_to_s3.py --lab <file.json>`, which replaces the block, the
+`stress` run with it, so the gate runs again; `scripts/annotate_templates.py`
 holds the catalogue's lineage and re-applies it.
 
 Everything outside `pbtb` and `lab` — `live`, `bot`, `approved_coins`,
@@ -184,10 +187,13 @@ strategy lab's eligibility gates (passivbot
 `strategy_lab/scripts/harvest_round16.py`; a lab round that changes them edits
 `WINDOWS`). It needs the passivbot checkout of the config's engine (`--pb-v8`
 / `--pb-v7`, the defaults are `backtest_templates.py`'s) and takes a few
-minutes. The run is kept as `lab.stress` (`capital`, `params_sha`, `passed`,
-each window's gain, drawdown and failure); an overwrite of the same parameters
-at the same capital holding a passed run over today's windows is not run
-again. A failing config is refused, and the message says a higher `--capital`
+minutes; from a git worktree the defaults resolve beside the worktree, so
+pass them. The run is kept as `lab.stress` (`capital`, `params_sha`, `engine`,
+`ohlcv_source_dir`, `passed`, each window's `return` as a fraction, drawdown
+and failure); an overwrite is not run again when it holds a passed run of the
+same parameters at the same capital, engine and candle directory over today's
+windows. A gate that cannot run (no checkout, a candle gap, a timeout) uploads
+nothing. A failing config is refused, and the message says a higher `--capital`
 may pass. `--allow-failed-stress` uploads it retired (`audience: operator`)
 with the failed run on record, and publishing it is the owner's switch.
 `python scripts/stress_gate.py --config <raw.json> --capital <n>` runs the
