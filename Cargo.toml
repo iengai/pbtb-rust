@@ -38,9 +38,11 @@ sentry = { version = "0.49", default-features = false, features = [
     "rustls",
 ] }
 thiserror = "1"
-# Bybit V5 REST client for the return-curve collector bin. rustls (not OpenSSL)
-# keeps the lambda-export build free of system TLS deps; reqwest is already in
-# the tree via teloxide's rustls stack, so this only pins/exposes it directly.
+# HTTP client for the return-curve collector's Bybit V5 calls and the OAuth /
+# JWKS clients under `src/interface/{link,mcp}`, which decode with `json`, so the
+# feature is enabled here rather than relied on through teloxide. The version
+# matches teloxide's, so the two share one build. rustls (not OpenSSL) keeps
+# the lambda-export build free of system TLS deps.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 hmac = "0.12"
 sha2 = "0.10"
