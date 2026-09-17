@@ -105,7 +105,7 @@ let bots: BotDetail[] = [
     task_id: null,
     observed_at: now() - 60,
     restarts: 0,
-    config: config("bybit-cap100-iter1-winner-v810", "8.1.0", ["SOL", "XRP", "DOGE"], true),
+    config: config("tpl-3x8we339", "8.1.0", ["XRP"], true),
   },
   {
     bot_id: "b-paper",
