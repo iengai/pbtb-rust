@@ -168,6 +168,14 @@ def trading_sha(config: dict) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def params_sha(config: dict) -> str:
+    """The sha of what the bot trades by: the strategy without its ``backtest``
+    block. A tuning offered at several capitals is one template per capital
+    whose bodies differ in ``backtest.starting_balance`` alone, and the site
+    tells a reader they are one parameter set by this."""
+    return trading_sha({k: v for k, v in config.items() if k != "backtest"})
+
+
 class Template:
     """One template file plus the metadata the site needs from it.
 
@@ -467,6 +475,7 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         "points": load_points(result_dir),
         "source_sha": template.source_sha,
         "trading_sha": template.trading_sha,
+        "params_sha": params_sha(template.config),
         "generated_at": int(time.time()),
     }
 
@@ -480,7 +489,7 @@ def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
         "name", "title", "title_zh", "style", "generation", "engine", "audience", "exchange",
-        "coins", "start", "end", "metrics",
+        "coins", "start", "end", "starting_balance", "params_sha", "metrics",
     )
     rows = []
     for path in sorted(OUTPUT_DIR.glob("*.json")):

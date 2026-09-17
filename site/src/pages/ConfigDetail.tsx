@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { useAuth } from "../auth/AuthProvider";
@@ -14,10 +14,11 @@ import {
   engineLabel,
   templateTitle,
 } from "../components/ui";
-import { isRetired, staticData, type TemplateBacktest } from "../data/static";
+import { fmtCap } from "../chart/showcase";
+import { isRetired, sameParams, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
-import { metricRows, wipedOut } from "./metrics";
+import { fmtGain, fmtMetric, metricRows, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
   const { name = "" } = useParams();
@@ -48,6 +49,16 @@ export function ConfigDetail() {
       ? isRetired(data, overlay.data ?? null)
       : false;
   const canApply = !retired || operator;
+  // The templates trading this one's parameter set at another capital, among
+  // those the viewer's catalogue lists: the operator's holds the retired ones.
+  const index = useLoad(() => staticData.templates(), "templates");
+  const retiredNow = (tpl: { name: string; audience?: "operator" | null }) => {
+    const audience = live.data?.templates.find((other) => other.name === tpl.name)?.audience;
+    return audience ? audience === "operator" : isRetired(tpl, overlay.data ?? null);
+  };
+  const siblings = data
+    ? sameParams(data, index.data ?? []).filter((tpl) => operator || !retiredNow(tpl))
+    : [];
   const [applying, setApplying] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -139,6 +150,31 @@ export function ConfigDetail() {
                   <div>{data.generation != null ? t.configs.generation(data.generation) : "—"}</div>
                   <div className="k">{t.configs.detail.engine}</div>
                   <div>{t.configs.detail.engineValue(engineLabel(data.engine))}</div>
+                  {siblings.length > 0 && (
+                    <>
+                      <div className="k">{t.configs.detail.sameParams}</div>
+                      <div>
+                        {siblings.map((tpl) => (
+                          <div key={tpl.name}>
+                            <Link to={`/configs/${encodeURIComponent(tpl.name)}`}>
+                              {fmtCap(tpl.starting_balance ?? 0)}
+                            </Link>{" "}
+                            <span className="muted tnum">
+                              {wipedOut(tpl.metrics) ? t.configs.wipedOut : fmtGain(tpl.metrics.gain, 0)} ·{" "}
+                              {t.configs.list.maxDd} {fmtMetric("drawdown_worst", tpl.metrics.drawdown_worst)}
+                            </span>
+                            {retiredNow(tpl) && (
+                              <>
+                                {" "}
+                                <Badge>{t.configs.retiredBadge}</Badge>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                        <div className="hint">{t.configs.detail.sameParamsHint}</div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

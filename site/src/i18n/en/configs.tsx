@@ -17,13 +17,18 @@ export const configs = {
   list: {
     title: "Configs",
     lead: (shown: number, total: number, exchanges: string) =>
-      `${shown} of ${total} strategy templates shown · backtested on ${exchanges || "exchange"} data · sorted by gain`,
+      `${shown} of ${total} strategy templates shown · backtested on ${exchanges || "exchange"} data`,
     // The operator's two catalogues; everyone else sees the published one alone.
     tabs: { published: "Published", retired: "Retired" },
     allEngines: "All",
     templates: "templates",
     empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",
+    sortBy: "Sort",
+    sorts: { capital: "Capital", gain: "Gain", drawdown: "Max DD", sharpe: "Sharpe" },
+    // One tuning offered at several capitals is one template per capital; a card
+    // names the capitals its parameter set is also listed at.
+    sameParams: (capitals: string) => `Same parameters also at ${capitals}`,
     backtestRange: (start: string, end: string, exchange: string) => `Backtest ${start} → ${end} · ${exchange}`,
   },
 
@@ -44,6 +49,9 @@ export const configs = {
     generation: "Generation",
     engine: "Engine",
     engineValue: (version: string) => `passivbot ${version} · runs on py or rs`,
+    // The templates that trade this one's parameter set at another capital.
+    sameParams: "Same parameters",
+    sameParamsHint: "One parameter set, backtested at each starting capital.",
     metricsTitle: "Backtest metrics",
     metricsHint: "USD figures from analysis.json",
   },

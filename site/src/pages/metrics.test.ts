@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { metricRows } from "./metrics";
+import { metricRows, sortTemplates } from "./metrics";
 
 // The committed backtests are the input the card is built from, so every one is
 // checked: no row may render a raw float or a raw JSON literal.
@@ -38,5 +38,24 @@ describe("metricRows", () => {
     ]);
     expect(metricRows({ gain: Number.NaN })).toEqual([{ key: "gain", value: "—" }]);
     expect(metricRows({ future_metric: 1.23456789 })).toEqual([{ key: "future_metric", value: "1.235" }]);
+  });
+});
+
+describe("sortTemplates", () => {
+  const tpl = (name: string, starting_balance: number | null, gain: number, completion = 1) => ({
+    name,
+    starting_balance,
+    metrics: { gain, drawdown_worst: 0.3, backtest_completion_ratio: completion },
+  });
+  const list = [tpl("a", 1000, 5), tpl("b", 500, 9), tpl("wiped", 100, 50, 0.4), tpl("c", 500, 12), tpl("old", null, 7)];
+  const names = (sorted: { name: string }[]) => sorted.map((t) => t.name);
+
+  it("sorts by the key's own direction, ties by gain", () => {
+    expect(names(sortTemplates(list, "gain"))).toEqual(["c", "b", "old", "a", "wiped"]);
+    expect(names(sortTemplates(list, "capital"))).toEqual(["c", "b", "a", "old", "wiped"]);
+  });
+
+  it("keeps a wiped-out template and one without the value last when flipped", () => {
+    expect(names(sortTemplates(list, "capital", true))).toEqual(["a", "c", "b", "old", "wiped"]);
   });
 });

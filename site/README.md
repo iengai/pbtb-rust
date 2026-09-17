@@ -182,8 +182,11 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 `dist/404.html` so GitHub Pages resolves deep links through the SPA router.
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
-  engine, audience, exchange, coins, start, end, metrics}]`, where `name` is the
-  opaque template id and `audience` is `"operator"` on a retired template,
+  engine, audience, exchange, coins, start, end, starting_balance, params_sha,
+  metrics}]`, where `name` is the opaque template id, `params_sha` is the sha of
+  the strategy without its `backtest` block (templates that carry the same one
+  are one parameter set at several capitals, which a card and a template's page
+  name; it skips no backtest) and `audience` is `"operator"` on a retired template,
   offered to the operator's account only (the Configs page lists it under its
   Retired tab when `GET /me` says the session is the operator's and leaves it
   out otherwise; its page stays reachable by link). The `audience` here is the
@@ -196,7 +199,7 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   read the audience live from `GET /api/v1/templates` instead, and a template's
   page offers Retire / Publish (`PUT /api/v1/templates/{name}/audience`), which
   rewrites the overlay; the public pages follow within about half a minute.
-  How the overlay is kept is in docs/data-model.md. `templates/<name>.json` — the same plus `starting_balance`,
+  How the overlay is kept is in docs/data-model.md. `templates/<name>.json` — the same plus
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `trading_sha` /
   `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`

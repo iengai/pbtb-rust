@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bybitLink, isRetired, parsePublished, staticData } from "./static";
+import { bybitLink, isRetired, parsePublished, sameParams, staticData } from "./static";
 
 describe("bybitLink", () => {
   it("keeps an https link on bybit.com or a subdomain of it", () => {
@@ -87,5 +87,24 @@ describe("staticData.templatesPublished", () => {
     const pending = staticData.templatesPublished();
     await vi.advanceTimersByTimeAsync(3000);
     expect(await pending).toBeNull();
+  });
+});
+
+describe("sameParams", () => {
+  const all = [
+    { name: "tpl-a", params_sha: "x", starting_balance: 1000 },
+    { name: "tpl-b", params_sha: "x", starting_balance: 500 },
+    { name: "tpl-c", params_sha: "y", starting_balance: 700 },
+    { name: "tpl-d", params_sha: "x", starting_balance: 700 },
+    { name: "tpl-e" },
+  ];
+
+  it("lists the other templates of the parameter set, smallest capital first", () => {
+    expect(sameParams(all[0]!, all).map((tpl) => tpl.name)).toEqual(["tpl-b", "tpl-d"]);
+    expect(sameParams(all[2]!, all)).toEqual([]);
+  });
+
+  it("groups no template that carries no params_sha", () => {
+    expect(sameParams(all[4]!, [...all, { name: "tpl-f" }])).toEqual([]);
   });
 });
