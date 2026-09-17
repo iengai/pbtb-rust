@@ -28,11 +28,8 @@ export type TemplateSummary = {
   coins: string[];
   start: string;
   end: string;
-  /** The balance the backtest started with: the capital the template is offered at. */
+  /** The balance the backtest started with: the least capital the template is offered for. */
   starting_balance?: number | null;
-  /** The sha of what the bot trades by, the `backtest` block left out. A tuning offered at
-   *  several capitals is one template per capital, all of them carrying the same one. */
-  params_sha?: string | null;
   description: string;
   metrics: Record<string, number>;
 };
@@ -135,29 +132,6 @@ export function parsePublished(value: unknown): Set<string> | null {
 // there is none.
 export function isRetired(tpl: { name: string; audience?: "operator" | null }, published: Set<string> | null): boolean {
   return published ? !published.has(tpl.name) : tpl.audience === "operator";
-}
-
-// The other templates of `all` that trade `tpl`'s parameter set, smallest
-// capital first. A template without a `params_sha` groups with none.
-export function sameParams<T extends Pick<TemplateSummary, "name" | "params_sha" | "starting_balance">>(
-  tpl: Pick<TemplateSummary, "name" | "params_sha">,
-  all: T[],
-): T[] {
-  if (!tpl.params_sha) return [];
-  return all
-    .filter((other) => other.name !== tpl.name && other.params_sha === tpl.params_sha)
-    .sort((a, b) => (a.starting_balance ?? 0) - (b.starting_balance ?? 0));
-}
-
-// The parameter sets `all` lists at more than one capital, each numbered in the
-// order of its sha: the number picks the colour a set wears. Numbered over the
-// whole index, a set wears one colour on every card and page, whichever
-// templates the viewer's list holds.
-export function paramFamilies(all: Pick<TemplateSummary, "params_sha">[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const { params_sha } of all) if (params_sha) counts.set(params_sha, (counts.get(params_sha) ?? 0) + 1);
-  const shared = [...counts].filter(([, n]) => n > 1).map(([sha]) => sha).sort();
-  return new Map(shared.map((sha, i) => [sha, i]));
 }
 
 // The catalogue renders from the snapshot whatever happens to the overlay, so

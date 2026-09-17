@@ -25,10 +25,7 @@ export const configs = {
     empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",
     sortBy: "Sort",
-    sorts: { capital: "Capital", gain: "Gain", drawdown: "Max DD", sharpe: "Sharpe" },
-    // One tuning offered at several capitals is one template per capital; the
-    // label of the capitals a card's parameter set is listed at.
-    sameParams: "Same parameters",
+    sorts: { capital: "Min capital", gain: "Gain", drawdown: "Max DD", sharpe: "Sharpe" },
     // The bots that hold the template now: the account's own, and the showcase's.
     myBots: "My bots",
     showcaseBots: "Showcase",
@@ -52,9 +49,10 @@ export const configs = {
     generation: "Generation",
     engine: "Engine",
     engineValue: (version: string) => `passivbot ${version} · runs on py or rs`,
-    // The templates that trade this one's parameter set at another capital.
-    sameParams: "Same parameters",
-    sameParamsHint: "One parameter set, backtested at each starting capital.",
+    // The capital in a template's title: the least it is offered for, which the
+    // backtest started with.
+    minCapital: "Min capital",
+    minCapitalHint: "The backtest starts here. An account with more runs the same parameters.",
     metricsTitle: "Backtest metrics",
     metricsHint: "USD figures from analysis.json",
   },

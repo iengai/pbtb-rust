@@ -186,10 +186,11 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
   engine, audience, exchange, coins, start, end, starting_balance, params_sha,
-  metrics}]`, where `name` is the opaque template id, `params_sha` is the sha of
-  the strategy without its `backtest` block (templates that carry the same one
-  are one parameter set at several capitals, which a card and a template's page
-  name; it skips no backtest) and `audience` is `"operator"` on a retired template,
+  metrics}]`, where `name` is the opaque template id, `starting_balance` is the least
+  capital the template is offered for (the Configs list sorts by it and the
+  template's page names it), `params_sha` is the sha of the strategy without
+  its `backtest` block (what `transfer_config_to_s3.py` refuses a second
+  template of; no page reads it and it skips no backtest) and `audience` is `"operator"` on a retired template,
   offered to the operator's account only (the Configs page lists it under its
   Retired tab when `GET /me` says the session is the operator's and leaves it
   out otherwise; its page stays reachable by link). The `audience` here is the

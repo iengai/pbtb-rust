@@ -21,7 +21,6 @@
   --danger-bg: #fee2e2;
   --overlay: rgba(15, 17, 21, 0.45);
   --mono: ui-monospace, Menlo, Consolas, monospace;
-  --fam-0: #7c3aed; --fam-1: #0d9488; --fam-2: #c2410c; --fam-3: #be185d; --fam-4: #4d7c0f; --fam-5: #0369a1;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -46,7 +45,6 @@
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.16);
     --overlay: rgba(0, 0, 0, 0.6);
-    --fam-0: #a78bfa; --fam-1: #2dd4bf; --fam-2: #fb923c; --fam-3: #f472b6; --fam-4: #a3e635; --fam-5: #38bdf8;
   }
 }
 
@@ -269,23 +267,13 @@ h1.lg { font-size: 22px; }
 .tcard { position: relative; display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; color: var(--text); }
 .tcard:hover { border-color: var(--accent); color: var(--text); }
 /* The whole card opens the template through its title's link, which leaves the
-   capital pills above it their own links. */
+   bot links above it their own. */
 .tcard .name a { color: inherit; }
 .tcard .name a::after { content: ""; position: absolute; inset: 0; border-radius: 12px; }
 /* `.name` clips its overflow, so the focus ring is drawn on the stretched area. */
 .tcard .name a:focus-visible { outline: none; }
 .tcard .name a:focus-visible::after { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* A parameter set listed at several capitals: its colour down the card's edge,
-   and round every card of the set while one of them is pointed at. */
-.tcard.fam { border-left: 3px solid var(--fam); }
-.tcard.fam:hover, .tcard.kin { border-color: var(--fam); box-shadow: 0 0 0 1px var(--fam); }
-.caps { position: relative; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 12px; }
-.caps-label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); margin-right: 2px; }
-.caps-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); }
-.cap { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--fam); color: var(--fam); font-weight: 550; font-variant-numeric: tabular-nums; }
-a.cap:hover { background: color-mix(in srgb, var(--fam) 14%, transparent); color: var(--fam); }
-.cap.on { background: var(--fam); color: var(--bg); }
-/* The bots holding a template, above the card's stretched link like the pills. */
+/* The bots holding a template, above the card's stretched link. */
 .holders { position: relative; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 12px; }
 .holders-label { color: var(--muted); margin-right: 2px; }
 .holder { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-weight: 550; }
