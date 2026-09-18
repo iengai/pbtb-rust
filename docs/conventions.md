@@ -140,6 +140,7 @@ Budgets, checked by the verify gate: `AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` �
 - A row description in `docs/data-model.md` states every value a writer can leave behind, not only the one a reader defaults to; an ops-script writer counts, since it skips the use case's checks.
 - An ops write on a row under the tenant partition pins the row kind in its condition (a field only that kind carries), not only the partition: every row of the tenant shares the `pk`.
 - A PR that adds or changes a template names its audience in the store's two words, published or retired ([config-transfer.md](config-transfer.md) § `audience`); "unpublished" is not a state the store holds, and a template with no `audience` is already offered to every member.
+- A data-only commit under `site/templates/` states per-field counts taken from a structural diff of the artifacts (how many changed `audience`, `title`, `source_sha`), not the file count, and gives each change its actual cause.
 
 ### Issues
 
