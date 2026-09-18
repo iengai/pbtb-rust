@@ -217,8 +217,10 @@ template script run, and the rewrite does not make its backtest stale
 
 ### Archiving one
 
-A template another one beats on both gain and worst drawdown at the same
-capital tier is not worth offering to anyone. `scripts/archive_templates.py
+A template another one beats on gain with worst drawdown no worse (a gap under
+0.01 is a tie), at the same capital tier or a lower one, is not worth offering
+to anyone: capital is the member's barrier, and whoever holds the larger amount
+can run the cheaper template. `scripts/archive_templates.py
 <id> … --apply` moves the object to the `retired/` key prefix — out of every
 listing, the operator's included, content and history intact — deletes its
 backtest artifact and rebuilds the site index; `--restore` puts it back. It
