@@ -10,7 +10,7 @@ make it wrong, and it never changes.
 What a reader is told lives in ``pbtb`` as properties, each read off the config
 or the strategy lab:
 
-    universe       mix3 | mix8 | mix10 | xrp          the coin basket
+    universe       mix3 | mix8 | mix10 | mix12 | xrp   the coin basket
     capital_usdt   100 … 10000                         the least capital it is offered for
     style          grid | martingale | ema_anchor      the strategy family
     profile        guard | steady | balanced | bold | extreme
@@ -41,6 +41,7 @@ UNIVERSES = {
     "mix3": ("3-coin basket", "三币组合"),
     "mix8": ("8-coin basket", "八币组合"),
     "mix10": ("10-coin basket", "十币组合"),
+    "mix12": ("12-coin basket", "十二币组合"),
     "xrp": ("XRP only", "XRP 单币"),
 }
 PROFILES = {
