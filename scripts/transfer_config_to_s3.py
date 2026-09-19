@@ -79,7 +79,7 @@ from pathlib import Path
 
 import stress_gate
 from backtest_templates import params_sha
-from template_naming import FACETS, base_titles, engine_of, new_id, style_of
+from template_naming import FACETS, PROFILES, UNIVERSES, base_titles, engine_of, new_id, style_of
 
 DEFAULT_BUCKET = "scalable-cluster-dev-bot-configs"
 DEFAULT_PREFIX = "predefined/"
@@ -157,10 +157,11 @@ def main() -> int:
     parser.add_argument("--config", required=True, help="path to the raw passivbot config json")
     parser.add_argument("--name", default=None,
                         help="an existing template id to overwrite (default: a new tpl- id)")
-    parser.add_argument("--universe", default=None, help="coin basket: mix3, mix8, mix10, xrp")
+    parser.add_argument("--universe", default=None, choices=sorted(UNIVERSES),
+                        help="coin basket: " + ", ".join(sorted(UNIVERSES)))
     parser.add_argument("--capital", type=int, default=None, help="the least capital the tuning is offered for, in USDT")
-    parser.add_argument("--risk-profile", dest="risk_profile", default=None,
-                        help="guard, steady, balanced, bold or extreme")
+    parser.add_argument("--risk-profile", dest="risk_profile", default=None, choices=list(PROFILES),
+                        help=", ".join(PROFILES))
     parser.add_argument("--generation", type=int, default=None, help="the lab iteration")
     parser.add_argument("--title", default=None, help="override the composed title")
     parser.add_argument("--title-zh", dest="title_zh", default=None,
