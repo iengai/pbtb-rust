@@ -38,6 +38,11 @@ export function wipedOut(metrics: Record<string, number>): boolean {
   return ratio != null && Number.isFinite(ratio) && ratio < 1;
 }
 
+// A coin with its share of the fills, as a chip reads it: `DOGE 85%`.
+export function tradedLabels(traded: { coin: string; share: number }[]): string[] {
+  return traded.map((c) => `${c.coin} ${Math.round(c.share)}%`);
+}
+
 export function fmtGain(gain: number | undefined, digits: number): string {
   if (gain == null || !Number.isFinite(gain)) return "—";
   const pct = (gain - 1) * 100;

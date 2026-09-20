@@ -142,6 +142,7 @@ h1.lg { font-size: 22px; }
 .table .tr { align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text); }
 .table a.tr:hover { background: var(--panel); }
 .table.showcase .th, .table.showcase .tr { grid-template-columns: 1.6fr 1fr 1fr 1.2fr 40px; }
+.table.profile .th, .table.profile .tr { grid-template-columns: 90px 90px 90px 1fr; }
 .table.showcase-manage .th, .table.showcase-manage .tr { grid-template-columns: 1.2fr 2fr 0.8fr 90px; gap: 12px; }
 .metric-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 14px; }
 /* A metric can arrive as a long unbroken float; it wraps inside the row rather
@@ -312,6 +313,10 @@ h1.lg { font-size: 22px; }
   .table .th { display: none; }
   .table .tr, .table.showcase .tr { grid-template-columns: minmax(0, 1fr) auto auto 20px; gap: 12px; padding: 12px 14px; }
   .table .tr > .hide-sm { display: none; }
+  .table.profile .th, .table.profile .tr { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 8px; }
+  .table.profile .th { display: grid; }
+  .table.profile .th > :last-child { display: none; }
+  .table.profile .tr > .chips { grid-column: 1 / -1; }
   .page-head { flex-direction: column; align-items: stretch; }
   .page-head .btn-row > .btn { flex: 1 1 auto; }
   .ranges { max-width: 100%; overflow-x: auto; }

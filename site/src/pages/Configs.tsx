@@ -17,7 +17,7 @@ import {
 import { currentTemplate } from "../chart/showcase";
 import { SLOW_EDGE_MS, isRetired, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
-import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipedOut } from "./metrics";
+import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, tradedLabels, wipedOut } from "./metrics";
 
 // The two classes of the catalogue: published (offered to everyone) and
 // retired (`audience: operator`, the operator's account alone).
@@ -245,6 +245,11 @@ function TemplateCard({
           <div>
             <div className="k">{t.configs.list.maxDd}</div>
             <div className="v">{fmtMetric("drawdown_worst", tpl.metrics.drawdown_worst)}</div>
+            {tpl.capital_drawdown && (
+              <div className="hint">
+                {t.configs.list.worstDd(fmtMetric("drawdown_worst", tpl.capital_drawdown.worst))}
+              </div>
+            )}
           </div>
           <div>
             <div className="k">{t.configs.metric.sharpe_ratio}</div>
@@ -253,7 +258,8 @@ function TemplateCard({
         </div>
         <TemplateSpark name={tpl.name} up={gain == null || gain >= 1} />
       </div>
-      <Chips items={tpl.coins} max={5} tight />
+      {/* What it traded when the backtest says so, else the basket it may trade. */}
+      <Chips items={tpl.traded?.length ? tradedLabels(tpl.traded) : tpl.coins} max={5} tight />
       {holders && holders.mine.length > 0 && <HolderBots bots={holders.mine} label={t.configs.list.myBots} />}
       {holders && holders.showcase.length > 0 && (
         <HolderBots bots={holders.showcase} label={t.configs.list.showcaseBots} />

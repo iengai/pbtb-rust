@@ -17,6 +17,7 @@ export const configs: typeof en = {
     templates: "模板列表",
     empty: { published: "还没有发布任何模板。", retired: "没有已退役的模板。" },
     maxDd: "最大回撤",
+    worstDd: (dd) => `各本金最差 ${dd}`,
     sortBy: "排序",
     sorts: { capital: "最低资金", gain: "收益", drawdown: "最大回撤", sharpe: "夏普" },
     myBots: "我的机器人",
@@ -46,8 +47,16 @@ export const configs: typeof en = {
     engineValue: (version) => `passivbot ${version} · 可在 py 或 rs 上运行`,
     minCapital: "最低资金",
     minCapitalHint: "回测从这个资金起步。资金更多的账户用的是同一套参数。",
+    minCapitalProfileHint: "但结果不一定相同：见下方的本金画像。",
     metricsTitle: "回测指标",
     metricsHint: "USD 数值来自 analysis.json",
+  },
+
+  profile: {
+    title: "本金画像",
+    hint: "同一套参数、同一段回测窗口，分别从各个本金起步。最低资金只表示从这个本金起可以使用，不代表更大的本金表现相同：小本金下不了贵币的第一单；只持一个仓位的模板在某个本金上可能走出不同的路径。请把最差的一行当作风险。",
+    balance: "本金",
+    traded: "实际交易的币（占成交）",
   },
 
   chart: {
