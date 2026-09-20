@@ -252,6 +252,28 @@ def detect_engine(config: dict) -> str:
     return "v8" if nested else "v7"
 
 
+def position_class(config: dict) -> str | None:
+    """``single`` for a config that holds one position at a time on every side it
+    trades, ``multi`` for one that holds several, ``None`` when it trades no side.
+    A side holds what passivbot does: ``n_positions`` rounded, and no more than
+    it has coins approved, so a one-coin template is ``single`` whatever
+    ``n_positions`` says. ``multi`` never says how many: the artifacts are public
+    and the count is a strategy parameter."""
+    approved = (config.get("live") or {}).get("approved_coins")
+    held = []
+    for side in ("long", "short"):
+        bot = (config.get("bot") or {}).get(side) or {}
+        risk = bot["risk"] if isinstance(bot.get("risk"), dict) else bot
+        if float(risk.get("total_wallet_exposure_limit") or 0) > 0:
+            n = float(risk.get("n_positions", bot.get("n_positions")) or 0)
+            coins = approved.get(side) if isinstance(approved, dict) else approved
+            held.append(round(min(n, len(coins)) if isinstance(coins, list) and coins else n))
+    held = [n for n in held if n > 0]
+    if not held:
+        return None
+    return "multi" if max(held) >= 2 else "single"
+
+
 def sync_templates(templates_dir: Path, profile: str | None, run=subprocess.run) -> None:
     templates_dir.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, AWS_PROFILE=profile) if profile else None
@@ -456,6 +478,8 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         # Naming properties a card shows as tags beside the title.
         "style": template.pbtb.get("style"),
         "generation": template.pbtb.get("generation"),
+        # How many coins it holds at once, as a class: the catalogue's first split.
+        "positions": position_class(template.config),
         "engine": ENGINE_VERSION[template.engine],
         # `"operator"` on a template offered to the operator's account only.
         "audience": template.pbtb.get("audience"),
@@ -487,7 +511,7 @@ def write_json(path: Path, data) -> None:
 def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
-        "name", "title", "title_zh", "style", "generation", "engine", "audience", "exchange",
+        "name", "title", "title_zh", "style", "generation", "positions", "engine", "audience", "exchange",
         "coins", "start", "end", "starting_balance", "params_sha", "metrics",
     )
     rows = []
