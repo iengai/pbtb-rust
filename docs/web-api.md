@@ -105,7 +105,9 @@ All under `/api/v1`. Bodies and responses are JSON; every response carries
 
 A template is addressed by its opaque id (`tpl-…`) and read by its `title` /
 `title_zh`, which every described config carries alongside `template_name`,
-with the `style` and `generation` the console shows as tags. `GET /templates`
+with its `style` and `generation`: the console shows the generation as a tag and
+the style as a Setup row (a template card's other tag, the position class, is
+the published backtests' `positions`). `GET /templates`
 lists each id with its English title; the console takes the Chinese one from
 the published backtests it already loads.
 

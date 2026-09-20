@@ -185,8 +185,11 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 `dist/404.html` so GitHub Pages resolves deep links through the SPA router.
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
-  engine, audience, exchange, coins, start, end, starting_balance, params_sha,
-  metrics}]`, where `name` is the opaque template id, `starting_balance` is the least
+  positions, engine, audience, exchange, coins, start, end, starting_balance, params_sha,
+  metrics}]`, where `name` is the opaque template id, `positions` is `single` or
+  `multi` (whether the template holds one position at a time or several; the
+  Configs list splits on it, read off the config by `backtest_templates.position_class`
+  and held in no S3 object or `pbtb` block), `starting_balance` is the least
   capital the template is offered for (the Configs list sorts by it and the
   template's page names it), `params_sha` is the sha of the strategy without
   its `backtest` block (what `transfer_config_to_s3.py` refuses a second
@@ -211,8 +214,11 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   backtest). `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
   `drawdown_worst` are fractions). **Never put strategy parameters in these
-  files**, and that includes the template's `description`: the authors' notes
-  name leverage, position counts and exposure caps, so the description is
+  files** (`positions` is the one parameter-derived fact the owner chose to
+  publish: `single` says a template holds one position at a time, `multi`
+  never says how many), and that includes the
+  template's `description`: the authors' notes name leverage, position counts
+  and exposure caps, so the description is
   deliberately absent here and reaches a signed-in tenant only through
   `GET /api/v1/templates/{name}`.
 
