@@ -65,7 +65,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from backtest_templates import params_sha, republish_template_audiences, trading_sha, write_index, write_json
+from backtest_templates import (
+    params_sha, position_class, republish_template_audiences, trading_sha, write_index, write_json,
+)
 from rename_predefined import ARCHIVED_PREFIX, BUCKET, CATALOG, PREFIX, TABLE, aws, body_bytes
 from template_naming import FACETS, IDS, engine_of, resolve, style_of, titles, traded_sides
 
@@ -325,6 +327,17 @@ def refresh_artifact(tid: str, old: bytes, new: bytes, meta: dict, apply: bool) 
         if art.get(field) != meta.get(field):
             art[field] = meta.get(field)
             changed = True
+    # Derived from the config, not a `pbtb` property: refreshing it never rewrites the
+    # template's S3 object. Kept where `build_artifact` puts it, after `generation`.
+    if "positions" not in art or art["positions"] != position_class(json.loads(new)):
+        rest = {k: v for k, v in art.items() if k != "positions"}
+        art.clear()
+        for key, value in rest.items():
+            art[key] = value
+            if key == "generation":
+                art["positions"] = position_class(json.loads(new))
+        art.setdefault("positions", position_class(json.loads(new)))
+        changed = True
     if changed and apply:
         write_json(path, art)
     return changed
