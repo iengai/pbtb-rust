@@ -13,7 +13,7 @@ or the strategy lab:
     universe       mix3 | mix8 | mix10 | mix12 | mix17 | xrp
                                                        the coin basket
     capital_usdt   100 … 10000                         the least capital it is offered for
-    style          grid | martingale | ema_anchor      the strategy family
+    style          grid | martingale | ema_anchor      how the orders are parametrised
     profile        guard | steady | balanced | bold | extreme
     generation     the lab iteration; absent on a template that predates the lab
     engine         v7 | v8                             the passivbot engine line
