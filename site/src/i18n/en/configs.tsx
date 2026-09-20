@@ -15,6 +15,9 @@ export const configs = {
   // The strategy's order logic, keyed by `pbtb.style`. One family,
   // martingale-style averaging: `grid` is passivbot v7's trailing grid, which v8
   // keeps as a deprecated compatibility strategy beside the trailing martingale.
+  // Two surfaces outside the site word these the same and are edited with this
+  // line: `style_label` in src/interface/telegram/views.rs, and STYLES_ZH in
+  // scripts/describe_templates.py (which words the member-facing description).
   style: { grid: "Trailing grid (deprecated v7 form)", martingale: "Trailing martingale", ema_anchor: "EMA anchor" },
   generation: (n: number) => `Gen ${n}`,
 
