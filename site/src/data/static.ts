@@ -35,9 +35,28 @@ export type TemplateSummary = {
   starting_balance?: number | null;
   description: string;
   metrics: Record<string, number>;
+  /** The coins the backtest's fills went to, largest share first: for a template that holds one
+   *  position, far fewer than `coins`. Absent until the template is next backtested. */
+  traded?: CoinShare[] | null;
+  /** The median and the worst drawdown over the template's capital profile; null without one. */
+  capital_drawdown?: { median: number; worst: number } | null;
+};
+
+/** One coin's share of a backtest's fills, in percent. */
+export type CoinShare = { coin: string; share: number };
+
+/** One balance of a capital profile: the same parameters and window, started from `balance`. */
+export type CapitalRow = {
+  balance: number;
+  gain: number | null;
+  drawdown_worst: number | null;
+  coins: CoinShare[];
 };
 
 export type TemplateBacktest = TemplateSummary & {
+  /** What the template does from its own capital up. A template's capital is the least it is
+   *  offered for, not a promise that a larger balance behaves the same. */
+  capital_profile?: { rows: CapitalRow[] } | null;
   points: EquityPoint[];
   strategies: { name: string; side: string }[];
 };

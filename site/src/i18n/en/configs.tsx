@@ -28,6 +28,8 @@ export const configs = {
     templates: "templates",
     empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",
+    // Under a card's drawdown: the worst the same parameters drew down at any balance of the capital profile.
+    worstDd: (dd: string) => `worst by capital ${dd}`,
     sortBy: "Sort",
     sorts: { capital: "Min capital", gain: "Gain", drawdown: "Max DD", sharpe: "Sharpe" },
     // The bots that hold the template now: the account's own, and the showcase's.
@@ -62,8 +64,19 @@ export const configs = {
     // backtest started with.
     minCapital: "Min capital",
     minCapitalHint: "The backtest starts here. An account with more runs the same parameters.",
+    // Appended when the page shows a capital profile.
+    minCapitalProfileHint: "That is not the same result: see the capital profile below.",
     metricsTitle: "Backtest metrics",
     metricsHint: "USD figures from analysis.json",
+  },
+
+  // The capital profile: the same parameters and window, started from each balance.
+  profile: {
+    title: "Capital profile",
+    hint:
+      "The same parameters over the same window, started from each balance. The min capital is the least the template is offered for, not a promise that more behaves the same: a small balance cannot place the first order on an expensive coin, and a template that holds one position can take a different path at one balance. Read the worst row as the risk.",
+    balance: "Capital",
+    traded: "Coins traded (share of fills)",
   },
 
   // The chart card: the backtest and the live runs on one chart.

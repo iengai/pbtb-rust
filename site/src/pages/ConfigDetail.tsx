@@ -18,7 +18,7 @@ import { fmtCap } from "../chart/showcase";
 import { isRetired, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
-import { metricRows, wipedOut } from "./metrics";
+import { fmtGain, fmtMetric, metricRows, tradedLabels, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
   const { name = "" } = useParams();
@@ -58,6 +58,8 @@ export function ConfigDetail() {
   // not know is shown as it comes out of analysis.json.
   const metricLabels: Record<string, string> = t.configs.metric;
   const styleNames: Record<string, string> = t.configs.style;
+  // One row is the template's own run again; the table is worth showing from two.
+  const hasProfile = (data?.capital_profile?.rows.length ?? 0) > 1;
 
   return (
     <>
@@ -147,7 +149,10 @@ export function ConfigDetail() {
                   <div className="k">{t.configs.detail.minCapital}</div>
                   <div>
                     {fmtCap(data.starting_balance ?? 0)}
-                    <div className="hint">{t.configs.detail.minCapitalHint}</div>
+                    <div className="hint">
+                      {t.configs.detail.minCapitalHint}
+                      {hasProfile && ` ${t.configs.detail.minCapitalProfileHint}`}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -169,6 +174,32 @@ export function ConfigDetail() {
               ))}
             </div>
           </div>
+          {hasProfile && data.capital_profile && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-title" style={{ marginBottom: 4 }}>
+                {t.configs.profile.title}
+              </div>
+              <div className="hint" style={{ marginBottom: 10 }}>
+                {t.configs.profile.hint}
+              </div>
+              <div className="table profile">
+                <div className="th">
+                  <span>{t.configs.profile.balance}</span>
+                  <span>{t.configs.metric.gain}</span>
+                  <span>{t.configs.list.maxDd}</span>
+                  <span>{t.configs.profile.traded}</span>
+                </div>
+                {data.capital_profile.rows.map((row) => (
+                  <div key={row.balance} className="tr">
+                    <span className="tnum">{fmtCap(row.balance)}</span>
+                    <span className="tnum">{fmtGain(row.gain ?? undefined, 0)}</span>
+                    <span className="tnum">{fmtMetric("drawdown_worst", row.drawdown_worst ?? undefined)}</span>
+                    <Chips items={tradedLabels(row.coins)} max={6} tight />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {applying && (
             <ApplyDialog
               template={data}
