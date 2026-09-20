@@ -186,10 +186,15 @@ into `dist/` after `vite build`. The build also copies `index.html` to
 
 - `templates/index.json` — `[{name, title, title_zh, style, generation,
   positions, engine, audience, exchange, coins, start, end, starting_balance, params_sha,
-  metrics}]`, where `name` is the opaque template id, `positions` is `single` or
+  metrics, traded, capital_drawdown}]`, where `name` is the opaque template id, `positions` is `single` or
   `multi` (whether the template holds one position at a time or several; the
   Configs list splits on it, read off the config by `backtest_templates.position_class`
-  and held in no S3 object or `pbtb` block), `starting_balance` is the least
+  and held in no S3 object or `pbtb` block), `traded` is `[{coin, share}]`, the
+  coins the backtest's fills went to in percent of the fill count (a card shows
+  it instead of `coins` when present: a template that holds one position trades
+  far fewer coins than its basket names), `capital_drawdown` is `{median,
+  worst}` over the template's capital profile or null without one (a card names
+  the worst under its own drawdown), `starting_balance` is the least
   capital the template is offered for (the Configs list sorts by it and the
   template's page names it), `params_sha` is the sha of the strategy without
   its `backtest` block (what `transfer_config_to_s3.py` refuses a second
@@ -206,7 +211,14 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   read the audience live from `GET /api/v1/templates` instead, and a template's
   page offers Retire / Publish (`PUT /api/v1/templates/{name}/audience`), which
   rewrites the overlay; the public pages follow within about half a minute.
-  How the overlay is kept is in docs/data-model.md. `templates/<name>.json` — the same plus
+  How the overlay is kept is in docs/data-model.md. `templates/<name>.json` — the same
+  (without `capital_drawdown`) plus `capital_profile` (`{key, rows[{balance, gain,
+  drawdown_worst, coins[{coin, share}]}]}`: the same parameters and window started
+  from the template's own balance and each larger rung of
+  `backtest_templates.CAPITAL_LADDER`, written by `--capital-profile`; the
+  template's page shows it as a table, because the capital in a title is the
+  least the template is offered for and not a promise that more behaves the
+  same; `key` is what the profile was run on, so a rerun keeps it), plus
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `trading_sha` /
   `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`
@@ -214,8 +226,9 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   backtest). `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
   `drawdown_worst` are fractions). **Never put strategy parameters in these
-  files** (`positions` is the one parameter-derived fact the owner chose to
-  publish: `single` says a template holds one position at a time, `multi`
+  files** (the owner chose to publish two parameter-derived facts: the coins a
+  capital profile's balances traded, which bound the first order's size from
+  the rung an expensive coin first fills at, and `positions`: `single` says a template holds one position at a time, `multi`
   never says how many), and that includes the
   template's `description`: the authors' notes name leverage, position counts
   and exposure caps, so the description is
@@ -231,9 +244,8 @@ template is reproducible from its own file — window, coins and exchange are
 inside it — which is why the pipeline reruns rather than mining passivbot's
 `backtests/` directory, whose runs are named by pid and timestamp with no link
 back to a config. It is CPU-bound and runs on a developer machine; a template
-whose artifact already carries the same `source_sha`, engine, window end and
-candle directory (`ohlcv_source_dir`, the one its run read) is skipped, so a
-rerun after adding or editing templates only costs the changed ones.
+whose artifact is current is skipped (the script's docstring owns what current
+means), so a rerun after adding or editing templates only costs the changed ones.
 `--end-date now` runs every template from its own start to the last complete
 day (the template in S3 is not touched; the artifact's `end` says which),
 which is how the catalogue is brought up to date; without the flag a template
