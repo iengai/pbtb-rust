@@ -20,6 +20,9 @@ export type TemplateSummary = {
   title_zh?: string;
   style?: string | null;
   generation?: number | null;
+  /** Whether it holds one position at a time or several: the list's first split. Null on a
+   *  template that trades no side. */
+  positions?: "single" | "multi" | null;
   engine: string;
   /** `operator`: offered to the operator's account only; the list leaves it out for anyone else,
    *  its page stays reachable by link. Absent or null: everyone. */

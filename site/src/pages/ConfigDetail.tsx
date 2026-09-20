@@ -85,7 +85,6 @@ export function ConfigDetail() {
                 <h1>{templateTitle(data, lang)}</h1>
                 <TemplateTags tpl={data} />
                 {retired && <Badge>{t.configs.retiredBadge}</Badge>}
-                <Badge>{engineLabel(data.engine)}</Badge>
                 {sides.map((s) => (
                   <Badge key={s}>{s}</Badge>
                 ))}
@@ -133,6 +132,11 @@ export function ConfigDetail() {
                   <div className="k">{t.configs.detail.coins}</div>
                   <div>
                     <Chips items={data.coins} />
+                  </div>
+                  <div className="k">{t.configs.detail.positions}</div>
+                  <div>
+                    {data.positions ? t.configs.positions[data.positions] : "—"}
+                    {data.positions && <div className="hint">{t.configs.detail.positionsHint[data.positions]}</div>}
                   </div>
                   <div className="k">{t.configs.detail.style}</div>
                   <div>{data.style ? (styleNames[data.style] ?? data.style) : "—"}</div>

@@ -9,9 +9,13 @@ export const configs = {
   wipedOut: "wiped out",
   // A retired template: offered to the operator's account only.
   retiredBadge: "retired",
-  // A template's naming properties, shown as tags: the strategy family, keyed
-  // by `pbtb.style`, and the lab iteration that produced the tuning.
-  style: { grid: "Grid", martingale: "Martingale", ema_anchor: "EMA anchor" },
+  // How many coins a template holds at once, as a class: the list's first split
+  // and the first tag on a card.
+  positions: { single: "Single position", multi: "Multi position" },
+  // The strategy's order logic, keyed by `pbtb.style`. One family,
+  // martingale-style averaging: `grid` is passivbot v7's trailing grid, which v8
+  // keeps as a deprecated compatibility strategy beside the trailing martingale.
+  style: { grid: "Trailing grid (deprecated v7 form)", martingale: "Trailing martingale", ema_anchor: "EMA anchor" },
   generation: (n: number) => `Gen ${n}`,
 
   list: {
@@ -20,7 +24,7 @@ export const configs = {
       `${shown} of ${total} strategy templates shown · backtested on ${exchanges || "exchange"} data`,
     // The operator's two catalogues; everyone else sees the published one alone.
     tabs: { published: "Published", retired: "Retired" },
-    allEngines: "All",
+    allPositions: "All",
     templates: "templates",
     empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",
@@ -45,7 +49,12 @@ export const configs = {
     setupTitle: "Setup",
     sides: "Sides",
     coins: "Coins",
-    style: "Style",
+    positions: "Positions",
+    positionsHint: {
+      single: "Holds one coin at a time: the whole exposure limit sits in one position.",
+      multi: "Holds several coins at once, each with a share of the exposure limit.",
+    },
+    style: "Order logic",
     generation: "Generation",
     engine: "Engine",
     engineValue: (version: string) => `passivbot ${version} · runs on py or rs`,

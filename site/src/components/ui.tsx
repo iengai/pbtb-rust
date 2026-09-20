@@ -248,14 +248,14 @@ export function engineLabel(version: string | null | undefined): string {
   return version.startsWith("v") ? version : `v${version}`;
 }
 
-// A template's strategy family and lab generation, as badges beside its title.
+// A template's position class and lab generation, as badges beside its title.
 // A template published without either shows neither.
-export function TemplateTags({ tpl }: { tpl: { style?: string | null; generation?: number | null } }) {
+export function TemplateTags({ tpl }: { tpl: { positions?: string | null; generation?: number | null } }) {
   const t = useT();
-  const styles: Record<string, string> = t.configs.style;
+  const classes: Record<string, string> = t.configs.positions;
   return (
     <>
-      {tpl.style && <Badge>{styles[tpl.style] ?? tpl.style}</Badge>}
+      {tpl.positions && <Badge>{classes[tpl.positions] ?? tpl.positions}</Badge>}
       {tpl.generation != null && <Badge>{t.configs.generation(tpl.generation)}</Badge>}
     </>
   );

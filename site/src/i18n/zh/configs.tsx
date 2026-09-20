@@ -4,7 +4,8 @@ export const configs: typeof en = {
   liquidatedBadge: "回测中爆仓",
   wipedOut: "已爆仓",
   retiredBadge: "已退役",
-  style: { grid: "网格", martingale: "马丁格尔", ema_anchor: "EMA 锚定" },
+  positions: { single: "单仓", multi: "多仓" },
+  style: { grid: "追踪网格（v7 旧式，已弃用）", martingale: "追踪式马丁", ema_anchor: "EMA 锚定" },
   generation: (n) => `第 ${n} 代`,
 
   list: {
@@ -12,7 +13,7 @@ export const configs: typeof en = {
     lead: (shown, total, exchanges) =>
       `共 ${total} 个策略模板，显示 ${shown} 个 · 基于 ${exchanges || "交易所"} 数据回测`,
     tabs: { published: "已发布", retired: "已退役" },
-    allEngines: "全部",
+    allPositions: "全部",
     templates: "模板列表",
     empty: { published: "还没有发布任何模板。", retired: "没有已退役的模板。" },
     maxDd: "最大回撤",
@@ -34,7 +35,12 @@ export const configs: typeof en = {
     setupTitle: "设置",
     sides: "方向",
     coins: "币种",
-    style: "策略基调",
+    positions: "持仓方式",
+    positionsHint: {
+      single: "同一时间只持有一个币：总敞口上限全部放在这一个仓位上。",
+      multi: "同时持有多个币，各占总敞口上限的一份。",
+    },
+    style: "下单逻辑",
     generation: "进化代数",
     engine: "引擎",
     engineValue: (version) => `passivbot ${version} · 可在 py 或 rs 上运行`,
