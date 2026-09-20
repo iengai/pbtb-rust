@@ -17,12 +17,14 @@ Usage::
 
     python scripts/backtest_templates.py [--only NAME ...] [--engine v7|v8]
         [--end-date DATE|now] [--ohlcv-source-dir DIR] [--force] [--no-sync]
-        [--pb-v8 DIR] [--pb-v7 DIR] [--cache-dir DIR]
+        [--capital-profile] [--pb-v8 DIR] [--pb-v7 DIR] [--cache-dir DIR]
 
 Each backtest runs as a subprocess inside its passivbot checkout with the
-checkout's own virtualenv. A template whose artifact already carries the same
-``source_sha``, engine, window end and candle directory is skipped unless
-``--force`` is given.
+checkout's own virtualenv. A template is skipped when its artifact already
+carries the same ``source_sha`` or ``trading_sha``, engine, window end and
+candle directory, and (under ``--capital-profile``, or when the artifact has a
+capital profile) a profile run on the same. ``--force`` reruns it, profile
+included.
 
 ``--end-date`` runs every template from its own start to that date; ``now``
 is the last day with a complete candle set, two days back, the date passivbot
@@ -31,6 +33,19 @@ artifact was last run to, or runs to its own ``backtest.end_date`` when it
 has no artifact yet, so a plain rerun after adding a template costs only the
 new one and never moves the others. The template in S3 is not touched: the
 date goes into the run's copy only, and into the artifact's ``end``.
+
+``--capital-profile`` runs every selected template that has no current capital
+profile, its own balance included, and then the same window at the balances of
+``CAPITAL_LADDER`` above its own, and records, per balance, the
+gain, the worst drawdown and the coins the fills went to. A template's capital
+is the least it is offered for, not a promise that more behaves the same: a
+small balance cannot place the first order on an expensive coin, and a config
+that holds one position can take a different path at one balance. A profile is
+kept while the engine, the strategy, the window end and the candle directory
+it was run on stand; once a template has one, a rerun that finds it stale runs
+it again without the flag, so a profile never sits beside metrics of another
+run. A rung that fails leaves the template without a profile; its own run is
+still written.
 
 A run reads candles from its ``backtest.ohlcv_source_dir`` when one is set
 (the mainstream templates name ``caches/ohlcv_padded``, whose alts end
@@ -56,6 +71,7 @@ import hashlib
 import json
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -79,6 +95,10 @@ DEFAULT_PB_V8 = REPO_ROOT.parent / "passivbot"
 DEFAULT_PB_V7 = REPO_ROOT.parent / "pb-v712"
 
 ENGINE_VERSION = {"v8": "v8.1.0", "v7": "v7.12.0"}
+# The balances a capital profile is run at: those above the template's own.
+CAPITAL_LADDER = (300, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000)
+# Coins under this share of a run's fills are left out of `traded` and of a profile row.
+MIN_FILL_SHARE = 1.0
 MAX_POINTS = 500
 
 # Canonical metric name -> raw analysis.json keys, first present wins.
@@ -332,16 +352,18 @@ def artifact_is_current(template: Template, source_dir: str | None = None) -> bo
 
 
 def run_backtest(
-    template: Template, pb_dir: Path, cache_dir: Path, timeout: float, source_dir: str | None = None
+    template: Template, pb_dir: Path, cache_dir: Path, timeout: float, source_dir: str | None = None,
+    balance: float | None = None,
 ) -> tuple[Path, str]:
-    """Run one template through passivbot; return the result directory and the attempt label that produced it."""
+    """Run one template through passivbot; return the result directory and the attempt label that produced it.
+    With `balance`, the run starts from it instead of the template's own and keeps its own run directory."""
     source = candle_dir(template, source_dir)
     if source and template.end_date:
         gap = source_dir_gap(pb_dir / source, template.exchange or "bybit", template.coins, template.end_date)
         if gap:
             raise RuntimeError(gap)
 
-    run_dir = cache_dir / "runs" / template.name
+    run_dir = cache_dir / "runs" / (template.name if balance is None else f"{template.name}@{balance:g}")
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True)
@@ -352,10 +374,12 @@ def run_backtest(
         config["backtest"]["end_date"] = template.end_date
     if source_dir:
         config["backtest"]["ohlcv_source_dir"] = source_dir
+    if balance is not None:
+        config["backtest"]["starting_balance"] = balance
 
     log_dir = cache_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"{template.name}.log"
+    log_path = log_dir / f"{run_dir.name}.log"
 
     python = venv_python(pb_dir)
     if not python.exists():
@@ -467,6 +491,85 @@ def load_points(result_dir: Path) -> list[dict]:
     ]
 
 
+def fill_shares(result_dir: Path) -> list[dict]:
+    """The coins a run's fills went to, as a percentage of the fill count, largest first."""
+    path = result_dir / "fills.csv"
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as handle:
+        coins = [row.get("coin") for row in csv.DictReader(handle)]
+    coins = [coin for coin in coins if coin]
+    if not coins:
+        return []
+    counts: dict[str, int] = {}
+    for coin in coins:
+        counts[coin] = counts.get(coin, 0) + 1
+    shares = [{"coin": coin, "share": round(100 * n / len(coins), 1)} for coin, n in counts.items()
+              if 100 * n / len(coins) >= MIN_FILL_SHARE]
+    return sorted(shares, key=lambda s: (-s["share"], s["coin"]))
+
+
+def profile_row(balance: float, result_dir: Path) -> dict:
+    metrics = pick_metrics(json.loads((result_dir / "analysis.json").read_text(encoding="utf-8")))
+    return {
+        "balance": balance,
+        "gain": metrics.get("gain"),
+        "drawdown_worst": metrics.get("drawdown_worst"),
+        "coins": fill_shares(result_dir),
+    }
+
+
+def ladder_for(balance: float | None) -> list[float]:
+    """The template's own balance, then every rung of the ladder above it."""
+    own = float(balance or 0)
+    return [own] + [float(rung) for rung in CAPITAL_LADDER if rung > own]
+
+
+def profile_key(template: Template, source_dir: str | None) -> str:
+    """What a capital profile was run on: the engine, the strategy, the window end and the candle directory."""
+    ran_on = (ENGINE_VERSION[template.engine], template.trading_sha, template.end_date, candle_dir(template, source_dir))
+    return ":".join(str(part) for part in ran_on)
+
+
+def capital_profile(
+    template: Template, own_result: Path, pb_dir: Path, cache_dir: Path, timeout: float, source_dir: str | None,
+) -> dict:
+    own, *above = ladder_for(template.backtest.get("starting_balance"))
+    rows = [profile_row(own, own_result)]
+    for balance in above:
+        result_dir, _ = run_backtest(template, pb_dir, cache_dir, timeout, source_dir, balance=balance)
+        rows.append(profile_row(balance, result_dir))
+    return {"key": profile_key(template, source_dir), "rows": rows}
+
+
+def artifact_profile(name: str) -> dict | None:
+    """The capital profile on a template's artifact, current or not."""
+    try:
+        profile = json.loads((OUTPUT_DIR / f"{name}.json").read_text(encoding="utf-8")).get("capital_profile")
+    except (OSError, ValueError):
+        return None
+    return profile if isinstance(profile, dict) else None
+
+
+def kept_profile(template: Template, source_dir: str | None) -> dict | None:
+    """The profile on the template's artifact, while it was run on what a run now would read."""
+    profile = artifact_profile(template.name)
+    return profile if profile and profile.get("key") == profile_key(template, source_dir) else None
+
+
+def wants_profile(flag: bool, force: bool, had: bool, kept: bool) -> bool:
+    """Whether a run profiles a template: asked for or already carrying one, and not current (or forced)."""
+    return (flag or had) and (force or not kept)
+
+
+def capital_drawdown(profile: dict | None) -> dict | None:
+    """The median and the worst of a profile's drawdowns: what the list shows beside a template's own."""
+    values = [row["drawdown_worst"] for row in (profile or {}).get("rows", []) if row.get("drawdown_worst") is not None]
+    if not values:
+        return None
+    return {"median": statistics.median(values), "worst": max(values)}
+
+
 def build_artifact(template: Template, result_dir: Path, source_dir: str | None = None) -> dict:
     analysis = json.loads((result_dir / "analysis.json").read_text(encoding="utf-8"))
     return {
@@ -495,6 +598,9 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         # a signed-in user through the API instead.
         "strategies": template.strategies,
         "metrics": pick_metrics(analysis),
+        # The coins the fills went to, which for a config that holds one
+        # position are far fewer than the basket `coins` names.
+        "traded": fill_shares(result_dir),
         "points": load_points(result_dir),
         "source_sha": template.source_sha,
         "trading_sha": template.trading_sha,
@@ -512,14 +618,17 @@ def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
         "name", "title", "title_zh", "style", "generation", "positions", "engine", "audience", "exchange",
-        "coins", "start", "end", "starting_balance", "params_sha", "metrics",
+        "coins", "start", "end", "starting_balance", "params_sha", "metrics", "traded",
     )
     rows = []
     for path in sorted(OUTPUT_DIR.glob("*.json")):
         if path.name == "index.json":
             continue
         artifact = json.loads(path.read_text(encoding="utf-8"))
-        rows.append({field: artifact.get(field) for field in index_fields})
+        row = {field: artifact.get(field) for field in index_fields}
+        # The profile itself stays in the template's own file; the list needs two numbers of it.
+        row["capital_drawdown"] = capital_drawdown(artifact.get("capital_profile"))
+        rows.append(row)
     rows.sort(key=lambda row: row["name"])
     write_json(OUTPUT_DIR / "index.json", rows)
 
@@ -589,6 +698,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--end-date", metavar="DATE", help="run every template to this date (YYYY-MM-DD, or `now`) instead of its own window end")
     parser.add_argument("--ohlcv-source-dir", metavar="DIR", help="candle directory every run reads instead of the template's own, relative to each passivbot checkout")
     parser.add_argument("--force", action="store_true", help="rerun templates whose artifact is current")
+    parser.add_argument("--capital-profile", action="store_true",
+                        help="also run each processed template at the larger balances of CAPITAL_LADDER")
     parser.add_argument("--sync", dest="sync", action="store_true", default=True, help="sync templates from S3 (default)")
     parser.add_argument("--no-sync", dest="sync", action="store_false", help="use the cached templates as-is")
     parser.add_argument("--profile", default=os.environ.get("AWS_PROFILE", "dev"), help="AWS profile for the S3 sync")
@@ -623,19 +734,34 @@ def main(argv=None) -> int:
     summary: list[tuple[str, str, float, str]] = []
     for template in templates:
         engine = ENGINE_VERSION[template.engine]
-        if not args.force and artifact_is_current(template, args.ohlcv_source_dir):
+        kept = kept_profile(template, args.ohlcv_source_dir)
+        profiling = bool(template.backtest.get("starting_balance")) and wants_profile(
+            args.capital_profile, args.force, artifact_profile(template.name) is not None, kept is not None
+        )
+        if not args.force and not profiling and artifact_is_current(template, args.ohlcv_source_dir):
             summary.append((template.name, engine, 0.0, "skipped"))
             print(f"[skip] {template.name} ({engine}) artifact is current")
             continue
-        print(f"[run ] {template.name} ({engine}) ...", flush=True)
+        print(f"[run ] {template.name} ({engine}){' + capital profile' if profiling else ''} ...", flush=True)
         started = time.time()
         try:
             result_dir, attempt = run_backtest(
                 template, pb_dirs[template.engine], cache_dir, args.timeout, args.ohlcv_source_dir
             )
             artifact = build_artifact(template, result_dir, args.ohlcv_source_dir)
-            write_json(OUTPUT_DIR / f"{template.name}.json", artifact)
             status = "ok" if attempt == "verbatim" else f"ok ({attempt})"
+            # The own-balance row comes from the run above, so a profile costs the rungs over it alone.
+            profile = None if profiling else kept
+            if profiling:
+                try:
+                    profile = capital_profile(
+                        template, result_dir, pb_dirs[template.engine], cache_dir, args.timeout, args.ohlcv_source_dir
+                    )
+                except Exception as exc:  # a failed rung costs the profile, not the template's own run
+                    status = f"{status} (no capital profile: {exc})"
+            if profile:
+                artifact["capital_profile"] = profile
+            write_json(OUTPUT_DIR / f"{template.name}.json", artifact)
         except Exception as exc:  # a failed template must not abort the run
             status = f"failed: {exc}"
         elapsed = time.time() - started
