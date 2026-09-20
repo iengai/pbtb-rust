@@ -142,7 +142,7 @@ or the strategy lab:
 
 | Property | Values | From |
 |---|---|---|
-| `universe` | `mix3`, `mix8`, `mix10`, `mix12`, `xrp` | the backtest's coins |
+| `universe` | `mix3`, `mix8`, `mix10`, `mix12`, `mix17`, `xrp` | the backtest's coins |
 | `capital_usdt` | `100` … `10000` | the backtest's starting balance: the least capital the tuning is offered for |
 | `style` | `grid`, `martingale`, `ema_anchor` | v8 `live.strategy_kind`; every v7 config is the grid |
 | `profile` | `guard` (<10%), `steady` (<25%), `balanced` (<35%), `bold` (<60%), `extreme` | the tier the worst measured drawdown falls in; one tuning on both engine lines keeps the more cautious |
