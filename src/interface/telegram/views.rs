@@ -86,6 +86,20 @@ pub fn format_strategies(strategies: &[StrategyRef]) -> String {
         .join(", ")
 }
 
+/// The wording a template's `pbtb.style` reads as, matching the console's
+/// Configs pages (`site/src/i18n/en/configs.tsx` `style`). The three are one
+/// family, martingale-style averaging: `grid` is passivbot v7's trailing grid,
+/// which v8 keeps as a deprecated compatibility strategy beside the trailing
+/// martingale. A style this build does not know reads as its raw value.
+fn style_label(style: &str) -> &str {
+    match style {
+        "grid" => "Trailing grid (deprecated v7 form)",
+        "martingale" => "Trailing martingale",
+        "ema_anchor" => "EMA anchor",
+        other => other,
+    }
+}
+
 /// Render the confirmation modal for applying a config template: strategy +
 /// notes, the wallet-exposure (`total_wallet_exposure_limit`) per side — the
 /// number that actually governs leverage — and the preset coins per side.
@@ -106,11 +120,15 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
         .engine_version()
         .map(|e| format!("🧠 Engine: passivbot {e} line\n"))
         .unwrap_or_default();
-    // The template's strategy family and the lab iteration that produced it;
-    // a template published without either reads without the line.
-    let family = match (preview.style(), preview.generation()) {
-        (Some(style), Some(generation)) => format!("🧬 Style: {style} · generation {generation}\n"),
-        (Some(style), None) => format!("🧬 Style: {style}\n"),
+    // How the template's orders are parametrised and the lab iteration that
+    // produced the tuning; a template published without either reads without
+    // the line.
+    let order_logic = match (preview.style(), preview.generation()) {
+        (Some(style), Some(generation)) => format!(
+            "🧬 Order logic: {} · generation {generation}\n",
+            style_label(style)
+        ),
+        (Some(style), None) => format!("🧬 Order logic: {}\n", style_label(style)),
         (None, Some(generation)) => format!("🧬 Generation: {generation}\n"),
         (None, None) => String::new(),
     };
@@ -139,7 +157,7 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     format!(
         "📄 Apply this config?\n\n\
         • Template: {template}\n\
-        {data_source}{engine}{family}🤖 Strategy: {strategies}\n\
+        {data_source}{engine}{order_logic}🤖 Strategy: {strategies}\n\
         📝 Description: {description}\n\n\
         ⚠️ Wallet exposure (total_wallet_exposure_limit):\n\
         {exposure}\n\n\
@@ -206,6 +224,20 @@ mod tests {
         // Configs are user data: a side this crate does not know must render as
         // the bare name rather than claim a side it never had.
         assert_eq!(format_strategies(&refs(&[("odd", "sideways")])), "odd");
+    }
+
+    #[test]
+    fn each_style_reads_as_the_console_words_it() {
+        assert_eq!(style_label("grid"), "Trailing grid (deprecated v7 form)");
+        assert_eq!(style_label("martingale"), "Trailing martingale");
+        assert_eq!(style_label("ema_anchor"), "EMA anchor");
+    }
+
+    #[test]
+    fn a_style_this_crate_does_not_know_reads_as_its_raw_value() {
+        // The lab can publish a style this build has no wording for;
+        // showing the code beats claiming one of the three it knows.
+        assert_eq!(style_label("hydra"), "hydra");
     }
 
     #[test]

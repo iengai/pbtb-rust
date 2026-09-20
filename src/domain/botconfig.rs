@@ -419,8 +419,10 @@ impl BotConfig {
         self.pbtb_str("title_zh")
     }
 
-    /// The strategy family (`pbtb.style`: `grid`, `martingale`, `ema_anchor`).
-    /// `None` on a template published without it.
+    /// How the orders are parametrised (`pbtb.style`: `grid`, `martingale`,
+    /// `ema_anchor`) — one family, martingale-style averaging, where `grid` is
+    /// passivbot v7's trailing grid that v8 keeps as a deprecated compatibility
+    /// strategy. `None` on a template published without it.
     pub fn style(&self) -> Option<&str> {
         self.pbtb_str("style")
     }
