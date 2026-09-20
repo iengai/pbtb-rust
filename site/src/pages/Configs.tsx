@@ -12,7 +12,6 @@ import {
   Loading,
   Sparkline,
   TemplateTags,
-  engineLabel,
   templateTitle,
 } from "../components/ui";
 import { currentTemplate } from "../chart/showcase";
@@ -23,6 +22,7 @@ import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, wipe
 // The two classes of the catalogue: published (offered to everyone) and
 // retired (`audience: operator`, the operator's account alone).
 type Catalogue = "published" | "retired";
+const POSITION_CLASSES = ["single", "multi"] as const;
 
 export function Configs() {
   const t = useT();
@@ -34,7 +34,8 @@ export function Configs() {
   const me = useLoad(() => (session ? api.me() : Promise.resolve(null)), session ? "me" : "me:none");
   const operator = me.data?.role === "operator";
   const [tab, setTab] = useState<Catalogue>("published");
-  const [engine, setEngine] = useState<string>("all");
+  // The list's first split: templates that hold one position at a time, and those that hold several.
+  const [positions, setPositions] = useState<string>("all");
   // The key the list is sorted by, and whether its own direction is reversed:
   // a second press on the chosen key turns the list around.
   const [sort, setSort] = useState<{ key: SortKey; flip: boolean }>({ key: "gain", flip: false });
@@ -63,15 +64,18 @@ export function Configs() {
       ),
     [data, catalogue, liveRetired, overlay.data],
   );
-  const engines = useMemo(() => Array.from(new Set(offered.map((tpl) => tpl.engine))).sort().reverse(), [offered]);
+  const classes = useMemo(
+    () => POSITION_CLASSES.filter((c) => offered.some((tpl) => tpl.positions === c)),
+    [offered],
+  );
   const shown = useMemo(
     () =>
       sortTemplates(
-        offered.filter((tpl) => engine === "all" || tpl.engine === engine),
+        offered.filter((tpl) => positions === "all" || tpl.positions === positions),
         sort.key,
         sort.flip,
       ),
-    [offered, engine, sort],
+    [offered, positions, sort],
   );
   // The bots holding each template now. The account's own come from the API,
   // one read per bot since the list carries no config; the showcase's from the
@@ -148,7 +152,7 @@ export function Configs() {
                   className={`range${tab === c ? " on" : ""}`}
                   onClick={() => {
                     setTab(c);
-                    setEngine("all");
+                    setPositions("all");
                   }}
                 >
                   {t.configs.list.tabs[c]}
@@ -157,12 +161,21 @@ export function Configs() {
             </div>
           )}
           <div className="ranges">
-            <button type="button" className={`range${engine === "all" ? " on" : ""}`} onClick={() => setEngine("all")}>
-              {t.configs.list.allEngines}
+            <button
+              type="button"
+              className={`range${positions === "all" ? " on" : ""}`}
+              onClick={() => setPositions("all")}
+            >
+              {t.configs.list.allPositions}
             </button>
-            {engines.map((e) => (
-              <button key={e} type="button" className={`range${engine === e ? " on" : ""}`} onClick={() => setEngine(e)}>
-                {engineLabel(e)}
+            {classes.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`range${positions === c ? " on" : ""}`}
+                onClick={() => setPositions(c)}
+              >
+                {t.configs.positions[c]}
               </button>
             ))}
           </div>
@@ -220,7 +233,6 @@ function TemplateCard({
         </div>
         {wiped && <Badge>{t.configs.liquidatedBadge}</Badge>}
         <TemplateTags tpl={tpl} />
-        <Badge>{engineLabel(tpl.engine)}</Badge>
       </div>
       <div className="mid">
         <div className="stats">
