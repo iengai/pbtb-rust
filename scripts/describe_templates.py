@@ -53,7 +53,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_DIR = REPO_ROOT / "site" / "templates"
 CACHE = REPO_ROOT / ".cache" / "describe_templates"
 
-STYLES_ZH = {"grid": "网格", "martingale": "马丁格尔", "ema_anchor": "EMA 锚定"}
+# How the orders are parametrised, worded as the console's Configs pages word it
+# (site/src/i18n/zh/configs.tsx `style`). The three are one family,
+# martingale-style averaging: `grid` is passivbot v7's trailing grid, which v8
+# keeps as a deprecated compatibility strategy beside the trailing martingale.
+STYLES_ZH = {"grid": "追踪网格（v7 旧式，已弃用）",
+             "martingale": "追踪式马丁",
+             "ema_anchor": "EMA 锚定"}
 SIDES_ZH = {("long",): "多头", ("short",): "空头", ("long", "short"): "双向"}
 LIQUIDATED = "liquidated"
 
