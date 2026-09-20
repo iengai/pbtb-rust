@@ -145,7 +145,7 @@ or the strategy lab:
 | `universe` | `mix3`, `mix8`, `mix10`, `mix12`, `mix17`, `xrp` | the backtest's coins |
 | `capital_usdt` | `100` … `10000` | the backtest's starting balance: the least capital the tuning is offered for |
 | `style` | `grid`, `martingale`, `ema_anchor` | v8 `live.strategy_kind`; every v7 config is the grid |
-| `profile` | `guard` (<10%), `steady` (<25%), `balanced` (<35%), `bold` (<60%), `extreme` | the tier the worst measured drawdown falls in; one tuning on both engine lines keeps the more cautious |
+| `profile` | `guard` (<10%), `steady` (<25%), `balanced` (<35%), `bold` (<60%), `extreme` | the tier the worst drawdown of the full-window backtest at `capital_usdt` falls in (not the lab's jittered or capital-scan runs, which `lab.notes` quotes); one tuning on both engine lines keeps the more cautious |
 | `generation` | the lab iteration | `lab.iter`, counted per capital tier; absent on a template that predates the lab |
 | `engine` | `v7`, `v8` | `config_version`'s major, else the config's shape |
 
@@ -220,7 +220,11 @@ template script run, and the rewrite does not make its backtest stale
 A template another one beats on gain with worst drawdown no worse (a gap under
 0.01 is a tie), at the same capital tier or a lower one, is not worth offering
 to anyone: capital is the member's barrier, and whoever holds the larger amount
-can run the cheaper template. `scripts/archive_templates.py
+can run the cheaper template. The comparison runs inside one position class,
+never across: a template that holds one position at a time (`n_positions` 1)
+and one that holds several (2 or more) are different products, and a smoother
+multi-position template is not beaten by a single-position one that returns
+more at the same capital. `scripts/archive_templates.py
 <id> … --apply` moves the object to the `retired/` key prefix — out of every
 listing, the operator's included, content and history intact — deletes its
 backtest artifact and rebuilds the site index; `--restore` puts it back. It
