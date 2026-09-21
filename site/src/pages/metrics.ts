@@ -38,13 +38,17 @@ export function wipedOut(metrics: Record<string, number>): boolean {
   return ratio != null && Number.isFinite(ratio) && ratio < 1;
 }
 
-// A coin with its share of the fills, as a chip reads it: `DOGE 85%`. A share
-// that rounds to zero reads `<1%`, because the coin was traded and a `0%` chip
-// says it was not.
+// A coin with its share of the fills, as a chip reads it: `DOGE 85%`. Every
+// coin in the list was traded, so rounding may not say otherwise: a share under
+// half a percent reads `<1%` rather than `0%`, and beside another coin a share
+// over 99.5 reads `>99%` rather than claiming the whole run.
 export function tradedLabels(traded: { coin: string; share: number }[]): string[] {
-  return traded.map((c) =>
-    c.share > 0 && c.share < 0.5 ? `${c.coin} <1%` : `${c.coin} ${Math.round(c.share)}%`,
-  );
+  return traded.map((c) => {
+    const pct = Math.round(c.share);
+    if (pct === 0) return `${c.coin} <1%`;
+    if (pct === 100 && traded.length > 1) return `${c.coin} >99%`;
+    return `${c.coin} ${pct}%`;
+  });
 }
 
 export function fmtGain(gain: number | undefined, digits: number): string {

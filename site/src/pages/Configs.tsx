@@ -259,6 +259,8 @@ function TemplateCard({
         <TemplateSpark name={tpl.name} up={gain == null || gain >= 1} />
       </div>
       {/* What it traded when the backtest says so, else the basket it may trade. */}
+      {/* A card summarises: the +N stands for coins the template's page lists
+          in full, where the capital profile shows every one uncapped. */}
       <Chips items={tpl.traded?.length ? tradedLabels(tpl.traded) : tpl.coins} max={5} tight />
       {holders && holders.mine.length > 0 && <HolderBots bots={holders.mine} label={t.configs.list.myBots} />}
       {holders && holders.showcase.length > 0 && (

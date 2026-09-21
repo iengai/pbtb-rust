@@ -97,6 +97,12 @@ DEFAULT_PB_V7 = REPO_ROOT.parent / "pb-v712"
 ENGINE_VERSION = {"v8": "v8.1.0", "v7": "v7.12.0"}
 # The balances a capital profile is run at: those above the template's own.
 CAPITAL_LADDER = (300, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000)
+# How `fill_shares` derives a row's coins, in a profile's key: a committed
+# profile was run on an engine, a strategy, a window and a candle directory,
+# and read out this way. Bumping it makes every committed profile stale, so
+# the next run recomputes rather than keeping rows the current code would
+# not produce.
+FILL_SHARES_REV = 2
 MAX_POINTS = 500
 
 # Canonical metric name -> raw analysis.json keys, first present wins.
@@ -504,7 +510,8 @@ def fill_shares(result_dir: Path) -> list[dict]:
         counts[coin] = counts.get(coin, 0) + 1
     # Every coin a fill went to, so the shares account for the whole run: a
     # reader counting the list against the template's coins is told which of
-    # them the run never touched.
+    # them the run never touched. Changing what this returns means bumping
+    # FILL_SHARES_REV, or committed profiles keep the old derivation.
     shares = [{"coin": coin, "share": round(100 * n / len(coins), 1)} for coin, n in counts.items()]
     return sorted(shares, key=lambda s: (-s["share"], s["coin"]))
 
@@ -526,8 +533,10 @@ def ladder_for(balance: float | None) -> list[float]:
 
 
 def profile_key(template: Template, source_dir: str | None) -> str:
-    """What a capital profile was run on: the engine, the strategy, the window end and the candle directory."""
-    ran_on = (ENGINE_VERSION[template.engine], template.trading_sha, template.end_date, candle_dir(template, source_dir))
+    """What a capital profile was run on: the engine, the strategy, the window end, the candle
+    directory and the revision of how its rows are read out of a run."""
+    ran_on = (ENGINE_VERSION[template.engine], template.trading_sha, template.end_date,
+              candle_dir(template, source_dir), FILL_SHARES_REV)
     return ":".join(str(part) for part in ran_on)
 
 
