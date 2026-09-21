@@ -61,15 +61,27 @@ describe("sortTemplates", () => {
 });
 
 describe("tradedLabels", () => {
-  it("reads a share the run barely traded as <1%, not 0%", () => {
+  it("keeps a coin the run barely traded off 0%, however small its share", () => {
     // The profile lists every coin a fill went to, so a rounded `0%` would
-    // say the run never touched a coin it did.
+    // say the run never touched a coin it did. A single fill in a long run
+    // reaches the artifact as a share that rounds to 0.0.
     expect(
       tradedLabels([
-        { coin: "DOGE", share: 99.5 },
+        { coin: "DOGE", share: 98.9 },
         { coin: "BTC", share: 0.5 },
         { coin: "ETH", share: 0.3 },
+        { coin: "SOL", share: 0 },
       ]),
-    ).toEqual(["DOGE 100%", "BTC 1%", "ETH <1%"]);
+    ).toEqual(["DOGE 99%", "BTC 1%", "ETH <1%", "SOL <1%"]);
+  });
+
+  it("does not give one coin the whole run while others are listed beside it", () => {
+    expect(
+      tradedLabels([
+        { coin: "DOGE", share: 99.6 },
+        { coin: "BTC", share: 0.4 },
+      ]),
+    ).toEqual(["DOGE >99%", "BTC <1%"]);
+    expect(tradedLabels([{ coin: "DOGE", share: 100 }])).toEqual(["DOGE 100%"]);
   });
 });

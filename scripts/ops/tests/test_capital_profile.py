@@ -8,10 +8,18 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backtest_templates import capital_drawdown, fill_shares, ladder_for, wants_profile  # noqa: E402
+from backtest_templates import (  # noqa: E402
+    FILL_SHARES_REV,
+    capital_drawdown,
+    fill_shares,
+    profile_key,
+    ladder_for,
+    wants_profile,
+)
 
 
 def fills(path: Path, coins: list[str]) -> Path:
@@ -52,6 +60,18 @@ class CapitalProfile(unittest.TestCase):
             shares = fill_shares(fills(Path(tmp), ["DOGE"] * 1039 + ["BTC"] * 10))  # BTC 0.953%
         self.assertEqual([s["coin"] for s in shares], ["DOGE", "BTC"])
         self.assertAlmostEqual(sum(s["share"] for s in shares), 100.0, places=1)
+
+    def test_the_key_carries_how_the_rows_were_read_out_of_a_run(self):
+        # A key that names only what the run was given keeps rows the current
+        # code would not produce: the committed profile stays current, the run
+        # skips it, and the fix never reaches the published artifact.
+        template = SimpleNamespace(
+            engine="v8", trading_sha="abc", end_date="2026-09-11",
+            backtest={"ohlcv_source_dir": "caches/ohlcv_combined"},
+        )
+        key = profile_key(template, None)
+        self.assertEqual(key.rsplit(":", 1)[1], str(FILL_SHARES_REV))
+        self.assertNotEqual(key, key.rsplit(":", 1)[0] + f":{FILL_SHARES_REV - 1}")
 
     def test_a_template_is_profiled_when_asked_or_when_it_already_has_a_profile(self):
         # (flag, force, had, kept)
