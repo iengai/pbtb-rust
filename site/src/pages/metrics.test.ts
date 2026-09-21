@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { metricRows, sortTemplates } from "./metrics";
+import { metricRows, sortTemplates, tradedLabels } from "./metrics";
 
 // The committed backtests are the input the card is built from, so every one is
 // checked: no row may render a raw float or a raw JSON literal.
@@ -57,5 +57,19 @@ describe("sortTemplates", () => {
 
   it("keeps a wiped-out template and one without the value last when flipped", () => {
     expect(names(sortTemplates(list, "capital", true))).toEqual(["a", "c", "b", "old", "wiped"]);
+  });
+});
+
+describe("tradedLabels", () => {
+  it("reads a share the run barely traded as <1%, not 0%", () => {
+    // The profile lists every coin a fill went to, so a rounded `0%` would
+    // say the run never touched a coin it did.
+    expect(
+      tradedLabels([
+        { coin: "DOGE", share: 99.5 },
+        { coin: "BTC", share: 0.5 },
+        { coin: "ETH", share: 0.3 },
+      ]),
+    ).toEqual(["DOGE 100%", "BTC 1%", "ETH <1%"]);
   });
 });
