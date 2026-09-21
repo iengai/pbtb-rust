@@ -224,7 +224,10 @@ can run the cheaper template. The comparison runs inside one position class,
 never across: a template that holds one position at a time (`n_positions` 1, or a single
 approved coin) and one that holds several (2 or more) are different products, and a smoother
 multi-position template is not beaten by a single-position one that returns
-more at the same capital. `scripts/archive_templates.py
+more at the same capital. It also runs inside one coin universe: the basket is
+what a member picks a template by (`mix12` holds only coins the owner's rule
+admits, a subset of `mix17`), so a template is not beaten by a better one on
+another basket. `scripts/archive_templates.py
 <id> … --apply` moves the object to the `retired/` key prefix — out of every
 listing, the operator's included, content and history intact — deletes its
 backtest artifact and rebuilds the site index; `--restore` puts it back. It
