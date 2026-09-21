@@ -26,7 +26,9 @@ account can fail a window the grown one passes, so an entry names the
 another is refused until the lab has run them at that capital
 (passivbot ``strategy_lab/``: NOTES.md, ``scripts/harvest_round*.py``).
 
-A template with no PUBLIC entry or no backtest artifact is left as it is. Bot
+A template with no PUBLIC entry or no backtest artifact is left as it is, as is
+one whose ``pbtb.style`` has no wording in ``STYLES_ZH``: the composer refuses it
+by name rather than write a description that does not say how it orders. Bot
 configs built from a template are restamped with its description.
 
 Run it after ``backtest_templates.py``, or after adding a template to PUBLIC::
@@ -174,6 +176,17 @@ def basket(meta: dict, coins: list[str]) -> str:
     return f"{name}（{listed}）"
 
 
+def unworded_style(meta: dict) -> str | None:
+    """Why the template's style cannot be written into a description, or None."""
+    style = meta.get("style")
+    if style in STYLES_ZH:
+        return None
+    if style is None:
+        return "the template carries no pbtb.style: set it, or the description would not say how it orders"
+    return (f"pbtb.style is {style!r}, which STYLES_ZH has no wording for: add one "
+            f"(and the console's, site/src/i18n/{{en,zh}}/configs.tsx `style`)")
+
+
 def stale_windows(meta: dict, entry: dict) -> str | None:
     """Why `entry`'s windows do not describe the template, or None when they do."""
     capital = meta.get("capital_usdt")
@@ -188,7 +201,7 @@ def describe(config: dict, artifact: dict, entry: dict) -> str:
     sides = traded_sides(config)
     lines = [
         f"{basket(meta, artifact.get('coins') or [])}{SIDES_ZH[sides]}"
-        f"{STYLES_ZH.get(meta.get('style'), '')}，{entry['character']}。"
+        f"{STYLES_ZH[meta['style']]}，{entry['character']}。"
         f"建议本金 {capital_label(int(meta['capital_usdt']))} 起。"
     ]
 
@@ -251,6 +264,12 @@ def main() -> int:
                 reason = ("no PUBLIC entry" if entry is None
                           else "no backtest artifact" if not path.exists() else "trades no side")
                 print(f"  {tid}  left as it is: {reason}")
+                continue
+
+            unworded = unworded_style(raw["pbtb"])
+            if unworded:
+                print(f"  {tid}  REFUSED: {unworded}")
+                refused.append(tid)
                 continue
 
             stale = stale_windows(raw["pbtb"], entry)
