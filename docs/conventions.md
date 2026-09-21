@@ -143,7 +143,7 @@ Budgets, checked by the verify gate: `AGENTS.md` ≤ 6 KB, `.claude/CLAUDE.md` �
 - A PR that adds or changes a template names its audience in the store's two words, published or retired ([config-transfer.md](config-transfer.md) § `audience`); "unpublished" is not a state the store holds, and a template with no `audience` is already offered to every member.
 - A data-only commit under `site/templates/` states per-field counts taken from a structural diff of the artifacts (how many changed `audience`, `title`, `source_sha`), not the file count, gives each change its actual cause, and names every S3 object the run wrote (the audience overlay `annotate_templates.py --apply` republishes counts).
 - A commit or PR body that quotes a figure from `site/templates` reads it off the artifacts over every template of the class it names, not off the examples that prompted the change.
-- What makes `backtest_templates.py` skip a template has one home, the script's docstring; `site/README.md` links to it and does not restate the inputs.
+- What makes a template script skip or refuse a template has one home, that script's docstring (`backtest_templates.py`, `describe_templates.py`); `site/README.md` and `docs/config-transfer.md` link to it and do not restate the list, so a refusal added to the script cannot leave a leaf naming only the older ones.
 - A commit body that names a failure mode (an exception, a refusal) states the one read off the code path, with the call site; "raised KeyError" for a lookup the caller catches is a guess.
 - A PR that lists, withholds or archives a template on a criterion [config-transfer.md](config-transfer.md) § Archiving one does not state edits that leaf in the same PR.
 
