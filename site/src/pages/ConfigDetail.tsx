@@ -194,7 +194,9 @@ export function ConfigDetail() {
                     <span className="tnum">{fmtCap(row.balance)}</span>
                     <span className="tnum">{fmtGain(row.gain ?? undefined, 0)}</span>
                     <span className="tnum">{fmtMetric("drawdown_worst", row.drawdown_worst ?? undefined)}</span>
-                    <Chips items={tradedLabels(row.coins)} max={6} tight />
+                    {/* No cap: the column is what the table is for, and a
+                        coin behind a +N is one the reader cannot check. */}
+                    <Chips items={tradedLabels(row.coins)} tight />
                   </div>
                 ))}
               </div>

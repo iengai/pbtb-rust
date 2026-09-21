@@ -97,8 +97,6 @@ DEFAULT_PB_V7 = REPO_ROOT.parent / "pb-v712"
 ENGINE_VERSION = {"v8": "v8.1.0", "v7": "v7.12.0"}
 # The balances a capital profile is run at: those above the template's own.
 CAPITAL_LADDER = (300, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000)
-# Coins under this share of a run's fills are left out of `traded` and of a profile row.
-MIN_FILL_SHARE = 1.0
 MAX_POINTS = 500
 
 # Canonical metric name -> raw analysis.json keys, first present wins.
@@ -504,8 +502,10 @@ def fill_shares(result_dir: Path) -> list[dict]:
     counts: dict[str, int] = {}
     for coin in coins:
         counts[coin] = counts.get(coin, 0) + 1
-    shares = [{"coin": coin, "share": round(100 * n / len(coins), 1)} for coin, n in counts.items()
-              if 100 * n / len(coins) >= MIN_FILL_SHARE]
+    # Every coin a fill went to, so the shares account for the whole run: a
+    # reader counting the list against the template's coins is told which of
+    # them the run never touched.
+    shares = [{"coin": coin, "share": round(100 * n / len(coins), 1)} for coin, n in counts.items()]
     return sorted(shares, key=lambda s: (-s["share"], s["coin"]))
 
 

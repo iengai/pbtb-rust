@@ -33,20 +33,25 @@ class CapitalProfile(unittest.TestCase):
         self.assertEqual(shares, [{"coin": "DOGE", "share": 60.0}, {"coin": "XRP", "share": 30.0},
                                   {"coin": "ADA", "share": 10.0}])
 
-    def test_a_coin_under_one_percent_of_the_fills_is_left_out(self):
+    def test_a_coin_the_run_barely_touched_is_still_listed(self):
+        # The reader counts the list against the template's coins, so a coin
+        # that traded must appear however small its share.
         with tempfile.TemporaryDirectory() as tmp:
             shares = fill_shares(fills(Path(tmp), ["DOGE"] * 199 + ["BTC"]))
-        self.assertEqual([s["coin"] for s in shares], ["DOGE"])
+        self.assertEqual(shares, [{"coin": "DOGE", "share": 99.5}, {"coin": "BTC", "share": 0.5}])
 
     def test_a_run_without_fills_has_no_shares(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(fill_shares(Path(tmp)), [])
             self.assertEqual(fill_shares(fills(Path(tmp), [])), [])
 
-    def test_a_share_is_compared_with_the_floor_before_it_is_rounded(self):
+    def test_the_shares_account_for_the_whole_run(self):
+        # A list that sums short of 100 is one a coin fell out of; the page
+        # shows the shares as the whole of the run's fills.
         with tempfile.TemporaryDirectory() as tmp:
             shares = fill_shares(fills(Path(tmp), ["DOGE"] * 1039 + ["BTC"] * 10))  # BTC 0.953%
-        self.assertEqual([s["coin"] for s in shares], ["DOGE"])
+        self.assertEqual([s["coin"] for s in shares], ["DOGE", "BTC"])
+        self.assertAlmostEqual(sum(s["share"] for s in shares), 100.0, places=1)
 
     def test_a_template_is_profiled_when_asked_or_when_it_already_has_a_profile(self):
         # (flag, force, had, kept)
