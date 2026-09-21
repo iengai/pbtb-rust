@@ -80,7 +80,8 @@ is the console's, `lab` is ours.
   FEB26 dd 0.319 at $700, 0.615 at $500, both 29–30x over the full window),
   which is what the cold-start gate below runs at every upload. A PUBLIC
   entry names the `capital` its windows were run at, and
-  `describe_templates.py` refuses a template whose `capital_usdt` is another.
+  `describe_templates.py` refuses a template whose `capital_usdt` is another —
+  one of the refusals its docstring lists, which is where they all live.
   The transfer refuses a config whose `params_sha` (the strategy
   without its `backtest` block) a template in `site/templates/index.json`
   already carries (so only a template `backtest_templates.py` has indexed in

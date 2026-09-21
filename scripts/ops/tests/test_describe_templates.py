@@ -4,18 +4,26 @@
 """
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from describe_templates import STYLES_ZH, unworded_style  # noqa: E402
+from describe_templates import PUBLIC, SITE_DIR, unworded_style  # noqa: E402
 
 
 class UnwordedStyle(unittest.TestCase):
-    def test_every_style_the_table_words_is_accepted(self):
-        for style in STYLES_ZH:
-            self.assertIsNone(unworded_style({"style": style}), style)
+    def test_every_listed_template_has_a_style_the_table_words(self):
+        # The gate goes red when a template lands on a style with no Chinese
+        # wording, rather than the operator finding out from an --apply run
+        # that exits 1 with the template left undescribed.
+        for tid in PUBLIC:
+            path = SITE_DIR / f"{tid}.json"
+            if not path.exists():
+                continue
+            style = json.loads(path.read_text(encoding="utf-8")).get("style")
+            self.assertIsNone(unworded_style({"style": style}), f"{tid}: {style}")
 
     def test_a_style_with_no_wording_is_refused_by_name(self):
         # The lab maps live.strategy_kind into these keys, so a kind added
