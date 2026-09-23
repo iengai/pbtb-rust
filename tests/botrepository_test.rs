@@ -13,6 +13,7 @@ use pbtb_rust::domain::configswitch::{
     ConfigSwitchEvent, ConfigSwitchKind, ConfigSwitchRepository,
 };
 use pbtb_rust::domain::engine::Runtime;
+use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::runtime::{
     BotRuntime, BotRuntimeRepository, RuntimePhase, StartClaim, StartLockRepository,
 };
@@ -29,6 +30,7 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- save then find returns the bot with matching fields ---
     let bot = Bot::create(
         "user-1".to_string(),
+        Exchange::Bybit,
         "alpha-bot".to_string(),
         "ak-123".to_string(),
         "sk-456".to_string(),
@@ -58,7 +60,7 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- mutate (enable) then save then find reflects the update ---
     let mut updated = found.clone();
     updated.enable(1_700_000_100);
-    updated.set_runtime(Runtime::Rs, 1_700_000_100);
+    updated.set_runtime(Runtime::Rs, 1_700_000_100).unwrap();
     repo.save(&updated)
         .await
         .expect("update save should succeed");
@@ -74,6 +76,7 @@ async fn dynamo_bot_repository_roundtrip() {
     // --- find_by_user_id returns all bots and excludes runtime rows ---
     let bot2 = Bot::create(
         "user-1".to_string(),
+        Exchange::Bybit,
         "beta-bot".to_string(),
         "ak-2".to_string(),
         "sk-2".to_string(),
@@ -160,6 +163,7 @@ async fn public_url_round_trips() {
 
     let mut bot = Bot::create(
         "user-1".to_string(),
+        Exchange::Bybit,
         "shown-bot".to_string(),
         "ak".to_string(),
         "sk".to_string(),
@@ -202,6 +206,7 @@ async fn the_showcase_choice_round_trips_beside_the_link() {
 
     let mut bot = Bot::create(
         "user-1".to_string(),
+        Exchange::Bybit,
         "hidden-bot".to_string(),
         "ak".to_string(),
         "sk".to_string(),
@@ -873,6 +878,7 @@ async fn config_switch_record_and_list() {
     // sharing the partition.
     let bot = Bot::create(
         "user-1".to_string(),
+        Exchange::Bybit,
         "alpha-bot".to_string(),
         "ak".to_string(),
         "sk".to_string(),

@@ -13,6 +13,7 @@ use pbtb_rust::observability::Telemetry;
 mod bybit;
 mod config;
 mod event_handler;
+mod hyperliquid;
 mod model;
 mod s3_writer;
 
@@ -23,7 +24,9 @@ pub struct AppState {
     /// Concrete repo: `find_all` (bot enumeration) and `list_for_bot` (the
     /// config-switch timeline) are both read off it.
     bots: Arc<DynamoBotRepository>,
-    /// Reads each bot's Bybit key/secret from the encrypted S3 store.
+    /// Reads each bot's credentials from the encrypted S3 store: the Bybit
+    /// key and secret, or the Hyperliquid account address (its API wallet key
+    /// is never used here).
     api_keys: Arc<S3ApiKeyRepository>,
     /// Writes the per-bot chart JSON (to the chart bucket, not the S3 config
     /// above — the client is shared, the bucket name is not).

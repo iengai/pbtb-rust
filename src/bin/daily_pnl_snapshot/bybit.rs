@@ -13,18 +13,34 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use pbtb_rust::config::bybit::BybitConfig;
 
+use crate::model::LedgerEntry;
+
 type HmacSha256 = Hmac<Sha256>;
 
 const DAY_MS: i64 = 86_400_000;
 const WINDOW_MS: i64 = 7 * DAY_MS; // Bybit caps each history query at 7 days.
 
-/// One normalized transaction-log entry. `change = cashFlow + funding - fee`
-/// (the net cash effect); `cash_balance` is the wallet balance after it.
-pub struct LedgerEntry {
-    pub ts_ms: i64,
-    pub kind: String,
-    pub change: f64,
-    pub cash_balance: f64,
+/// Whether a transaction-log `type` moves money into or out of the account
+/// rather than earning or losing it: transfers and deposits, exchange gifts,
+/// coin conversions, and the institutional-loan legs. Everything else —
+/// trades, settlement, funding, fees and their refunds, liquidation, ADL,
+/// margin interest — is the cost or the reward of trading, and counts as
+/// realized.
+pub fn is_capital_flow(kind: &str) -> bool {
+    matches!(
+        kind,
+        "TRANSFER_IN"
+            | "TRANSFER_OUT"
+            | "DEPOSIT"
+            | "WITHDRAW"
+            | "AIRDROP"
+            | "BONUS"
+            | "RECEIVE"
+            | "CURRENCY_BUY"
+            | "CURRENCY_SELL"
+    ) || kind.starts_with("TRANSFER_")
+        || kind.starts_with("SPOT_REPAYMENT_")
+        || kind.ends_with("_INS_LOAN")
 }
 
 /// Bybit occasionally sends `null` for an otherwise-string field (e.g. an empty
@@ -170,11 +186,13 @@ pub async fn fetch_transaction_log(
                 if !row.currency.is_empty() && row.currency != cfg.settle_coin {
                     continue;
                 }
+                // `change = cashFlow + funding - fee`, the net cash effect;
+                // `cashBalance` is the wallet balance after it.
                 entries.push(LedgerEntry {
                     ts_ms: row.transaction_time.parse::<i64>().unwrap_or(0),
-                    kind: row.r#type.clone(),
                     change: row.change.parse::<f64>().unwrap_or(0.0),
                     cash_balance: row.cash_balance.parse::<f64>().unwrap_or(0.0),
+                    flow: is_capital_flow(&row.r#type),
                 });
             }
 

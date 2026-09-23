@@ -1,13 +1,20 @@
+use crate::domain::exchange::Exchange;
+
 #[derive(Clone, Default)]
 pub enum DialogueState {
     #[default]
     Start,
     ReceiveBotName,
+    ReceiveExchange {
+        name: String,
+    },
     ReceiveApiKey {
         name: String,
+        exchange: Exchange,
     },
     ReceiveSecretKey {
         name: String,
+        exchange: Exchange,
         api_key: String,
     },
     ConfirmDelete {
@@ -18,6 +25,7 @@ pub enum DialogueState {
     /// re-prompting.
     ConfirmOverwriteBot {
         name: String,
+        exchange: Exchange,
         api_key: String,
         secret_key: String,
     },

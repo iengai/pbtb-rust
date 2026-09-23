@@ -1,6 +1,7 @@
 use crate::domain::bot::{ApiKeyRepository, Bot, BotRepository};
 use crate::domain::clock::Clock;
 use crate::domain::error::DomainError;
+use crate::domain::exchange::Exchange;
 use std::sync::Arc;
 
 /// Outcome of an add-bot attempt. A name collision is an expected business
@@ -35,24 +36,31 @@ impl AddBotUseCase {
         }
     }
 
+    /// Credentials are checked and normalised for the exchange before any
+    /// lookup, so a malformed key is refused whether or not the name is taken.
     pub async fn execute(
         &self,
         user_id: &str,
+        exchange: Exchange,
         name: String,
         api_key: String,
         secret_key: String,
     ) -> Result<AddOutcome, DomainError> {
         Bot::validate_name(&name)?;
+        let (api_key, secret_key) = exchange.validate_credentials(&api_key, &secret_key)?;
+        let bots = self.bot_repository.find_by_user_id(user_id).await?;
         // Detect by name, not by id: a same-name bot whose id was not derived
         // from the name (an older row keyed on a numeric account id) would slip
         // past an id lookup and a second row would be created — the duplicate
         // this guards against.
-        if let Some(existing) = self.find_by_name(user_id, &name).await? {
-            return Ok(AddOutcome::AlreadyExists(existing));
+        if let Some(existing) = bots.iter().find(|b| b.name == name) {
+            return Ok(AddOutcome::AlreadyExists(existing.clone()));
         }
+        Self::ensure_signer_unshared(&bots, None, exchange, &secret_key)?;
 
         let bot = Bot::create(
             user_id.to_string(),
+            exchange,
             name,
             api_key,
             secret_key,
@@ -70,16 +78,41 @@ impl AddBotUseCase {
     /// and `updated_at` survives — an overwrite rotates the keys, it does not
     /// reset the bot. Falls back to a fresh create when no bot by that name is
     /// found.
+    ///
+    /// The exchange is not among what an overwrite changes: the bot's config
+    /// and the rest of its state belong to the exchange it was added on, so
+    /// keys for another exchange are refused and the bot has to be deleted and
+    /// added again.
     pub async fn overwrite(
         &self,
         user_id: &str,
+        exchange: Exchange,
         name: String,
         api_key: String,
         secret_key: String,
     ) -> Result<Bot, DomainError> {
         Bot::validate_name(&name)?;
+        let (api_key, secret_key) = exchange.validate_credentials(&api_key, &secret_key)?;
+        let bots = self.bot_repository.find_by_user_id(user_id).await?;
+        let existing = bots.iter().find(|b| b.name == name).cloned();
+        if let Some(e) = &existing
+            && e.exchange != exchange
+        {
+            return Err(DomainError::InvalidCredentials(format!(
+                "bot {:?} trades on {}; a bot's exchange is fixed, so delete it and add a {} bot instead",
+                e.name,
+                e.exchange.label(),
+                exchange.label()
+            )));
+        }
+        Self::ensure_signer_unshared(
+            &bots,
+            existing.as_ref().map(|b| b.id.as_str()),
+            exchange,
+            &secret_key,
+        )?;
         let now = self.clock.now();
-        let bot = match self.find_by_name(user_id, &name).await? {
+        let bot = match existing {
             Some(mut existing) => {
                 existing.name = name;
                 existing.api_key = api_key;
@@ -87,15 +120,44 @@ impl AddBotUseCase {
                 existing.updated_at = now;
                 existing
             }
-            None => Bot::create(user_id.to_string(), name, api_key, secret_key, now),
+            None => Bot::create(
+                user_id.to_string(),
+                exchange,
+                name,
+                api_key,
+                secret_key,
+                now,
+            ),
         };
         self.persist(&bot).await?;
         Ok(bot)
     }
 
-    async fn find_by_name(&self, user_id: &str, name: &str) -> Result<Option<Bot>, DomainError> {
-        let bots = self.bot_repository.find_by_user_id(user_id).await?;
-        Ok(bots.into_iter().find(|b| b.name == name))
+    /// Refuse a Hyperliquid API wallet another of the account's bots already
+    /// signs with (`skip` is the bot being re-keyed). Orders signed by one
+    /// wallet share its nonce sequence, so two bots on one wallet reject each
+    /// other's orders; each bot needs a wallet of its own.
+    fn ensure_signer_unshared(
+        bots: &[Bot],
+        skip: Option<&str>,
+        exchange: Exchange,
+        secret_key: &str,
+    ) -> Result<(), DomainError> {
+        let Some(signer) = exchange.signer_of(secret_key) else {
+            return Ok(());
+        };
+        let shared = bots.iter().find(|b| {
+            Some(b.id.as_str()) != skip
+                && b.exchange == exchange
+                && b.exchange.signer_of(&b.secret_key).as_deref() == Some(signer.as_str())
+        });
+        match shared {
+            Some(other) => Err(DomainError::InvalidCredentials(format!(
+                "bot {:?} already uses this API wallet; create another API wallet for this bot",
+                other.name
+            ))),
+            None => Ok(()),
+        }
     }
 
     async fn persist(&self, bot: &Bot) -> Result<(), DomainError> {
@@ -112,7 +174,6 @@ mod tests {
     use super::*;
     use crate::domain::engine::Runtime;
     use crate::domain::error::DomainError;
-    use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -195,6 +256,7 @@ mod tests {
         let bot = match uc
             .execute(
                 "user-1",
+                Exchange::Bybit,
                 "my-bot".to_string(),
                 "ak".to_string(),
                 "sk".to_string(),
@@ -240,6 +302,7 @@ mod tests {
         let err = uc
             .execute(
                 "user-1",
+                Exchange::Bybit,
                 "my#bot".to_string(),
                 "ak".to_string(),
                 "sk".to_string(),
@@ -253,6 +316,7 @@ mod tests {
         let err = uc
             .overwrite(
                 "user-1",
+                Exchange::Bybit,
                 "my#bot".to_string(),
                 "ak".to_string(),
                 "sk".to_string(),
@@ -269,14 +333,26 @@ mod tests {
         let uc = AddBotUseCase::new(bots.clone(), api_keys, Arc::new(FixedClock));
 
         let first = uc
-            .execute("user-1", "dup".into(), "ak1".into(), "sk1".into())
+            .execute(
+                "user-1",
+                Exchange::Bybit,
+                "dup".into(),
+                "ak1".into(),
+                "sk1".into(),
+            )
             .await
             .unwrap();
         assert!(matches!(first, AddOutcome::Added(_)));
 
         // A second add with the same name is surfaced, not silently written.
         let second = uc
-            .execute("user-1", "dup".into(), "ak2".into(), "sk2".into())
+            .execute(
+                "user-1",
+                Exchange::Bybit,
+                "dup".into(),
+                "ak2".into(),
+                "sk2".into(),
+            )
             .await
             .unwrap();
         match second {
@@ -313,7 +389,13 @@ mod tests {
         );
 
         let out = uc
-            .execute("user-1", "PaperTrader".into(), "ak2".into(), "sk2".into())
+            .execute(
+                "user-1",
+                Exchange::Bybit,
+                "PaperTrader".into(),
+                "ak2".into(),
+                "sk2".into(),
+            )
             .await
             .unwrap();
         assert!(
@@ -352,6 +434,7 @@ mod tests {
         let saved = uc
             .overwrite(
                 "user-1",
+                Exchange::Bybit,
                 "PaperTrader".into(),
                 "new-ak".into(),
                 "new-sk".into(),
@@ -376,5 +459,144 @@ mod tests {
         );
         assert_eq!(row.created_at, 100, "created_at preserved");
         assert_eq!(row.updated_at, 1_700_000_000, "updated_at bumped to now");
+    }
+
+    // Published Hardhat development keys: known to everyone, guarding nothing.
+    const AGENT_1: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const AGENT_2: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+    const ACCOUNT: &str = "0x1111111111111111111111111111111111111111";
+
+    fn use_case() -> (Arc<InMemoryBots>, Arc<MockApiKeyRepository>, AddBotUseCase) {
+        let bots = Arc::new(InMemoryBots::default());
+        let api_keys = Arc::new(MockApiKeyRepository::default());
+        let uc = AddBotUseCase::new(bots.clone(), api_keys.clone(), Arc::new(FixedClock));
+        (bots, api_keys, uc)
+    }
+
+    #[tokio::test]
+    async fn a_hyperliquid_bot_is_stored_with_normalised_credentials() {
+        let (bots, _, uc) = use_case();
+        let out = uc
+            .execute(
+                "user-1",
+                Exchange::Hyperliquid,
+                "hl".into(),
+                format!(" {} ", &ACCOUNT[2..]),
+                AGENT_1.to_ascii_uppercase().replacen("0X", "0x", 1),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(out, AddOutcome::Added(_)));
+        let row = bots.get("user-1", "hl").unwrap();
+        assert_eq!(row.exchange, Exchange::Hyperliquid);
+        assert_eq!(row.api_key, ACCOUNT);
+        assert_eq!(row.secret_key, AGENT_1);
+    }
+
+    #[tokio::test]
+    async fn malformed_credentials_are_refused_before_anything_is_saved() {
+        let (bots, api_keys, uc) = use_case();
+        let err = uc
+            .execute(
+                "user-1",
+                Exchange::Hyperliquid,
+                "hl".into(),
+                ACCOUNT.into(),
+                "sk".into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::InvalidCredentials(_)), "{err}");
+        assert!(bots.get("user-1", "hl").is_none());
+        assert!(api_keys.saved.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn two_bots_may_not_sign_with_one_api_wallet() {
+        let (_, _, uc) = use_case();
+        uc.execute(
+            "user-1",
+            Exchange::Hyperliquid,
+            "a".into(),
+            ACCOUNT.into(),
+            AGENT_1.into(),
+        )
+        .await
+        .unwrap();
+        let err = uc
+            .execute(
+                "user-1",
+                Exchange::Hyperliquid,
+                "b".into(),
+                ACCOUNT.into(),
+                AGENT_1.into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("\"a\" already uses this API wallet"),
+            "{err}"
+        );
+
+        // A wallet of its own is fine, and re-keying a bot with its own wallet
+        // is not a collision with itself.
+        uc.execute(
+            "user-1",
+            Exchange::Hyperliquid,
+            "b".into(),
+            ACCOUNT.into(),
+            AGENT_2.into(),
+        )
+        .await
+        .unwrap();
+        uc.overwrite(
+            "user-1",
+            Exchange::Hyperliquid,
+            "a".into(),
+            ACCOUNT.into(),
+            AGENT_1.into(),
+        )
+        .await
+        .unwrap();
+        let err = uc
+            .overwrite(
+                "user-1",
+                Exchange::Hyperliquid,
+                "a".into(),
+                ACCOUNT.into(),
+                AGENT_2.into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DomainError::InvalidCredentials(_)), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_overwrite_may_not_move_a_bot_to_another_exchange() {
+        let (bots, _, uc) = use_case();
+        uc.execute(
+            "user-1",
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+        )
+        .await
+        .unwrap();
+        let err = uc
+            .overwrite(
+                "user-1",
+                Exchange::Hyperliquid,
+                "b".into(),
+                ACCOUNT.into(),
+                AGENT_1.into(),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("exchange is fixed"), "{err}");
+        let row = bots.get("user-1", "b").unwrap();
+        assert_eq!(row.exchange, Exchange::Bybit);
+        assert_eq!(row.api_key, "ak");
     }
 }

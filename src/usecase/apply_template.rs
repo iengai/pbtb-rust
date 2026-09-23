@@ -5,6 +5,7 @@ use crate::domain::configswitch::{ConfigSwitchEvent, ConfigSwitchRepository};
 use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::entitlement;
 use crate::domain::error::DomainError;
+use crate::domain::exchange::ensure_same_exchange;
 use crate::domain::user::Role;
 use crate::usecase::engine_routing::EngineTaskDefinitions;
 use std::sync::Arc;
@@ -112,15 +113,15 @@ impl ApplyTemplateUseCase {
         let config =
             BotConfig::from_template(user_id.to_string(), bot_id.to_string(), &template, now)?;
         // A config that targets an engine with no registered image (on the
-        // runtime this bot is set to) could never launch; refuse it here, at the
-        // confirmation modal, rather than at the next Run. The preview is what
-        // the user confirms, so the gate sits on it.
-        let runtime = self
-            .bot_repository
-            .find(user_id, bot_id)
-            .await?
-            .map(|b| b.runtime)
-            .unwrap_or_default();
+        // runtime this bot is set to), or that was made for another exchange,
+        // could never launch; refuse it here, at the confirmation modal, rather
+        // than at the next Run. The preview is what the user confirms, so the
+        // gate sits on it.
+        let bot = self.bot_repository.find(user_id, bot_id).await?;
+        if let Some(bot) = &bot {
+            ensure_same_exchange(template.exchange()?, bot.exchange)?;
+        }
+        let runtime = bot.map(|b| b.runtime).unwrap_or_default();
         self.engines.resolve(config.engine_version()?, runtime)?;
         Ok(config)
     }
@@ -366,6 +367,37 @@ mod tests {
             configs.0.lock().unwrap().is_none(),
             "the gate sits before the save, so a refused apply leaves the old config"
         );
+    }
+
+    #[tokio::test]
+    async fn a_template_for_another_exchange_is_refused_before_saving() {
+        let switches = Arc::new(Switches::default());
+        let mut hyperliquid = a_template();
+        hyperliquid.config_data["pbtb"] = json!({ "exchange": "hyperliquid" });
+        let (uc, configs) = usecase(hyperliquid, Some(a_bot(Runtime::Py)), switches, "7=arn:7");
+
+        let err = uc
+            .execute(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect_err("a Hyperliquid template on a Bybit bot");
+
+        assert!(err.to_string().contains("pick a Bybit config"), "{err}");
+        assert!(configs.0.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_template_of_the_bots_own_exchange_applies() {
+        let switches = Arc::new(Switches::default());
+        let mut hyperliquid = a_template();
+        hyperliquid.config_data["pbtb"] = json!({ "exchange": "hyperliquid" });
+        let mut bot = a_bot(Runtime::Py);
+        bot.exchange = Exchange::Hyperliquid;
+        let (uc, configs) = usecase(hyperliquid, Some(bot), switches, "7=arn:7");
+
+        uc.execute(USER, TOP, Role::Member, BOT, "steady")
+            .await
+            .expect("same exchange");
+        assert!(configs.0.lock().unwrap().is_some());
     }
 
     #[tokio::test]

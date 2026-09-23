@@ -69,7 +69,7 @@ impl SetBotRuntimeUseCase {
         if previous == runtime {
             return Ok(SetRuntimeOutcome::Unchanged { runtime });
         }
-        bot.set_runtime(runtime, self.clock.now());
+        bot.set_runtime(runtime, self.clock.now())?;
         self.bots.save(&bot).await?;
         Ok(SetRuntimeOutcome::Updated { previous, runtime })
     }
@@ -80,6 +80,7 @@ mod tests {
     use super::*;
     use crate::domain::bot::Bot;
     use crate::domain::botconfig::{BotConfig, BotType};
+    use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
     use serde_json::json;
     use std::collections::HashMap;
@@ -164,6 +165,7 @@ mod tests {
     async fn switches_runtime_and_stamps_updated_at() {
         let bots = bots_with(Bot::create(
             "u".into(),
+            Exchange::Bybit,
             "b".into(),
             "ak".into(),
             "sk".into(),
@@ -194,6 +196,7 @@ mod tests {
     async fn same_runtime_is_unchanged_without_a_write() {
         let bots = bots_with(Bot::create(
             "u".into(),
+            Exchange::Bybit,
             "b".into(),
             "ak".into(),
             "sk".into(),
@@ -224,6 +227,7 @@ mod tests {
     async fn refuses_a_runtime_with_no_image_for_the_bots_line() {
         let bots = bots_with(Bot::create(
             "u".into(),
+            Exchange::Bybit,
             "b".into(),
             "ak".into(),
             "sk".into(),
@@ -249,6 +253,7 @@ mod tests {
     async fn no_config_yet_skips_the_image_gate() {
         let bots = bots_with(Bot::create(
             "u".into(),
+            Exchange::Bybit,
             "b".into(),
             "ak".into(),
             "sk".into(),

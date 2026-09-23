@@ -1,4 +1,5 @@
 use crate::domain::error::DomainError;
+use crate::domain::exchange::{Exchange, declared_exchange};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -107,6 +108,13 @@ impl ConfigTemplate {
             meta.remove("audience");
         }
         Ok(())
+    }
+
+    /// The exchange the template was made for (`pbtb.exchange`); see
+    /// [`declared_exchange`]. A chooser offers a bot the templates of its own
+    /// exchange, and applying one to a bot of another is refused.
+    pub fn exchange(&self) -> Result<Exchange, DomainError> {
+        declared_exchange(&self.config_data)
     }
 
     /// What a chooser shows the template as (`pbtb.title`): the name is an

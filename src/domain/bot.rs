@@ -9,14 +9,19 @@ pub struct Bot {
     pub user_id: String,
     pub exchange: Exchange,
     pub name: String,
+    /// The first of the two credentials, in the exchange's meaning
+    /// (`Exchange::validate_credentials`): a Bybit API key, or a Hyperliquid
+    /// account address.
     pub api_key: String,
+    /// The second credential: a Bybit API secret, or a Hyperliquid API wallet
+    /// private key.
     pub secret_key: String,
     pub enabled: bool,
     /// Which image runs this bot's engine line (`py` passivbot, `rs` pb-runner).
     /// Read at launch only; a change applies on the next start.
     pub runtime: Runtime,
-    /// The bot's Bybit copy-trading page, given by the operator with
-    /// `/public`. The showcase links to it; whether the bot is on the
+    /// The bot's public page on its exchange (a Bybit copy-trading page, a
+    /// Hyperliquid vault), given by the operator with `/public`. The showcase links to it; whether the bot is on the
     /// showcase at all is `on_showcase`.
     pub public_url: Option<String>,
     /// The operator's explicit showcase choice. `None` on a row that never
@@ -56,9 +61,6 @@ impl Bot {
         }
     }
 
-    /// Factory encapsulating the construction policy for a newly added bot.
-    /// id is derived from the name, exchange defaults to Bybit, the bot starts
-    /// disabled (desired state off) and runs on the default (Python) runtime.
     /// A bot's id is its name, and the id is the row's sort key, where `#`
     /// marks the `<kind>#` rows kept beside bots; a name carrying it would be
     /// stored as something no reader recognises as a bot and vanish from every
@@ -70,8 +72,12 @@ impl Bot {
         Ok(())
     }
 
+    /// Factory encapsulating the construction policy for a newly added bot:
+    /// the id is derived from the name, the bot starts disabled (desired state
+    /// off) and runs on the default (Python) runtime.
     pub fn create(
         user_id: String,
+        exchange: Exchange,
         name: String,
         api_key: String,
         secret_key: String,
@@ -80,7 +86,7 @@ impl Bot {
         Self {
             id: name.clone(),
             user_id,
-            exchange: Exchange::Bybit,
+            exchange,
             name,
             api_key,
             secret_key,
@@ -105,17 +111,21 @@ impl Bot {
         self.updated_at = now;
     }
 
-    /// Accept a link only when it is an https page on bybit.com. The authority
+    /// Accept a link only when it is an https page on the exchange's site
+    /// (`Exchange::public_host` or a subdomain of it). The authority
     /// is read by hand (the domain takes no URL crate) and ends at the first of
     /// `/ ? # \\`; the backslash counts because browsers read it as `/` in an
     /// https URL, so `https://evil.example\\@www.bybit.com` would otherwise
     /// pass as a bybit.com host and land on evil.example. A user-info part
     /// (`@`), a port, and any byte outside `[A-Za-z0-9.-]` in the authority
     /// are refused outright, as is whitespace or a control character anywhere.
-    pub fn validate_public_url(url: &str) -> Result<(), DomainError> {
+    pub fn validate_public_url(exchange: Exchange, url: &str) -> Result<(), DomainError> {
         // The echo is what the user reads back; a value near Telegram's message
         // limit would make the reply itself undeliverable.
-        let refuse = || DomainError::InvalidPublicUrl(url.chars().take(128).collect());
+        let refuse = || DomainError::InvalidPublicUrl {
+            host: exchange.public_host(),
+            got: url.chars().take(128).collect(),
+        };
         if url.len() > 512 || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
             return Err(refuse());
         }
@@ -126,18 +136,23 @@ impl Bot {
             return Err(refuse());
         }
         let host = authority.to_ascii_lowercase();
-        if host == "bybit.com" || host.ends_with(".bybit.com") {
+        let site = exchange.public_host();
+        if host == site
+            || host
+                .strip_suffix(site)
+                .is_some_and(|sub| sub.ends_with('.'))
+        {
             Ok(())
         } else {
             Err(refuse())
         }
     }
 
-    /// Give the bot its public link, or take it away. Validated here so an
-    /// off-Bybit value can never reach a row.
+    /// Give the bot its public link, or take it away. Validated here so a
+    /// link off the bot's exchange can never reach a row.
     pub fn set_public_url(&mut self, url: Option<String>, now: i64) -> Result<(), DomainError> {
         if let Some(u) = &url {
-            Self::validate_public_url(u)?;
+            Self::validate_public_url(self.exchange, u)?;
         }
         self.public_url = url;
         self.updated_at = now;
@@ -159,9 +174,12 @@ impl Bot {
 
     /// Move the bot to another runtime image. Takes effect on the next launch:
     /// a running task keeps the binary it started with until it is restarted.
-    pub fn set_runtime(&mut self, runtime: Runtime, now: i64) {
+    /// Refused when the image cannot trade on the bot's exchange.
+    pub fn set_runtime(&mut self, runtime: Runtime, now: i64) -> Result<(), DomainError> {
+        runtime.ensure_trades_on(self.exchange)?;
         self.runtime = runtime;
         self.updated_at = now;
+        Ok(())
     }
 }
 
@@ -216,6 +234,7 @@ mod tests {
     fn create_sets_defaults() {
         let bot = Bot::create(
             "user-1".into(),
+            Exchange::Bybit,
             "mybot".into(),
             "ak".into(),
             "sk".into(),
@@ -233,7 +252,14 @@ mod tests {
 
     #[test]
     fn enable_disable_transitions() {
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.enable(100);
         assert!(bot.enabled);
         assert_eq!(bot.updated_at, 100);
@@ -249,7 +275,10 @@ mod tests {
             "https://bybit.com",
             "https://WWW.Bybit.com/x#y",
         ] {
-            assert!(Bot::validate_public_url(ok).is_ok(), "{ok}");
+            assert!(
+                Bot::validate_public_url(Exchange::Bybit, ok).is_ok(),
+                "{ok}"
+            );
         }
         for bad in [
             "https://evil.example\\@www.bybit.com",
@@ -264,8 +293,8 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    Bot::validate_public_url(bad),
-                    Err(DomainError::InvalidPublicUrl(_))
+                    Bot::validate_public_url(Exchange::Bybit, bad),
+                    Err(DomainError::InvalidPublicUrl { .. })
                 ),
                 "{bad}"
             );
@@ -273,8 +302,32 @@ mod tests {
     }
 
     #[test]
+    fn a_public_link_must_be_on_the_bot_s_own_exchange() {
+        let vault = "https://app.hyperliquid.xyz/vaults/0x1111111111111111111111111111111111111111";
+        assert!(Bot::validate_public_url(Exchange::Hyperliquid, vault).is_ok());
+        assert!(Bot::validate_public_url(Exchange::Hyperliquid, "https://hyperliquid.xyz").is_ok());
+        for bad in [
+            "https://www.bybit.com/x",
+            "https://evilhyperliquid.xyz/x",
+            "https://app.hyperliquid.xyz.evil.example/x",
+        ] {
+            let err = Bot::validate_public_url(Exchange::Hyperliquid, bad).unwrap_err();
+            assert!(err.to_string().contains("hyperliquid.xyz"), "{err}");
+        }
+        assert!(Bot::validate_public_url(Exchange::Bybit, vault).is_err());
+        assert!(Bot::validate_public_url(Exchange::Bybit, "https://evilbybit.com").is_err());
+    }
+
+    #[test]
     fn set_public_url_validates_and_stamps_updated_at() {
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         assert!(
             bot.set_public_url(Some("http://www.bybit.com/x".into()), 300)
                 .is_err()
@@ -292,7 +345,14 @@ mod tests {
 
     #[test]
     fn a_bot_without_a_choice_is_shown_exactly_when_it_has_a_link() {
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         assert!(!bot.on_showcase());
         bot.set_public_url(Some("https://www.bybit.com/x".into()), 2)
             .unwrap();
@@ -301,7 +361,14 @@ mod tests {
 
     #[test]
     fn the_showcase_choice_overrides_the_link_and_keeps_it() {
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_public_url(Some("https://www.bybit.com/x".into()), 2)
             .unwrap();
         bot.set_showcase(false, 300);
@@ -309,16 +376,46 @@ mod tests {
         assert_eq!(bot.public_url.as_deref(), Some("https://www.bybit.com/x"));
         assert_eq!(bot.updated_at, 300);
 
-        let mut unlinked = Bot::create("u".into(), "c".into(), "ak".into(), "sk".into(), 1);
+        let mut unlinked = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "c".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         unlinked.set_showcase(true, 400);
         assert!(unlinked.on_showcase(), "a link is not required to be shown");
     }
 
     #[test]
     fn set_runtime_stamps_updated_at() {
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
-        bot.set_runtime(Runtime::Rs, 300);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
+        bot.set_runtime(Runtime::Rs, 300).unwrap();
         assert_eq!(bot.runtime, Runtime::Rs);
         assert_eq!(bot.updated_at, 300);
+    }
+
+    #[test]
+    fn a_runtime_that_cannot_trade_on_the_exchange_is_refused() {
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Hyperliquid,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
+        let err = bot.set_runtime(Runtime::Rs, 300).unwrap_err();
+        assert!(matches!(err, DomainError::InvalidConfig(_)), "{err}");
+        assert_eq!(bot.runtime, Runtime::Py);
+        assert_eq!(bot.updated_at, 1, "a refused switch stamps nothing");
     }
 }

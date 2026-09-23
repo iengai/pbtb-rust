@@ -12,6 +12,7 @@ use super::{ApiError, ApiResult, Deps, READ, WRITE, require, respond};
 use crate::domain::bot::Bot;
 use crate::domain::configtemplate::Audience;
 use crate::domain::engine::Runtime;
+use crate::domain::exchange::Exchange;
 use crate::domain::identity::{LINK_TICKET_TTL, PROVIDER_TELEGRAM};
 use crate::domain::user::Role;
 use crate::interface::describe;
@@ -29,6 +30,11 @@ pub(super) struct Handlers<'a> {
 #[derive(Deserialize)]
 pub(super) struct AddBotBody {
     pub name: String,
+    /// `bybit` (the default when absent) or `hyperliquid`. It decides what the
+    /// two credentials are: a Bybit API key and secret, or a Hyperliquid
+    /// account address and API wallet private key.
+    #[serde(default)]
+    pub exchange: Option<String>,
     pub api_key: String,
     pub secret_key: String,
     /// Replace the keys of an existing bot of the same name. Off by default so
@@ -256,12 +262,21 @@ impl Handlers<'_> {
                 "name, api_key and secret_key are all required".into(),
             ));
         }
+        let exchange = match body.exchange.as_deref() {
+            None => Exchange::Bybit,
+            Some(given) => Exchange::from_str(given).ok_or_else(|| {
+                ApiError::BadRequest(format!(
+                    "exchange must be one of {}",
+                    Exchange::ALL.map(|e| e.as_str()).join(", ")
+                ))
+            })?,
+        };
 
         if body.overwrite {
             let bot = self
                 .deps
                 .add_bot_usecase
-                .overwrite(self.user_id(), name, api_key, secret_key)
+                .overwrite(self.user_id(), exchange, name, api_key, secret_key)
                 .await
                 .map_err(|e| {
                     self.audit("add_bot", "-", "error");
@@ -274,7 +289,7 @@ impl Handlers<'_> {
         let outcome = self
             .deps
             .add_bot_usecase
-            .execute(self.user_id(), name, api_key, secret_key)
+            .execute(self.user_id(), exchange, name, api_key, secret_key)
             .await
             .map_err(|e| {
                 self.audit("add_bot", "-", "error");

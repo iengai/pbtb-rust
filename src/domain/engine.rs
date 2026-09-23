@@ -1,4 +1,5 @@
 use crate::domain::error::DomainError;
+use crate::domain::exchange::Exchange;
 use serde_json::Value;
 use std::fmt;
 use std::str::FromStr;
@@ -85,6 +86,22 @@ impl Runtime {
         match self {
             Runtime::Py => "passivbot (Python)",
             Runtime::Rs => "pb-runner (Rust)",
+        }
+    }
+
+    /// Refuse an exchange the image has no client for. passivbot trades on
+    /// every exchange this service offers; pb-runner implements Bybit alone
+    /// and exits at startup on anything else, which would leave a bot
+    /// switched on with nothing running.
+    pub fn ensure_trades_on(self, exchange: Exchange) -> Result<(), DomainError> {
+        match (self, exchange) {
+            (Runtime::Py, _) | (Runtime::Rs, Exchange::Bybit) => Ok(()),
+            (Runtime::Rs, other) => Err(DomainError::InvalidConfig(format!(
+                "{} trades on Bybit only; a {} bot runs on `py` ({})",
+                self.image_label(),
+                other.label(),
+                Runtime::Py.image_label()
+            ))),
         }
     }
 }
@@ -181,6 +198,18 @@ mod tests {
     #[test]
     fn displays_as_major_line() {
         assert_eq!(EngineVersion::new(8).to_string(), "v8");
+    }
+
+    #[test]
+    fn pb_runner_trades_on_bybit_only() {
+        for e in Exchange::ALL {
+            assert!(Runtime::Py.ensure_trades_on(e).is_ok());
+        }
+        assert!(Runtime::Rs.ensure_trades_on(Exchange::Bybit).is_ok());
+        let err = Runtime::Rs
+            .ensure_trades_on(Exchange::Hyperliquid)
+            .unwrap_err();
+        assert!(err.to_string().contains("Bybit only"), "{err}");
     }
 
     #[test]

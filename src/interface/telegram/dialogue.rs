@@ -1,6 +1,7 @@
 use teloxide::dispatching::dialogue::{Dialogue, InMemStorage};
 use teloxide::prelude::*;
 
+use crate::domain::exchange::Exchange;
 use crate::usecase::TelegramSender;
 
 use super::{
@@ -20,15 +21,26 @@ pub fn routes() -> teloxide::dispatching::UpdateHandler<DependencyMap> {
             .enter_dialogue::<Message, InMemStorage<BotContext>, BotContext>()
             .branch(dptree::case![DialogueState::Start].endpoint(handle_start_state))
             .branch(dptree::case![DialogueState::ReceiveBotName].endpoint(receive_bot_name))
-            .branch(dptree::case![DialogueState::ReceiveApiKey { name }].endpoint(receive_api_key))
             .branch(
-                dptree::case![DialogueState::ReceiveSecretKey { name, api_key }]
-                    .endpoint(receive_secret_key),
+                dptree::case![DialogueState::ReceiveExchange { name }].endpoint(receive_exchange),
+            )
+            .branch(
+                dptree::case![DialogueState::ReceiveApiKey { name, exchange }]
+                    .endpoint(receive_api_key),
+            )
+            .branch(
+                dptree::case![DialogueState::ReceiveSecretKey {
+                    name,
+                    exchange,
+                    api_key
+                }]
+                .endpoint(receive_secret_key),
             )
             .branch(dptree::case![DialogueState::ConfirmDelete { bot_id }].endpoint(confirm_delete))
             .branch(
                 dptree::case![DialogueState::ConfirmOverwriteBot {
                     name,
+                    exchange,
                     api_key,
                     secret_key
                 }]
@@ -111,8 +123,8 @@ async fn handle_start_state(
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
                         let description_info = config.description().unwrap_or("—");
-                        // Exchange the strategy was tuned on (pbtb.exchange); may
-                        // differ from the exchange the bot trades on.
+                        // Exchange the strategy was tuned on (pbtb.exchange),
+                        // the bot's own: a config for another never launches.
                         let tuned_on = config
                             .data_exchange()
                             .map(|e| format!("\n   • Tuned on: {e} data"))
@@ -244,14 +256,37 @@ async fn handle_start_state(
                     return Ok(());
                 }
 
+                // A bot is offered the templates of its own exchange: one made
+                // for another could not be applied to it.
+                let exchange = match ctx.selected_bot_id.as_deref() {
+                    Some(bot_id) => match super::find_own_bot(&deps, &sender.user_id, bot_id).await {
+                        Ok(Some(b)) => b.exchange,
+                        Ok(None) => {
+                            bot.send_message(msg.chat.id, format!("❌ Bot {bot_id} not found."))
+                                .await?;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            bot.send_message(msg.chat.id, redact("fetching bots", &e))
+                                .await?;
+                            return Ok(());
+                        }
+                    },
+                    None => return Ok(()),
+                };
+
                 // Get available templates
                 match deps.list_templates_usecase.execute(sender.role).await {
-                    Ok(templates) => {
+                    Ok(mut templates) => {
+                        templates.retain(|t| t.exchange == exchange);
                         if templates.is_empty() {
                             bot.send_message(
                                 msg.chat.id,
-                                "📋 No configuration templates available.\n\n\
-                                Please contact administrator to add templates."
+                                format!(
+                                    "📋 No configuration templates available for {}.\n\n\
+                                    Please contact administrator to add templates.",
+                                    exchange.label()
+                                )
                             )
                                 .await?;
                         } else {
@@ -533,11 +568,12 @@ async fn receive_bot_name(
             Some(name) => {
                 bot.send_message(
                     msg.chat.id,
-                    format!("✅ Bot name: {name}\n\nNow, please enter the API key:"),
+                    format!("✅ Bot name: {name}\n\nWhich exchange does it trade on?"),
                 )
+                .reply_markup(super::keyboards::exchange_keyboard())
                 .await?;
                 dialogue
-                    .update(DialogueState::ReceiveApiKey {
+                    .update(DialogueState::ReceiveExchange {
                         name: name.to_string(),
                     })
                     .await?;
@@ -554,30 +590,115 @@ async fn receive_bot_name(
     result.map_err(|_| DependencyMap::new())
 }
 
-async fn receive_api_key(
+/// What the two credentials are called on an exchange, for the prompts.
+fn credential_names(exchange: Exchange) -> (&'static str, &'static str) {
+    match exchange {
+        Exchange::Bybit => ("API key", "secret key"),
+        Exchange::Hyperliquid => ("account address", "API wallet private key"),
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+/// The prompt for the first credential.
+fn first_credential_prompt(exchange: Exchange) -> &'static str {
+    match exchange {
+        Exchange::Bybit => "Now, please enter the API key:",
+        Exchange::Hyperliquid => {
+            "Now, please enter the Hyperliquid account address (0x…): the wallet that \
+            holds the funds."
+        }
+    }
+}
+
+/// The prompt for the second credential.
+fn second_credential_prompt(exchange: Exchange) -> &'static str {
+    match exchange {
+        Exchange::Bybit => {
+            "Finally, please enter the secret key. The message is deleted once it is read."
+        }
+        Exchange::Hyperliquid => {
+            "Finally, please enter the private key of an API wallet approved for that \
+            account (app.hyperliquid.xyz → More → API). Never the account's own key: an \
+            API wallet can trade but cannot withdraw. Give each bot a wallet of its own. \
+            The message is deleted once it is read."
+        }
+    }
+}
+
+async fn receive_exchange(
     bot: Bot,
     dialogue: MyDialogue,
     _bot_context: MyBotContext,
     name: String,
     msg: Message,
 ) -> Result<(), DependencyMap> {
+    let result = super::with_deadline("receive_exchange", async {
+        match msg.text().and_then(Exchange::from_str) {
+            Some(exchange) => {
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "✅ Exchange: {}\n\n{}",
+                        exchange.label(),
+                        first_credential_prompt(exchange)
+                    ),
+                )
+                .reply_markup(super::keyboards::main_menu_keyboard())
+                .await?;
+                dialogue
+                    .update(DialogueState::ReceiveApiKey { name, exchange })
+                    .await?;
+            }
+            None => {
+                bot.send_message(msg.chat.id, "❌ Please pick one of the exchanges below.")
+                    .reply_markup(super::keyboards::exchange_keyboard())
+                    .await?;
+            }
+        }
+        anyhow::Ok(())
+    })
+    .await;
+
+    result.map_err(|_| DependencyMap::new())
+}
+
+async fn receive_api_key(
+    bot: Bot,
+    dialogue: MyDialogue,
+    _bot_context: MyBotContext,
+    (name, exchange): (String, Exchange),
+    msg: Message,
+) -> Result<(), DependencyMap> {
     let result = super::with_deadline("receive_api_key", async {
+        let (first, _) = credential_names(exchange);
         match msg.text() {
             Some(api_key) => {
                 bot.send_message(
                     msg.chat.id,
-                    "✅ API key received!\n\nFinally, please enter the secret key:",
+                    format!(
+                        "✅ {} received!\n\n{}",
+                        capitalize(first),
+                        second_credential_prompt(exchange)
+                    ),
                 )
                 .await?;
                 dialogue
                     .update(DialogueState::ReceiveSecretKey {
                         name,
+                        exchange,
                         api_key: api_key.to_string(),
                     })
                     .await?;
             }
             None => {
-                bot.send_message(msg.chat.id, "❌ Please send text for API key.")
+                bot.send_message(msg.chat.id, format!("❌ Please send text for the {first}."))
                     .await?;
             }
         }
@@ -592,7 +713,7 @@ async fn receive_secret_key(
     bot: Bot,
     dialogue: MyDialogue,
     _bot_context: MyBotContext,
-    (name, api_key): (String, String),
+    (name, exchange, api_key): (String, Exchange, String),
     msg: Message,
     deps: Deps,
     sender: TelegramSender,
@@ -601,12 +722,23 @@ async fn receive_secret_key(
         match msg.text() {
             Some(secret_key) => {
                 let secret_key = secret_key.to_string();
+                // The secret has been read; it should not sit in the chat
+                // history. Best effort: a failed delete leaves it to the user.
+                if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
+                    tracing::info!("could not delete the credential message: {e}");
+                }
                 let user_id = sender.user_id.clone();
 
                 // Save bot using use case
                 match deps
                     .add_bot_usecase
-                    .execute(&user_id, name.clone(), api_key.clone(), secret_key.clone())
+                    .execute(
+                        &user_id,
+                        exchange,
+                        name.clone(),
+                        api_key.clone(),
+                        secret_key.clone(),
+                    )
                     .await
                 {
                     Ok(AddOutcome::Added(new_bot)) => {
@@ -616,9 +748,27 @@ async fn receive_secret_key(
                                 "✅ Bot added successfully!\n\n\
                                 📝 Name: {}\n\
                                 🆔 ID: {}\n\
+                                🏦 Exchange: {}\n\
                                 ⏸️ Status: Disabled (default)\n\n\
                                 You can enable it later.",
-                                new_bot.name, new_bot.id
+                                new_bot.name,
+                                new_bot.id,
+                                new_bot.exchange.label()
+                            ),
+                        )
+                        .await?;
+                        dialogue.update(DialogueState::Start).await?;
+                    }
+                    Ok(AddOutcome::AlreadyExists(existing)) if existing.exchange != exchange => {
+                        // An overwrite keeps the exchange, so offering one here
+                        // would promise what the confirm then refuses.
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "⚠️ A bot named \"{}\" already exists on {}. A bot's exchange \
+                                is fixed: delete it and add it again, or pick another name.",
+                                existing.name,
+                                existing.exchange.label()
                             ),
                         )
                         .await?;
@@ -646,6 +796,7 @@ async fn receive_secret_key(
                         dialogue
                             .update(DialogueState::ConfirmOverwriteBot {
                                 name,
+                                exchange,
                                 api_key,
                                 secret_key,
                             })
@@ -659,8 +810,12 @@ async fn receive_secret_key(
                 }
             }
             None => {
-                bot.send_message(msg.chat.id, "❌ Please send text for secret key.")
-                    .await?;
+                let (_, second) = credential_names(exchange);
+                bot.send_message(
+                    msg.chat.id,
+                    format!("❌ Please send text for the {second}."),
+                )
+                .await?;
             }
         }
         anyhow::Ok(())
@@ -735,7 +890,7 @@ async fn confirm_overwrite_bot(
     bot: Bot,
     dialogue: MyDialogue,
     _bot_context: MyBotContext,
-    (name, api_key, secret_key): (String, String, String),
+    (name, exchange, api_key, secret_key): (String, Exchange, String, String),
     msg: Message,
     deps: Deps,
     sender: TelegramSender,
@@ -748,7 +903,7 @@ async fn confirm_overwrite_bot(
 
                     match deps
                         .add_bot_usecase
-                        .overwrite(&user_id, name, api_key, secret_key)
+                        .overwrite(&user_id, exchange, name, api_key, secret_key)
                         .await
                     {
                         Ok(saved) => {

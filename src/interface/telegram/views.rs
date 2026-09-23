@@ -107,9 +107,9 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     let template = format_template_label(template_name, preview.title());
     let strategies = format_strategies(&preview.strategies());
     let description = preview.description().unwrap_or("—");
-    // Exchange whose data the strategy was tuned on (pbtb.exchange) — may
-    // differ from the exchange this bot trades on, which is worth seeing
-    // before confirming. Legacy templates don't carry it; omit the line.
+    // Exchange whose data the strategy was tuned on (pbtb.exchange), which
+    // is the bot's own: a template for another is refused before this preview.
+    // Legacy templates don't carry it; omit the line.
     let data_source = preview
         .data_exchange()
         .map(|e| format!("🏦 Tuned on: {e} data\n"))

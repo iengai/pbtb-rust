@@ -1,15 +1,19 @@
 use crate::domain::configtemplate::ConfigTemplateRepository;
 use crate::domain::error::DomainError;
+use crate::domain::exchange::Exchange;
 use crate::domain::user::Role;
 use std::sync::Arc;
 
 /// One template as a chooser shows it: its id, the title a reader picks it by,
-/// the level it asks for, so a surface can mark what the caller cannot apply
-/// yet without hiding it, and whether it is the operator's alone.
+/// the exchange it was made for, so a chooser for one bot offers only that
+/// bot's exchange, the level it asks for, so a surface can mark what the
+/// caller cannot apply yet without hiding it, and whether it is the
+/// operator's alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateListing {
     pub name: String,
     pub title: Option<String>,
+    pub exchange: Exchange,
     pub min_vip_level: u8,
     pub operator_only: bool,
 }
@@ -48,8 +52,19 @@ async fn listings(
         if operator_only && !role.is_operator() {
             continue;
         }
+        // A template marked for an exchange this service does not trade on
+        // could be applied to no bot; it is left out rather than failing the
+        // whole listing.
+        let exchange = match template.exchange() {
+            Ok(exchange) => exchange,
+            Err(e) => {
+                tracing::warn!(template = %name, "template left out of the listing: {e}");
+                continue;
+            }
+        };
         listings.push(TemplateListing {
             title: template.title().map(str::to_owned),
+            exchange,
             min_vip_level: template.min_vip_level(),
             operator_only,
             name,
@@ -127,6 +142,7 @@ mod tests {
         TemplateListing {
             name: "open".to_string(),
             title: None,
+            exchange: Exchange::Bybit,
             min_vip_level: 0,
             operator_only: false,
         }
@@ -136,6 +152,7 @@ mod tests {
         TemplateListing {
             name: "gated".to_string(),
             title: Some("Gated".to_string()),
+            exchange: Exchange::Bybit,
             min_vip_level: 5,
             operator_only: false,
         }
@@ -145,6 +162,7 @@ mod tests {
         TemplateListing {
             name: "internal".to_string(),
             title: Some("Internal".to_string()),
+            exchange: Exchange::Bybit,
             min_vip_level: 0,
             operator_only: true,
         }
@@ -170,5 +188,25 @@ mod tests {
         let listed = uc.execute(Role::Operator).await.expect("list");
 
         assert_eq!(listed, vec![open(), gated(), internal()]);
+    }
+
+    #[tokio::test]
+    async fn each_listing_carries_its_exchange_and_an_unknown_one_is_left_out() {
+        let uc = ListTemplatesUseCase::new(Arc::new(Templates(vec![
+            template("hl", json!({ "pbtb": { "exchange": "hyperliquid" } })),
+            template("by", json!({ "pbtb": { "exchange": "bybit" } })),
+            template("xx", json!({ "pbtb": { "exchange": "binance" } })),
+        ])));
+
+        let listed = uc.execute(Role::Member).await.expect("list");
+
+        let got: Vec<_> = listed
+            .iter()
+            .map(|l| (l.name.as_str(), l.exchange))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("hl", Exchange::Hyperliquid), ("by", Exchange::Bybit)]
+        );
     }
 }

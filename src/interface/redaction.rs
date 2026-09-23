@@ -37,7 +37,8 @@ pub fn redact(action: &str, err: &DomainError) -> String {
         | DomainError::MissingConfigPath(_)
         | DomainError::InvalidConfig(_)
         | DomainError::InvalidBotName(_)
-        | DomainError::InvalidPublicUrl(_) => format!("⚠️ {err}"),
+        | DomainError::InvalidPublicUrl { .. }
+        | DomainError::InvalidCredentials(_) => format!("⚠️ {err}"),
         DomainError::QuotaExceeded { .. }
         | DomainError::InsufficientLevel { .. }
         | DomainError::OperatorOnly => format!("🔒 {err}"),
@@ -114,7 +115,10 @@ mod tests {
         assert!(msg.contains("operator") && !msg.contains("ref:"), "{msg}");
         let msg = redact(
             "setting the public link",
-            &DomainError::InvalidPublicUrl("http://x".into()),
+            &DomainError::InvalidPublicUrl {
+                host: "bybit.com",
+                got: "http://x".into(),
+            },
         );
         assert!(
             msg.contains("bybit.com") && msg.contains("http://x"),

@@ -170,6 +170,7 @@ impl ShowcasePublisher for S3ShowcaseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::exchange::Exchange;
     use crate::domain::showcase::PublicPoint;
     use crate::infra::publicobjects::memory::Memory;
 
@@ -193,7 +194,14 @@ mod tests {
     }
 
     fn a_bot(name: &str) -> Bot {
-        let mut bot = Bot::create("u-1".into(), name.into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            name.into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_showcase(true, 2);
         bot
     }
