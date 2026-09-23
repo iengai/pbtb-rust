@@ -17,7 +17,12 @@ passivbot schema is one top-level `pbtb` object:
     composed from universe, profile and capital unless --title is given. The
     suffix that tells two identical titles apart is added by
     scripts/annotate_templates.py, which sees the whole catalogue.
-  * `exchange` (string) — whose market data the strategy was tuned on.
+  * `exchange` (string) — the exchange the template is for: whose market data
+    the strategy was tuned on, and the one exchange whose bots may apply it
+    (the chooser offers a bot its own exchange's templates and the server
+    refuses any other). Taken from --exchange, else the config's
+    `backtest.exchanges`; a config that names none, or names one this service
+    does not trade on, is refused rather than read as Bybit's.
   * `strategies` (array of {name, side}) — every side this strategy drives. A
     single-direction strategy lists one entry; a dual-sided one lists both
     `long` and `short`. A combined bot ends up with one entry per side, possibly
@@ -84,6 +89,8 @@ from template_naming import FACETS, PROFILES, UNIVERSES, base_titles, engine_of,
 DEFAULT_BUCKET = "scalable-cluster-dev-bot-configs"
 DEFAULT_PREFIX = "predefined/"
 VALID_SIDES = ("long", "short")
+# The exchanges a bot can trade on (`Exchange` in src/domain/exchange.rs).
+EXCHANGES = ("bybit", "hyperliquid")
 SITE_INDEX = Path(__file__).resolve().parent.parent / "site" / "templates" / "index.json"
 
 
@@ -128,6 +135,12 @@ def transform(
         if side not in VALID_SIDES:
             raise ValueError(f"invalid side {side!r}; expected one of {VALID_SIDES}")
 
+    exchange = exchange or next(iter((raw.get("backtest") or {}).get("exchanges") or []), None)
+    if exchange not in EXCHANGES:
+        raise ValueError(
+            f"the template's exchange is {exchange!r}; pass --exchange with one of {EXCHANGES}"
+        )
+
     named = {k: v for k, v in (facets or {}).items() if v is not None}
     named.setdefault("style", style_of(raw))
     named.setdefault("engine", engine_of(raw))
@@ -139,8 +152,7 @@ def transform(
         "title": title or composed[0] or name,
         "title_zh": title_zh or composed[1] or title or name,
         **{k: named[k] for k in FACETS if k in named},
-        "exchange": exchange
-        or next(iter((raw.get("backtest") or {}).get("exchanges") or []), None),
+        "exchange": exchange,
         "description": description,
         "strategies": [{"name": name, "side": side} for side in sides],
     }
@@ -166,8 +178,8 @@ def main() -> int:
     parser.add_argument("--title", default=None, help="override the composed title")
     parser.add_argument("--title-zh", dest="title_zh", default=None,
                         help="override the composed Chinese title")
-    parser.add_argument("--exchange", default=None,
-                        help="market data the strategy was tuned on (default: the backtest's)")
+    parser.add_argument("--exchange", default=None, choices=EXCHANGES,
+                        help="the exchange the template is for (default: the backtest's)")
     parser.add_argument("--sides", default="long,short",
                         help="comma-separated sides this strategy drives (default: long,short)")
     parser.add_argument("--description", default=None,

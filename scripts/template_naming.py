@@ -12,16 +12,24 @@ or the strategy lab:
 
     universe       mix3 | mix8 | mix10 | mix12 | mix17 | xrp
                                                        the coin basket
-    capital_usdt   100 … 10000                         the least capital it is offered for
+    capital_usdt   100 … 10000                         the least capital it is offered for,
+                                                       in the exchange's quote coin (USDT
+                                                       on Bybit, USDC on Hyperliquid)
     style          grid | martingale | ema_anchor      how the orders are parametrised
     profile        guard | steady | balanced | bold | extreme
     generation     the lab iteration; absent on a template that predates the lab
     engine         v7 | v8                             the passivbot engine line
 
+``exchange`` is not a naming property but a template's scope: the template
+is made for one exchange's coins and capital, applies to that exchange's bots
+alone, and every surface that lists templates shows it or filters by it. So it
+stays out of the title.
+
 ``title`` / ``title_zh`` are composed from universe, profile and capital. Two
-templates listed together whose titles would read the same both take the first
+templates of one exchange whose titles would read the same both take the first
 four characters of their id, upper-cased, as a suffix: stable for the life of
-the id, and a reader who sees ``BZWT`` can find ``tpl-bzwt…``.
+the id, and a reader who sees ``BZWT`` can find ``tpl-bzwt…``. A Bybit and a
+Hyperliquid template may share a title: no chooser offers both to one bot.
 """
 
 from __future__ import annotations
@@ -166,15 +174,17 @@ def base_titles(meta: dict) -> tuple[str, str] | None:
 
 def titles(group: dict[str, dict]) -> dict[str, tuple[str, str]]:
     """id -> (title, title_zh) for templates listed together, given each one's
-    `pbtb`. A title two of them would share carries each one's suffix; a
-    template whose properties do not compose a title is left out."""
+    `pbtb`. A title two templates of one exchange would share carries each
+    one's suffix; a template whose properties do not compose a title is left
+    out. A template without an exchange is Bybit's."""
     bases = {tid: base_titles(meta) for tid, meta in group.items()}
-    shared = Counter(base for base in bases.values() if base)
+    scope = {tid: meta.get("exchange") or "bybit" for tid, meta in group.items()}
+    shared = Counter((scope[tid], base) for tid, base in bases.items() if base)
     out: dict[str, tuple[str, str]] = {}
     for tid, base in bases.items():
         if base is None:
             continue
-        if shared[base] > 1:
+        if shared[(scope[tid], base)] > 1:
             base = (f"{base[0]} · {suffix(tid)}", f"{base[1]} · {suffix(tid)}")
         out[tid] = base
     return out
