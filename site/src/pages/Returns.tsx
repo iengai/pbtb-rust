@@ -2,14 +2,15 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { useLoad } from "../api/hooks";
 import { ChartCaption, RangeSelector, ReturnChart, useRangeLabel } from "../chart/ReturnChart";
-import { DEFAULT_RANGE, fmtPct, fmtUsdt, selectWindow } from "../chart/returnCurve";
+import { DEFAULT_RANGE, fmtMoney, fmtPct, selectWindow } from "../chart/returnCurve";
 import { ErrorBanner, Loading } from "../components/ui";
 import { useT } from "../i18n/locale";
 import { loadReturns } from "./returnsApi";
 
 // The return-curve page: a selector over the signed-in account's own bots. The
-// series carries a return index and the realized PnL in USDT, never a balance,
-// and it is the owner's alone; the API reads it under their tenant.
+// series carries a return index and the realized PnL in the exchange's
+// settlement coin, never a balance, and it is the owner's alone; the API reads
+// it under their tenant.
 export function Returns() {
   const t = useT();
   const rangeLabel = useRangeLabel();
@@ -65,11 +66,11 @@ export function Returns() {
               </div>
               <div className="tile">
                 <div className="k">{t.returns.tile.pnl(rangeLabel(ok.stats.label))}</div>
-                <div className="v">{fmtUsdt(ok.stats.pnl)}</div>
+                <div className="v">{fmtMoney(ok.stats.pnl, ok.quote)}</div>
               </div>
               <div className="tile">
                 <div className="k">{t.returns.tile.totalPnl}</div>
-                <div className="v">{fmtUsdt(ok.stats.totalPnl)}</div>
+                <div className="v">{fmtMoney(ok.stats.totalPnl, ok.quote)}</div>
               </div>
             </div>
           )}

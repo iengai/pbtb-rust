@@ -2,23 +2,23 @@
 // runs a config page shows under its backtest.
 export const showcase = {
   title: "Showcase",
-  lead: "Live return curves of the operator's own bots, collected daily from Bybit. Percentages only; the capital behind a config is shown rounded.",
+  lead: "Live return curves of the operator's own bots, collected daily from their exchange. Percentages only; the capital behind a config is shown rounded.",
   disclaimer: "Live results of real accounts. Past performance is not future returns.",
   nothing: "Nothing public yet.",
   notFound: "No such public bot.",
   loading: "showcase",
   loadingBot: "bot",
-  onBybit: "View on Bybit",
+  onExchange: (exchange: string) => `View on ${exchange}`,
   col: { bot: "Bot", trend: (days: number) => `Last ${days} days` },
   updated: (date: string) => `updated ${date} UTC`,
   // The operator's switchboard: which of their own bots the public page shows.
   manage: {
     cta: "Manage showcase",
     title: "Manage showcase",
-    lead: "Your own bots. Choose which ones the public showcase shows; hiding a bot keeps its Bybit link.",
+    lead: "Your own bots. Choose which ones the public showcase shows; hiding a bot keeps its exchange link.",
     operatorOnly: "The showcase is managed from the operator's account.",
     loading: "bots",
-    col: { bot: "Bot", link: "Bybit link", state: "Showcase" },
+    col: { bot: "Bot", link: "Exchange link", state: "Showcase" },
     shown: "Public",
     hidden: "Hidden",
     noLink: "no link",

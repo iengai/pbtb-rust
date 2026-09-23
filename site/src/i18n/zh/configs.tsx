@@ -14,6 +14,7 @@ export const configs: typeof en = {
       `共 ${total} 个策略模板，显示 ${shown} 个 · 基于 ${exchanges || "交易所"} 数据回测`,
     tabs: { published: "已发布", retired: "已退役" },
     allPositions: "全部",
+    allExchanges: "全部交易所",
     templates: "模板列表",
     empty: { published: "还没有发布任何模板。", retired: "没有已退役的模板。" },
     maxDd: "最大回撤",

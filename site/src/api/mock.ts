@@ -189,7 +189,7 @@ export function installMock(): void {
     },
     listBots: () => delay({ bots: bots.map(summary) }),
     getBot: (id: string) => delay({ ...find(id) }),
-    addBot: (body: { name: string; overwrite?: boolean }) => {
+    addBot: (body: { name: string; exchange?: string; overwrite?: boolean }) => {
       const existing = bots.find((b) => b.name === body.name);
       if (existing && !body.overwrite) {
         return Promise.reject(
@@ -200,7 +200,7 @@ export function installMock(): void {
       const b: BotDetail = {
         bot_id: `b-${body.name.toLowerCase().replace(/\W+/g, "-")}`,
         name: body.name,
-        exchange: "bybit",
+        exchange: body.exchange ?? "bybit",
         enabled: false,
         runtime: "py",
         phase: null,

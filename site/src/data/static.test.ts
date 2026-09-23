@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bybitLink, isRetired, parsePublished, staticData } from "./static";
+import { exchangeLink } from "./exchange";
+import { isRetired, parsePublished, staticData } from "./static";
 
-describe("bybitLink", () => {
+describe("exchangeLink", () => {
+  const bybitLink = (url: string | null | undefined) => exchangeLink(url, "bybit");
+
   it("keeps an https link on bybit.com or a subdomain of it", () => {
     const url = "https://www.bybit.com/copyTrade/trade-center/detail?leaderMark=abc";
     expect(bybitLink(url)).toBe(url);
@@ -25,6 +28,19 @@ describe("bybitLink", () => {
     expect(bybitLink(undefined)).toBeNull();
     expect(bybitLink("")).toBeNull();
     expect(bybitLink("www.bybit.com/x")).toBeNull();
+  });
+
+  it("holds a link to the bot's own exchange", () => {
+    const vault = "https://app.hyperliquid.xyz/vaults/0x1111111111111111111111111111111111111111";
+    expect(exchangeLink(vault, "hyperliquid")).toBe(vault);
+    expect(exchangeLink(vault, "bybit")).toBeNull();
+    expect(exchangeLink("https://www.bybit.com/x", "hyperliquid")).toBeNull();
+    expect(exchangeLink("https://evilhyperliquid.xyz/x", "hyperliquid")).toBeNull();
+    expect(exchangeLink("https://www.bybit.com/x", "binance")).toBeNull();
+  });
+
+  it("reads a bot without an exchange as Bybit's", () => {
+    expect(exchangeLink("https://www.bybit.com/x", undefined)).toBe("https://www.bybit.com/x");
   });
 });
 

@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useAction, useLoad } from "../api/hooks";
 import { Crumbs, ErrorBanner, Loading, Pill } from "../components/ui";
-import { bybitLink } from "../data/static";
+import { exchangeLink } from "../data/exchange";
 import { useT } from "../i18n/locale";
 
 // The operator's switchboard for the public showcase: every bot of their own
-// with its Bybit link and whether the page shows it. A switch writes the
+// with its exchange link and whether the page shows it. A switch writes the
 // bot's public file at once and the showcase CDN serves it within half a
 // minute; a bot with no collected curve yet appears after the next daily run.
 export function ShowcaseManage() {
@@ -59,7 +59,7 @@ export function ShowcaseManage() {
             <div />
           </div>
           {bots.map((b) => {
-            const link = bybitLink(b.public_url);
+            const link = exchangeLink(b.public_url, b.exchange);
             return (
               <div key={b.bot_id} className="tr">
                 <div>

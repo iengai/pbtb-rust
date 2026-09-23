@@ -1,3 +1,4 @@
+import { exchangeLabel } from "../data/exchange";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useLoad } from "../api/hooks";
@@ -49,7 +50,7 @@ export function ShowcaseBot() {
             </div>
             {data.public_url && (
               <a className="btn" href={data.public_url} target="_blank" rel="noopener noreferrer">
-                {t.showcase.onBybit} ↗
+                {t.showcase.onExchange(exchangeLabel(data.exchange))} ↗
               </a>
             )}
           </div>

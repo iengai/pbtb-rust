@@ -2,7 +2,7 @@
 // empty states, tooltip rows and axis ticks.
 export const returns = {
   title: "Return Curves",
-  lead: "Time-weighted return and realized PnL of your bots, collected daily from Bybit. Balances stay off the page.",
+  lead: "Time-weighted return and realized PnL of your bots, collected daily from each bot's exchange. Balances stay off the page.",
   noBots: "You have no bots yet.",
   noData: "No return data for this bot yet — the daily collector publishes a series once it has traded.",
   botLabel: "Bot",
