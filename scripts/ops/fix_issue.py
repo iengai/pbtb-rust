@@ -512,6 +512,9 @@ def run(a: argparse.Namespace) -> int:
 
 
 def finish(out: Path, result: dict, dry: bool) -> int:
+    # A run that is not started never reaches the harness's prepare, which
+    # is what otherwise creates the directory.
+    out.mkdir(parents=True, exist_ok=True)
     (out / "result.json").write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"verdict: {result['verdict']}", file=sys.stderr)
     if dry:
