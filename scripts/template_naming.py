@@ -10,7 +10,7 @@ make it wrong, and it never changes.
 What a reader is told lives in ``pbtb`` as properties, each read off the config
 or the strategy lab:
 
-    universe       mix3 | mix8 | mix10 | mix12 | mix17 | xrp
+    universe       mix3 | mix8 | mix10 | mix12 | mix17 | mix24 | xrp
                                                        the coin basket
     capital_usdt   100 … 10000                         the least capital it is offered for,
                                                        in the exchange's quote coin (USDT
@@ -52,6 +52,7 @@ UNIVERSES = {
     "mix10": ("10-coin basket", "十币组合"),
     "mix12": ("12-coin basket", "十二币组合"),
     "mix17": ("17-coin basket", "十七币组合"),
+    "mix24": ("24-coin basket", "二十四币组合"),
     "xrp": ("XRP only", "XRP 单币"),
 }
 PROFILES = {
