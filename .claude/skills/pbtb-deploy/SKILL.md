@@ -43,6 +43,12 @@ binary knows). Every binary whose use cases call it (grep `bots.save(` under
 `src/usecase/` and follow the use case to its composition root; today telebot and
 `-f target=mcp-http`) ships before the attribute's first write.
 
+A new *value* of an attribute every reader parses (an `Exchange` variant, a
+`runtime`) is the reverse: an old binary reads the row as `CorruptRecord`, and a
+`find_all` reader (the collector) then fails its whole run. Every reader of bot
+rows — `daily-pnl-snapshot-deploy`, `lambda-deploy`, telebot, `-f
+target=mcp-http` — ships before any writer can produce the value.
+
 If `lambda-deploy` fails mid-window, mitigate immediately: put the key the old
 binary needs back with `aws lambda update-function-configuration --environment
 file://<full map>` (it replaces the whole map — fetch it first), smoke, fix the
