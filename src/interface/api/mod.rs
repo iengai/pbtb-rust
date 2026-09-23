@@ -92,7 +92,8 @@ impl ApiError {
             | DomainError::LeverageOutOfRange { .. }
             | DomainError::MissingConfigPath(_)
             | DomainError::InvalidConfig(_)
-            | DomainError::InvalidPublicUrl(_) => Self::BadRequest(err.to_string()),
+            | DomainError::InvalidPublicUrl { .. }
+            | DomainError::InvalidCredentials(_) => Self::BadRequest(err.to_string()),
             DomainError::OperatorOnly => Self::Forbidden(json!({
                 "error": "operator_only",
                 "message": err.to_string(),

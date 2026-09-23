@@ -1,5 +1,6 @@
 use crate::domain::engine::Runtime;
 use crate::domain::entitlement;
+use crate::domain::exchange::Exchange;
 use crate::usecase::TemplateListing;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup};
 
@@ -27,6 +28,19 @@ pub(crate) fn main_menu_keyboard() -> KeyboardMarkup {
         ],
     ])
     .resize_keyboard()
+}
+
+/// One button per exchange a bot can be added on, by its label; the add
+/// dialogue reads the tapped label back with `Exchange::from_str`.
+pub(crate) fn exchange_keyboard() -> KeyboardMarkup {
+    KeyboardMarkup::new(vec![
+        Exchange::ALL
+            .iter()
+            .map(|e| KeyboardButton::new(e.label()))
+            .collect::<Vec<_>>(),
+    ])
+    .resize_keyboard()
+    .one_time_keyboard()
 }
 
 /// Inline keyboard to toggle a bot's strategy sides on/off. Each button shows

@@ -12,7 +12,7 @@ use pbtb_rust::domain::showcase::{PublicBotSeries, is_published, public_id};
 use pbtb_rust::domain::user::UserRepository;
 
 use crate::AppState;
-use crate::{bybit, model, s3_writer};
+use crate::{bybit, hyperliquid, model, s3_writer};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -30,8 +30,8 @@ pub(crate) async fn function_handler(
     let payload = event.payload;
 
     // Only the daily schedule triggers a collection run. Any other invocation —
-    // notably the deploy pipeline's benign smoke test — returns before any Bybit
-    // or S3 call, mirroring the task-state handler's guard-clause safety net.
+    // notably the deploy pipeline's benign smoke test — returns before any
+    // exchange or S3 call, mirroring the task-state handler's guard-clause safety net.
     if payload.detail_type != "Scheduled Event" {
         tracing::info!(
             "Ignore event: source={:?}, detail-type={:?}",
@@ -115,12 +115,12 @@ impl Operators {
 }
 
 /// Build and store one bot's return series. `Ok(true)` when a series was
-/// written, `Ok(false)` when the bot was skipped (unsupported exchange or no
-/// stored keys), `Err` on a real fetch/write fault.
+/// written, `Ok(false)` when the bot was skipped (no stored keys), `Err` on a
+/// real fetch/write fault.
 ///
 /// A bot on the operator's account also yields its showcase artifact, shown or
-/// not, built from the stored state whether or not today's fetch succeeded: a
-/// Bybit fault leaves yesterday's curve in place rather than a hole on the
+/// not, built from the stored state whether or not today's fetch succeeded: an
+/// exchange fault leaves yesterday's curve in place rather than a hole on the
 /// page. The operator lookup comes after the private writes, so a fault in it
 /// never costs the owner the day's series.
 async fn process_bot(
@@ -130,12 +130,6 @@ async fn process_bot(
     operators: &mut Operators,
     built: &mut Vec<PublicBotSeries>,
 ) -> anyhow::Result<bool> {
-    // Bybit-only today; other exchanges plug in later as new adapters that
-    // produce the same neutral `BotReturnSeries`.
-    if bot.exchange != Exchange::Bybit {
-        return Ok(false);
-    }
-
     let Some(creds) = state
         .api_keys
         .get(&bot.user_id, &bot.id)
@@ -146,8 +140,11 @@ async fn process_bot(
         return Ok(false);
     };
 
-    let bybit_cfg = &state.configs.bybit;
     let chart_cfg = &state.configs.chart;
+    let backfill_days = match bot.exchange {
+        Exchange::Bybit => state.configs.bybit.backfill_days,
+        Exchange::Hyperliquid => state.configs.hyperliquid.backfill_days,
+    };
 
     // Resume from stored state: on a routine run re-fetch only from the last
     // stored day (re-doing that day catches late settlements, then extends);
@@ -158,19 +155,27 @@ async fn process_bot(
         .unwrap_or_default();
     let from_ms = match bot_state.days.last() {
         Some(last) => last.day * DAY_MS,
-        None => now_ms - bybit_cfg.backfill_days * DAY_MS,
+        None => now_ms - backfill_days * DAY_MS,
     };
 
-    let fetched = bybit::fetch_transaction_log(
-        &state.http,
-        bybit_cfg,
-        &creds.key,
-        &creds.secret,
-        from_ms,
-        now_ms,
-    )
-    .await
-    .context("fetch transaction log");
+    // Each adapter produces the same neutral ledger.
+    let fetched = match bot.exchange {
+        Exchange::Bybit => bybit::fetch_transaction_log(
+            &state.http,
+            &state.configs.bybit,
+            &creds.key,
+            &creds.secret,
+            from_ms,
+            now_ms,
+        )
+        .await
+        .context("fetch transaction log"),
+        Exchange::Hyperliquid => {
+            hyperliquid::fetch_ledger(&state.http, &state.configs.hyperliquid, &creds.key, from_ms)
+                .await
+                .context("fetch ledger")
+        }
+    };
     let fetch_fault = match fetched {
         Ok(ledger) => {
             let (new_days, new_pre) = model::aggregate(&ledger);

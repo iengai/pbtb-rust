@@ -108,6 +108,7 @@ impl BotShowcaseUseCase {
 mod tests {
     use super::*;
     use crate::domain::error::Retryability;
+    use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
     use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
@@ -211,7 +212,14 @@ mod tests {
 
     async fn a_linked_bot() -> Arc<InMemoryBots> {
         let bots = Arc::new(InMemoryBots::default());
-        let mut bot = Bot::create("u".into(), "b".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u".into(),
+            Exchange::Bybit,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_public_url(Some(LINK.into()), 1).unwrap();
         bots.save(&bot).await.unwrap();
         bots

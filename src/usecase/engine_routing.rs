@@ -2,6 +2,7 @@ use crate::domain::bot::Bot;
 use crate::domain::botconfig::BotConfigRepository;
 use crate::domain::engine::{EngineVersion, Runtime};
 use crate::domain::error::DomainError;
+use crate::domain::exchange::ensure_same_exchange;
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -145,6 +146,12 @@ impl LaunchTargetResolver for EngineRoutedResolver {
         let config = self.configs.get(&bot.user_id, &bot.id).await?;
         let engine = config.engine_version()?;
         let runtime = bot.runtime;
+        // A config written outside the template chooser (the transfer script)
+        // or a runtime written to the row by hand never met the check made
+        // where each is chosen; both are checked again here, where every
+        // launch passes.
+        ensure_same_exchange(config.exchange()?, bot.exchange)?;
+        runtime.ensure_trades_on(bot.exchange)?;
         let td_arn = self.engines.resolve(engine, runtime)?.to_string();
         Ok(LaunchTarget {
             engine,
@@ -157,6 +164,7 @@ impl LaunchTargetResolver for EngineRoutedResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::exchange::Exchange;
 
     fn table() -> EngineTaskDefinitions {
         EngineTaskDefinitions::parse("7=arn:v7, 8=arn:v8, 8rs=arn:v8rs").unwrap()
@@ -227,5 +235,95 @@ mod tests {
         assert!(msg.contains("v7, v8, v8rs"), "{msg}");
         // It must not read as an unknown line.
         assert!(!msg.contains("no image is registered for it"), "{msg}");
+    }
+
+    /// The one stored config every bot reads back.
+    struct OneConfig(serde_json::Value);
+    #[async_trait]
+    impl BotConfigRepository for OneConfig {
+        async fn get(
+            &self,
+            user_id: &str,
+            bot_id: &str,
+        ) -> Result<crate::domain::botconfig::BotConfig, DomainError> {
+            let template = crate::domain::ConfigTemplate {
+                name: "t".into(),
+                description: None,
+                config_data: self.0.clone(),
+                version: None,
+            };
+            crate::domain::botconfig::BotConfig::from_template(
+                user_id.into(),
+                bot_id.into(),
+                &template,
+                1,
+            )
+        }
+        async fn save(&self, _c: &crate::domain::botconfig::BotConfig) -> Result<(), DomainError> {
+            unreachable!("resolving never writes")
+        }
+        async fn delete(&self, _u: &str, _b: &str) -> Result<(), DomainError> {
+            unreachable!("resolving never writes")
+        }
+        async fn exists(&self, _u: &str, _b: &str) -> Result<bool, DomainError> {
+            Ok(true)
+        }
+    }
+
+    fn resolver(pbtb: serde_json::Value) -> EngineRoutedResolver {
+        let config = serde_json::json!({ "config_version": "v8.1.0", "live": {}, "pbtb": pbtb });
+        EngineRoutedResolver::new(Arc::new(OneConfig(config)), table())
+    }
+
+    fn bot(exchange: Exchange, runtime: Runtime) -> Bot {
+        Bot::new(
+            "b".into(),
+            "u".into(),
+            exchange,
+            "b".into(),
+            "ak".into(),
+            "sk".into(),
+            true,
+            runtime,
+            1,
+            1,
+        )
+    }
+
+    #[tokio::test]
+    async fn a_launch_needs_a_config_of_the_bots_exchange() {
+        let r = resolver(serde_json::json!({ "exchange": "hyperliquid" }));
+        let target = r
+            .resolve(&bot(Exchange::Hyperliquid, Runtime::Py))
+            .await
+            .unwrap();
+        assert_eq!(target.td_arn, "arn:v8");
+
+        let err = r
+            .resolve(&bot(Exchange::Bybit, Runtime::Py))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("this config is for Hyperliquid"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_launch_needs_an_image_that_trades_on_the_bots_exchange() {
+        // A runtime written to the row by hand, past the switch's check.
+        let r = resolver(serde_json::json!({ "exchange": "hyperliquid" }));
+        let err = r
+            .resolve(&bot(Exchange::Hyperliquid, Runtime::Rs))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Bybit only"), "{err}");
+
+        let bybit = resolver(serde_json::json!({}));
+        let target = bybit
+            .resolve(&bot(Exchange::Bybit, Runtime::Rs))
+            .await
+            .unwrap();
+        assert_eq!(target.td_arn, "arn:v8rs");
     }
 }

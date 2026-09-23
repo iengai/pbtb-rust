@@ -27,11 +27,13 @@ pub enum Command {
     /// dialogue as plain text.
     #[command(description = "show or set a bot's runtime: /runtime <bot_id> [py|rs]")]
     Runtime(String),
-    /// `/public <bot_id> <url>` gives the bot its Bybit copy-trading link,
+    /// `/public <bot_id> <url>` gives the bot its public page on its exchange,
     /// which marks it for the public showcase page; `/public <bot_id> off`
     /// clears the mark; `/public <bot_id>` shows it. Setting is the
     /// operator's account only.
-    #[command(description = "show or set a bot's public link: /public <bot_id> [<bybit url>|off]")]
+    #[command(
+        description = "show or set a bot's public link: /public <bot_id> [<exchange url>|off]"
+    )]
     Public(String),
     /// Releases the caller's Telegram id from their account, so another can be
     /// bound from the web. The account itself is untouched.
@@ -244,8 +246,9 @@ async fn runtime_command(deps: &Deps, user_id: &str, args: &str) -> String {
 }
 
 const PUBLIC_USAGE: &str = "Usage: /public <bot_id> [<url>|off]\n\n\
-    • <url> — the bot's Bybit copy-trading page (https://…bybit.com/…), which the public \
-    showcase page links to; a bot with a link is shown unless the web console hides it\n\
+    • <url> — the bot's page on its exchange: a Bybit copy-trading page (https://…bybit.com/…) \
+    or a Hyperliquid vault (https://app.hyperliquid.xyz/vaults/…), which the public showcase \
+    page links to; a bot with a link is shown unless the web console hides it\n\
     • off — clears the link\n\n\
     The bot must be one of yours (see /list). Setting the link is for the operator's account.";
 

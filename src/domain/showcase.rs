@@ -135,8 +135,8 @@ pub fn is_published(bot: &Bot, operator: bool) -> bool {
 pub enum Published {
     /// The bot's artifact is on the public prefix.
     Live,
-    /// No curve has been collected for the bot yet (an exchange the collector
-    /// does not read, no stored keys, or a bot added since the last run), so
+    /// No curve has been collected for the bot yet (no stored keys, or a bot
+    /// added since the last run), so
     /// there is nothing to put on the page.
     NoCurveYet,
 }
@@ -153,11 +153,19 @@ pub trait ShowcasePublisher: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::exchange::Exchange;
 
     const LINK: &str = "https://www.bybit.com/copyTrade/x";
 
     fn a_public_bot() -> Bot {
-        let mut bot = Bot::create("u-1".into(), "shown".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "shown".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_public_url(Some(LINK.into()), 1).unwrap();
         bot
     }
@@ -197,7 +205,14 @@ mod tests {
 
     #[test]
     fn a_bot_is_published_when_it_is_on_the_operators_showcase() {
-        let private = Bot::create("u-1".into(), "quiet".into(), "ak".into(), "sk".into(), 1);
+        let private = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "quiet".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         assert!(!is_published(&private, true));
         assert!(is_published(&a_public_bot(), true));
         assert!(!is_published(&a_public_bot(), false), "not an operator");
@@ -209,7 +224,14 @@ mod tests {
             "hidden keeps the link, not the page"
         );
 
-        let mut unlinked = Bot::create("u-1".into(), "bare".into(), "ak".into(), "sk".into(), 1);
+        let mut unlinked = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "bare".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         unlinked.set_showcase(true, 2);
         assert!(is_published(&unlinked, true));
     }
@@ -229,7 +251,14 @@ mod tests {
     #[test]
     fn refreshing_takes_the_rows_name_and_link_and_keeps_the_curve() {
         let mut series = series_with("a", 3);
-        let mut bot = Bot::create("u-1".into(), "renamed".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "renamed".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_showcase(true, 2);
         series.refresh_from(&bot);
         assert_eq!(series.name, "renamed");

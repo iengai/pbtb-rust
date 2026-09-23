@@ -20,6 +20,7 @@ use common::{BOT_USERNAME, Harness, NOW, RESOURCE};
 use http::{Request, Response, StatusCode, header};
 use pbtb_rust::domain::bot::Bot;
 use pbtb_rust::domain::configtemplate::ConfigTemplate;
+use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::identity::{IdentityRepository, PROVIDER_TELEGRAM};
 use pbtb_rust::domain::user::Role;
 use pbtb_rust::interface::mcp::{AuthError, Principal, TokenVerifier};
@@ -68,6 +69,7 @@ fn body(response: &Response<Bytes>) -> Value {
 fn a_bot(user_id: &str, name: &str) -> Bot {
     Bot::create(
         user_id.to_string(),
+        Exchange::Bybit,
         name.to_string(),
         "key-of-the-bot".to_string(),
         "secret-of-the-bot".to_string(),
@@ -354,6 +356,59 @@ async fn adding_a_bot_stores_the_keys_and_returns_none_of_them() {
 }
 
 #[tokio::test]
+async fn a_hyperliquid_bot_is_added_with_an_address_and_an_api_wallet_key() {
+    let h = harness!();
+    let api = h.http_api(TOKEN);
+    // A published development key: known to everyone, guarding nothing.
+    let agent = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    let account = "0x1111111111111111111111111111111111111111";
+    let add = |exchange: &str, key: &str| {
+        request(
+            "POST",
+            "/bots",
+            Some(TOKEN),
+            Some(json!({
+                "name": "hl",
+                "exchange": exchange,
+                "api_key": account,
+                "secret_key": key,
+            })),
+        )
+    };
+
+    let unknown = api.handle(add("binance", agent)).await;
+    assert_eq!(unknown.status(), StatusCode::BAD_REQUEST);
+    let malformed = api.handle(add("hyperliquid", "the-secret")).await;
+    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    let text = String::from_utf8_lossy(malformed.body()).to_string();
+    assert!(text.contains("64 hex"), "{text}");
+    assert!(
+        !text.contains("the-secret"),
+        "the refusal echoes no secret: {text}"
+    );
+    assert_eq!(
+        h.api_keys.get(USER, "hl"),
+        None,
+        "a refused add writes nothing"
+    );
+
+    let created = api.handle(add("hyperliquid", agent)).await;
+    assert_eq!(
+        created.status(),
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(created.body())
+    );
+    assert_eq!(body(&created)["bot"]["exchange"], json!("hyperliquid"));
+    assert_eq!(
+        h.api_keys.get(USER, "hl"),
+        Some((account.to_string(), agent.to_string()))
+    );
+    let listed = String::from_utf8_lossy(api.handle(get("/bots")).await.body()).to_string();
+    assert!(!listed.contains(&agent[2..]), "the listing leaked the key");
+}
+
+#[tokio::test]
 async fn a_same_name_add_is_refused_until_the_caller_says_overwrite() {
     let h = harness!();
     h.given_bot(a_bot(USER, "abot")).await;
@@ -541,6 +596,7 @@ async fn a_template_is_described_never_dumped() {
         json!([{
             "name": "v7-template",
             "title": "10-coin basket · Balanced · $1k",
+            "exchange": "bybit",
             "min_vip_level": 0,
             "audience": "everyone"
         }])
@@ -585,6 +641,7 @@ async fn a_template_above_the_callers_level_is_refused_but_never_hidden() {
         json!([{
             "name": "gated",
             "title": "10-coin basket · Balanced · $1k",
+            "exchange": "bybit",
             "min_vip_level": 3,
             "audience": "everyone"
         }]),

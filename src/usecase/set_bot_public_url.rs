@@ -67,6 +67,7 @@ impl SetBotPublicUrlUseCase {
 mod tests {
     use super::*;
     use crate::domain::bot::Bot;
+    use crate::domain::exchange::Exchange;
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -109,6 +110,7 @@ mod tests {
         let bots = Arc::new(InMemoryBots::default());
         bots.save(&Bot::create(
             "u".into(),
+            Exchange::Bybit,
             "b".into(),
             "ak".into(),
             "sk".into(),
@@ -175,7 +177,7 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(
-                matches!(err, DomainError::InvalidPublicUrl(_)),
+                matches!(err, DomainError::InvalidPublicUrl { .. }),
                 "{bad}: {err}"
             );
         }

@@ -40,10 +40,15 @@ pub enum DomainError {
     #[error("this config needs VIP {required}; your account is VIP {current}")]
     InsufficientLevel { required: u8, current: u8 },
     /// A bot's public link is rendered on a page anyone can open, so only an
-    /// https page on bybit.com is accepted (`Bot::validate_public_url`); the
-    /// constraint is echoed so the user can fix the value.
-    #[error("a public link must be an https URL on bybit.com, got {0:?}")]
-    InvalidPublicUrl(String),
+    /// https page on the bot's own exchange is accepted
+    /// (`Bot::validate_public_url`); the constraint is echoed so the user can
+    /// fix the value.
+    #[error("a public link must be an https URL on {host}, got {got:?}")]
+    InvalidPublicUrl { host: &'static str, got: String },
+    /// The credentials a bot is added with do not have the shape its exchange
+    /// uses. The message says what was expected and never carries the value.
+    #[error("invalid credentials: {0}")]
+    InvalidCredentials(String),
     /// The action belongs to the operator's account (`Role::Operator`).
     #[error("this command is for the operator's account")]
     OperatorOnly,

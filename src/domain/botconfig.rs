@@ -1,6 +1,7 @@
 use crate::domain::ConfigTemplate;
 use crate::domain::engine::EngineVersion;
 use crate::domain::error::DomainError;
+use crate::domain::exchange::{Exchange, declared_exchange};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -397,11 +398,17 @@ impl BotConfig {
     }
 
     /// Exchange whose market data the strategy was tuned/backtested on (e.g.
-    /// `"bybit"`), read from `pbtb.exchange`. Distinct from the exchange the
-    /// bot trades on: a config tuned on bybit data may be deployed elsewhere,
-    /// and the mismatch is worth surfacing. `None` on legacy templates.
+    /// `"bybit"`), read from `pbtb.exchange` as written. `None` on legacy
+    /// templates. For the parsed value a launch is checked against, see
+    /// [`BotConfig::exchange`].
     pub fn data_exchange(&self) -> Option<&str> {
         self.pbtb_str("exchange")
+    }
+
+    /// The exchange the config was made for; see [`declared_exchange`]. A bot
+    /// launches only with a config of its own exchange.
+    pub fn exchange(&self) -> Result<Exchange, DomainError> {
+        declared_exchange(&self.config_data)
     }
 
     /// What a reader is shown the template as (`pbtb.title`), against

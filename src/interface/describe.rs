@@ -82,6 +82,7 @@ pub(crate) fn listing(listing: &TemplateListing) -> Value {
     json!({
         "name": listing.name,
         "title": listing.title,
+        "exchange": listing.exchange.as_str(),
         "min_vip_level": listing.min_vip_level,
         "audience": Audience::of(listing.operator_only).as_str(),
     })

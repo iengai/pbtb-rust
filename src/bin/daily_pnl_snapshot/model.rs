@@ -10,7 +10,9 @@
 //! readable name rides inside as mutable data. The public output, for a bot
 //! the operator put on the showcase page, carries the index alone plus one
 //! rounded capital figure per config switch and reset. Nothing here is
-//! Bybit-specific.
+//! exchange-specific: each exchange's adapter turns its own history into
+//! [`LedgerEntry`] rows, and the settlement coin is the exchange's quote
+//! (USDT on Bybit, USDC on Hyperliquid) wherever a field says `usdt`.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -21,8 +23,6 @@ use pbtb_rust::domain::configswitch::ConfigSwitchEvent;
 use pbtb_rust::domain::showcase::{
     PublicBotSeries, PublicPoint, PublicReset, PublicSwitch, public_id,
 };
-
-use crate::bybit::LedgerEntry;
 
 const DAY_S: i64 = 86_400;
 const DAY_MS: i64 = 86_400_000;
@@ -161,26 +161,17 @@ impl BotReturnSeries {
     }
 }
 
-/// Whether a ledger entry moves money into or out of the account rather than
-/// earning or losing it: transfers and deposits, exchange gifts, coin
-/// conversions, and the institutional-loan legs. Everything else — trades,
-/// settlement, funding, fees and their refunds, liquidation, ADL, margin
-/// interest — is the cost or the reward of trading, and counts as realized.
-fn is_capital_flow(kind: &str) -> bool {
-    matches!(
-        kind,
-        "TRANSFER_IN"
-            | "TRANSFER_OUT"
-            | "DEPOSIT"
-            | "WITHDRAW"
-            | "AIRDROP"
-            | "BONUS"
-            | "RECEIVE"
-            | "CURRENCY_BUY"
-            | "CURRENCY_SELL"
-    ) || kind.starts_with("TRANSFER_")
-        || kind.starts_with("SPOT_REPAYMENT_")
-        || kind.ends_with("_INS_LOAN")
+/// One movement of the settlement coin in the account, as an adapter
+/// normalises it: `change` is the net cash effect, `cash_balance` the balance
+/// right after it. `flow` marks money moving into or out of the account
+/// (deposits, withdrawals, transfers, gifts) rather than being earned or lost
+/// by trading; the adapter decides it, since only it knows its exchange's
+/// kinds of entry.
+pub struct LedgerEntry {
+    pub ts_ms: i64,
+    pub change: f64,
+    pub cash_balance: f64,
+    pub flow: bool,
 }
 
 fn round4(v: f64) -> f64 {
@@ -212,7 +203,7 @@ pub fn aggregate(ledger: &[LedgerEntry]) -> (Vec<DayAgg>, Option<f64>) {
             pre_balance: 0.0,
             first_ts: i64::MAX,
         });
-        if !is_capital_flow(&e.kind) {
+        if !e.flow {
             d.realized += e.change;
         }
         if e.ts_ms >= d.last_ts {
@@ -429,6 +420,7 @@ pub fn publish_plan<'a>(
 #[cfg(test)]
 mod public_tests {
     use super::*;
+    use pbtb_rust::domain::exchange::Exchange;
     use pbtb_rust::domain::showcase::PublicIndex;
 
     const LINK: &str = "https://www.bybit.com/copyTrade/x";
@@ -442,7 +434,14 @@ mod public_tests {
     }
 
     fn a_public_bot() -> Bot {
-        let mut bot = Bot::create("u-1".into(), "shown".into(), "ak".into(), "sk".into(), 1);
+        let mut bot = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "shown".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         bot.set_public_url(Some(LINK.into()), 1).unwrap();
         bot
     }
@@ -571,7 +570,14 @@ mod public_tests {
         assert_eq!(series.id, public_id("u-1", "shown"));
         assert_eq!(series.public_url.as_deref(), Some(LINK));
 
-        let mut unlinked = Bot::create("u-1".into(), "bare".into(), "ak".into(), "sk".into(), 1);
+        let mut unlinked = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "bare".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         unlinked.set_showcase(true, 2);
         let bare =
             showcase_artifact(&unlinked, true, &ReturnSeries::default(), &[], &[], 0).unwrap();
@@ -599,7 +605,14 @@ mod public_tests {
     #[test]
     fn showcase_publish_follows_rows_reread_after_the_build() {
         let shown = public_series(&a_public_bot(), &ReturnSeries::default(), &[], &[], 0);
-        let other = Bot::create("u-1".into(), "other".into(), "ak".into(), "sk".into(), 1);
+        let other = Bot::create(
+            "u-1".into(),
+            Exchange::Bybit,
+            "other".into(),
+            "ak".into(),
+            "sk".into(),
+            1,
+        );
         let hidden_mid_run = public_series(&other, &ReturnSeries::default(), &[], &[], 0);
         let failed_but_shown = public_id("u-1", "failed");
         let published: HashSet<String> = [shown.id.clone(), failed_but_shown.clone()].into();
@@ -641,12 +654,13 @@ mod public_tests {
 mod tests {
     use super::*;
 
+    /// A Bybit-kinded entry, classified the way the Bybit adapter does.
     fn entry(ts_ms: i64, kind: &str, change: f64, bal: f64) -> LedgerEntry {
         LedgerEntry {
             ts_ms,
-            kind: kind.to_string(),
             change,
             cash_balance: bal,
+            flow: crate::bybit::is_capital_flow(kind),
         }
     }
 
