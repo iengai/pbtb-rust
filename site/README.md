@@ -222,8 +222,9 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   `strategies[{name, side}]`, `points[{ts, equity, balance}]` normalized to
   100 at the backtest start, and the `source_sha` / `trading_sha` /
   `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`
-  covers what passivbot reads alone, so an audience switch does not re-run a
-  backtest). `metrics` follow passivbot's
+  covers what passivbot reads alone, less the candle directory, which the
+  artifact's `ohlcv_source_dir` records, so an audience switch does not re-run
+  a backtest). `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
   `drawdown_worst` are fractions). **Never put strategy parameters in these
   files** (the owner chose to publish two parameter-derived facts: the coins a
@@ -251,12 +252,10 @@ day (the template in S3 is not touched; the artifact's `end` says which),
 which is how the catalogue is brought up to date; without the flag a template
 keeps the end its artifact was run to, and only a template with no artifact
 yet runs to its own `backtest.end_date`. The mainstream templates read candles
-from `caches/ohlcv_padded` (their `backtest.ohlcv_source_dir`), whose alts end
-2025-10-28 and BTC and XRP 2025-11-18; the XRP templates that set no directory
-read passivbot's own data. A window past the padded data needs
-`--ohlcv-source-dir` naming a directory that covers it (on the developer
-machine `caches/ohlcv_combined`, kept current by the strategy lab's
-`fetch_live_ohlcv.py`); the flag applies to every template, the XRP ones
+from `caches/ohlcv_combined` (their `backtest.ohlcv_source_dir`, on the
+developer machine kept current by the strategy lab's `fetch_live_ohlcv.py`);
+the XRP templates that set no directory read passivbot's own data.
+`--ohlcv-source-dir` points every run at another directory, the XRP templates
 included. When a run has a candle directory, from the template or the flag,
 and that directory stops before the day before the window end, the template
 fails instead of running: passivbot completes such a run without the missing

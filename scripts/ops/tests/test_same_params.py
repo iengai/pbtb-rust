@@ -22,6 +22,15 @@ def config(balance: int, exposure: float = 1.0) -> dict:
     }
 
 
+class TradingSha(unittest.TestCase):
+    def test_the_candle_directory_is_not_the_strategy(self):
+        padded = {**config(500), "backtest": {"starting_balance": 500, "ohlcv_source_dir": "caches/ohlcv_padded"}}
+        combined = {**config(500), "backtest": {"starting_balance": 500, "ohlcv_source_dir": "caches/ohlcv_combined"}}
+        self.assertEqual(backtest_templates.trading_sha(padded), backtest_templates.trading_sha(combined))
+        self.assertEqual(backtest_templates.trading_sha(padded), backtest_templates.trading_sha(config(500)))
+        self.assertNotEqual(backtest_templates.trading_sha(config(500)), backtest_templates.trading_sha(config(1000)))
+
+
 class SameParams(unittest.TestCase):
     def test_the_backtest_block_and_our_blocks_do_not_tell_tunings_apart(self):
         at_500 = {**config(500), "pbtb": {"name": "tpl-a"}, "lab": {"iter": 1}}

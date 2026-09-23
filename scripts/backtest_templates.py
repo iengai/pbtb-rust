@@ -48,18 +48,16 @@ run. A rung that fails leaves the template without a profile; its own run is
 still written.
 
 A run reads candles from its ``backtest.ohlcv_source_dir`` when one is set
-(the mainstream templates name ``caches/ohlcv_padded``, whose alts end
-2025-10-28 and BTC and XRP 2025-11-18; the XRP templates that set none read
-passivbot's own data), and passivbot does not fail when the window runs past
-the end of that directory: the run completes without the candles past its last
-day, and ``backtest_completion_ratio`` still reports the whole window. When a
-run has a candle directory and a window end, the script checks before running
-that the directory holds a shard for every coin through the day before that
-end, and fails the template when it does not; a run with no candle directory
-is not checked. ``--ohlcv-source-dir`` points every run's copy at another
-directory (relative to each passivbot checkout), which is how a window is run
-past the end of ``caches/ohlcv_padded``; the artifact records the directory
-its run read, so a rerun with a different one is not skipped.
+(the mainstream templates name ``caches/ohlcv_combined``; the XRP templates
+that set none read passivbot's own data), and passivbot does not fail when the
+window runs past the end of that directory: the run completes without the
+candles past its last day, and ``backtest_completion_ratio`` still reports the
+whole window. When a run has a candle directory and a window end, the script
+checks before running that the directory holds a shard for every coin through
+the day before that end, and fails the template when it does not; a run with
+no candle directory is not checked. ``--ohlcv-source-dir`` points every run's copy at another
+directory (relative to each passivbot checkout); the artifact records the
+directory its run read, so a rerun with a different one is not skipped.
 """
 
 from __future__ import annotations
@@ -184,10 +182,15 @@ OURS = ("pbtb", "lab")
 
 
 def trading_sha(config: dict) -> str:
-    """The sha of what passivbot reads, over a canonical encoding: blind to our
-    blocks and to formatting, so a template whose audience the console switched
-    (which rewrites the object) still matches the backtest run on it."""
+    """The sha of the strategy passivbot reads, over a canonical encoding: blind
+    to our blocks and to formatting, so a template whose audience the console
+    switched (which rewrites the object) still matches the backtest run on it.
+    Blind to ``backtest.ohlcv_source_dir`` too: the candle directory is where a
+    run reads candles, not part of the strategy, and the artifact and the
+    capital profile's key each record it on their own."""
     strategy = {k: v for k, v in config.items() if k not in OURS}
+    if isinstance(strategy.get("backtest"), dict):
+        strategy["backtest"] = {k: v for k, v in strategy["backtest"].items() if k != "ohlcv_source_dir"}
     body = json.dumps(strategy, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
