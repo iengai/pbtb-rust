@@ -36,7 +36,8 @@ date goes into the run's copy only, and into the artifact's ``end``.
 
 ``--capital-profile`` runs every selected template that has no current capital
 profile, its own balance included, and then the same window at the balances of
-``CAPITAL_LADDER`` above its own, and records, per balance, the
+``CAPITAL_LADDER`` above its own (``LARGE_CAPITAL_LADDER`` for a template
+offered from its top rung or above), and records, per balance, the
 gain, the worst drawdown and the coins the fills went to. A template's capital
 is the least it is offered for, not a promise that more behaves the same: a
 small balance cannot place the first order on an expensive coin, and a config
@@ -95,6 +96,10 @@ DEFAULT_PB_V7 = REPO_ROOT.parent / "pb-v712"
 ENGINE_VERSION = {"v8": "v8.1.0", "v7": "v7.12.0"}
 # The balances a capital profile is run at: those above the template's own.
 CAPITAL_LADDER = (300, 500, 700, 1000, 1500, 2000, 3000, 5000, 10000)
+# A template offered from the ladder's top rung or above runs at these instead, the
+# balances the strategy lab profiles a $10k tuning at (up to about 33x, as the ladder
+# above does for $300); without them its profile is its own row and the page shows none.
+LARGE_CAPITAL_LADDER = (20000, 30000, 50000, 100000, 333000)
 # How `fill_shares` derives a row's coins, in a profile's key: a committed
 # profile was run on an engine, a strategy, a window and a candle directory,
 # and read out this way. Bumping it makes every committed profile stale, so
@@ -530,9 +535,11 @@ def profile_row(balance: float, result_dir: Path) -> dict:
 
 
 def ladder_for(balance: float | None) -> list[float]:
-    """The template's own balance, then every rung of the ladder above it."""
+    """The template's own balance, then every rung of the ladder above it: the
+    large ladder's for a template at the ladder's top or above."""
     own = float(balance or 0)
-    return [own] + [float(rung) for rung in CAPITAL_LADDER if rung > own]
+    rungs = CAPITAL_LADDER if own < CAPITAL_LADDER[-1] else LARGE_CAPITAL_LADDER
+    return [own] + [float(rung) for rung in rungs if rung > own]
 
 
 def profile_key(template: Template, source_dir: str | None) -> str:
@@ -711,7 +718,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--ohlcv-source-dir", metavar="DIR", help="candle directory every run reads instead of the template's own, relative to each passivbot checkout")
     parser.add_argument("--force", action="store_true", help="rerun templates whose artifact is current")
     parser.add_argument("--capital-profile", action="store_true",
-                        help="also run each processed template at the larger balances of CAPITAL_LADDER")
+                        help="also run each processed template at the larger balances of CAPITAL_LADDER "
+                             "(LARGE_CAPITAL_LADDER from its top rung up)")
     parser.add_argument("--sync", dest="sync", action="store_true", default=True, help="sync templates from S3 (default)")
     parser.add_argument("--no-sync", dest="sync", action="store_false", help="use the cached templates as-is")
     parser.add_argument("--profile", default=os.environ.get("AWS_PROFILE", "dev"), help="AWS profile for the S3 sync")

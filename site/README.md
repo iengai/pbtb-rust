@@ -215,7 +215,8 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   (without `capital_drawdown`) plus `capital_profile` (`{key, rows[{balance, gain,
   drawdown_worst, coins[{coin, share}]}]}`: the same parameters and window started
   from the template's own balance and each larger rung of
-  `backtest_templates.CAPITAL_LADDER`, written by `--capital-profile`; the
+  `backtest_templates.CAPITAL_LADDER` (`LARGE_CAPITAL_LADDER` for a template
+  offered from its top rung or above), written by `--capital-profile`; the
   template's page shows it as a table, because the capital in a title is the
   least the template is offered for and not a promise that more behaves the
   same; `key` is what the profile was run on, so a rerun keeps it), plus
