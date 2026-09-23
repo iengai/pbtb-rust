@@ -150,23 +150,39 @@ export const bots = {
     saved: (runtime: string) => `Runtime set to ${runtime}.`,
   },
 
-  // --- AddBot: name, key, secret ---
+  // --- AddBot: name and exchange, key, secret ---
   add: {
     title: "Add bot",
-    lead: "One bot per exchange sub-account. The key is stored encrypted and never shown again.",
+    lead: "One bot per exchange account. The key is stored encrypted and never shown again.",
     steps: {
       name: "Name",
-      apiKey: "API key",
+      apiKey: "Account",
       secret: "Secret",
     },
     nameLabel: "Bot name",
-    keyLabel: "Bybit API key",
-    keyPlaceholder: "Paste the API key",
-    keyHint: (ip: ReactNode) => <>Read + trade permissions. IP whitelist: {ip}.</>,
+    exchangeLabel: "Exchange",
+    exchangeHint: "Fixed for the bot's life: its configs and keys belong to one exchange.",
     egressFallback: "the egress address shown on the Account page",
-    secretLabel: "API secret",
-    secretPlaceholder: "Paste the API secret",
-    secretHint: "Sent once over TLS to the API, stored encrypted, never echoed back.",
+    // What the two credentials are on each exchange.
+    creds: {
+      bybit: {
+        keyLabel: "Bybit API key",
+        keyPlaceholder: "Paste the API key",
+        keyHint: (ip: ReactNode) => <>Read + trade permissions. IP whitelist: {ip}.</>,
+        secretLabel: "API secret",
+        secretPlaceholder: "Paste the API secret",
+        secretHint: "Sent once over TLS to the API, stored encrypted, never echoed back.",
+      },
+      hyperliquid: {
+        keyLabel: "Account address",
+        keyPlaceholder: "0x… (the wallet that holds the funds)",
+        keyHint: (_ip: ReactNode) => <>The address of the account the bot trades for. Hyperliquid has no IP whitelist.</>,
+        secretLabel: "API wallet private key",
+        secretPlaceholder: "0x… (64 hex characters)",
+        secretHint:
+          "Create an API wallet on app.hyperliquid.xyz (More → API) and paste its key, never the account's own: an API wallet can trade but cannot withdraw. One wallet per bot. Sent once over TLS, stored encrypted, never echoed back.",
+      },
+    },
     replaceKey: "Replace the stored key",
     conflict: (name: string) => (
       <>

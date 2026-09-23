@@ -32,7 +32,7 @@ export const account = {
   egress: {
     title: "Exchange egress address",
     unpublished: "Not published",
-    hint: "Whitelist this IP on every Bybit API key you add.",
+    hint: "Whitelist this IP on every Bybit API key you add. Hyperliquid keys have no IP whitelist.",
     askOperator:
       "Ask the operator for the NAT egress IP and whitelist it on every Bybit API key you add.",
   },

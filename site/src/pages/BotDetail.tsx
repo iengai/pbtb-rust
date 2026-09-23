@@ -11,7 +11,7 @@ import {
   DEFAULT_RANGE,
   RANGES,
   fmtSignedPct,
-  fmtUsdt,
+  fmtMoney,
   selectWindow,
 } from "../chart/returnCurve";
 import { Play, Restart, Stop, Trash } from "../components/icons";
@@ -158,7 +158,7 @@ export function BotDetail() {
             />
             <Tile
               k={t.bots.detail.netPnlTile(rangeK)}
-              v={fmtUsdt(ok?.stats.pnl)}
+              v={ok ? fmtMoney(ok.stats.pnl, ok.quote) : "—"}
               tone={ok?.stats.pnl != null ? (ok.stats.pnl >= 0 ? "up" : "down") : undefined}
             />
             <Tile

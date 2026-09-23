@@ -120,7 +120,7 @@ export const api = {
 
   listBots: () => request<{ bots: BotSummary[] }>("GET", "/bots"),
   getBot: (id: string) => request<BotDetail>("GET", `/bots/${encodeURIComponent(id)}`),
-  addBot: (body: { name: string; api_key: string; secret_key: string; overwrite?: boolean }) =>
+  addBot: (body: { name: string; exchange: string; api_key: string; secret_key: string; overwrite?: boolean }) =>
     request<{ status: "added" | "overwritten"; bot: BotSummary }>("POST", "/bots", body),
   deleteBot: (id: string) =>
     request<{ status: "deleted" }>("DELETE", `/bots/${encodeURIComponent(id)}`, { confirm: id }),

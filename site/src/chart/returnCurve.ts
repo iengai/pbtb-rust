@@ -4,10 +4,12 @@
 // /api/v1/bots/{id}/returns`, for the bot's owner, or as the showcase's
 // public `bots/{id}.json`. It carries a time-weighted return
 // index (cumulative return %, deposit-neutral) and, for the owner, the
-// realized PnL in USDT per day; never a balance. The money fields are optional
+// realized PnL per day in the exchange's settlement coin (the `usdt` fields
+// hold USDC on Hyperliquid); never a balance. The money fields are optional
 // because a series written before they existed has none and the public one
 // never does. No chart library.
 
+import { quoteOf } from "../data/exchange";
 import type { Frame, Margins } from "./frame";
 
 export type DailyPoint = {
@@ -40,10 +42,11 @@ export type Period = { start: number; end: number; template_name: string; starts
 export const fmtPct = (v: number): string => (Number.isFinite(v) ? `${v.toFixed(2)}%` : "—");
 export const fmtSignedPct = (v: number): string =>
   Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v.toFixed(2)}%` : "—";
-// Money is signed and rounded to cents; a missing figure is a dash, not a zero.
-export const fmtUsdt = (v: number | null | undefined): string =>
+// Money is signed, rounded to cents and named in its coin; a missing figure
+// is a dash, not a zero.
+export const fmtMoney = (v: number | null | undefined, quote: string): string =>
   v != null && Number.isFinite(v)
-    ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`
+    ? `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${quote}`
     : "—";
 export const fmtDate = (sec: number): string => new Date(sec * 1000).toISOString().slice(0, 10);
 
@@ -102,6 +105,8 @@ export type ChartWindow =
       reset: number | null;
       stats: WindowStats;
       caption: WindowCaption | null;
+      // The coin the money figures are in.
+      quote: string;
     }
   | { kind: "empty"; reason: "noData" }
   | { kind: "empty"; reason: "resetAfterWindow"; resetAt: number }
@@ -221,6 +226,7 @@ export function selectWindow(s: BotReturnSeries, rangeI: number): ChartWindow {
     reset: reset ?? null,
     stats: { label, ret: last.return_pct, peak, maxDrawdown, days: view.length, pnl, totalPnl },
     caption,
+    quote: quoteOf(s.exchange),
   };
 }
 
@@ -414,6 +420,7 @@ export function wireHover(
   labels: ChartLabels,
   periods: DrawnPeriod[],
   frame: Frame,
+  quote: string,
 ): () => void {
   const svg = container.querySelector("svg");
   const hit = container.querySelector<SVGElement>('[data-part="hit"]');
@@ -465,7 +472,7 @@ export function wireHover(
       `<div class="d">${fmtDate(p.ts)}</div>` +
       `<div class="row"><span>${escapeXml(labels.returnRow)}</span><b>${fmtPct(p.return_pct)}</b></div>` +
       (p.realized_usdt != null
-        ? `<div class="row"><span>${escapeXml(labels.pnlRow)}</span><b>${fmtUsdt(p.realized_usdt)}</b></div>`
+        ? `<div class="row"><span>${escapeXml(labels.pnlRow)}</span><b>${fmtMoney(p.realized_usdt, quote)}</b></div>`
         : "") +
       (pi >= 0
         ? `<div class="row"><span>${escapeXml(labels.configRow)}</span><b>${escapeXml(periods[pi]!.label)}</b></div>`

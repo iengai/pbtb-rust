@@ -15,7 +15,7 @@ export const MAX_BOTS_PER_TEMPLATE = 5;
 const DEAD_EPS = 1e-9;
 
 export type Run = {
-  bot: { id: string; name: string; public_url: string | null };
+  bot: { id: string; name: string; exchange: string; public_url: string | null };
   template_name: string;
   /** The capital the bot ran this span at, rounded to a magnitude by the collector. */
   cap_usdt: number;
@@ -89,7 +89,7 @@ function runOf(bot: ShowcaseBot, points: ShowcaseBot["points"], template: string
   if (!(base > DEAD_EPS)) return null;
   const view: ViewPoint[] = inside.map((p) => ({ ts: p.ts, return_pct: (p.index / base - 1) * 100 }));
   return {
-    bot: { id: bot.id, name: bot.name, public_url: bot.public_url },
+    bot: { id: bot.id, name: bot.name, exchange: bot.exchange, public_url: bot.public_url },
     template_name: template,
     cap_usdt: span.cap_usdt,
     start: span.start,

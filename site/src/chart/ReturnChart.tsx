@@ -143,7 +143,7 @@ export function ReturnChart({ window: win }: { window: ChartWindow }) {
 
   useEffect(() => {
     if (win.kind !== "ok" || !box.current || !tip.current) return;
-    return wireHover(box.current, tip.current, win.view, labels, periods, frame);
+    return wireHover(box.current, tip.current, win.view, labels, periods, frame, win.quote);
   }, [win, svg, labels, periods, frame]);
 
   // The band labels are markup, not router links; a click on one is routed

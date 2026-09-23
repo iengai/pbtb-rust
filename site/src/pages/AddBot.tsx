@@ -4,15 +4,19 @@ import { api, ApiError } from "../api/client";
 import { useAction } from "../api/hooks";
 import { Key } from "../components/icons";
 import { Crumbs, ErrorBanner } from "../components/ui";
+import { EXCHANGES, type ExchangeId, exchangeLabel } from "../data/exchange";
 import { useT } from "../i18n/locale";
 
-// The three-step add flow: name, key, secret. A 409 for an existing name is
-// shown as an overwrite confirmation and retried with `overwrite: true`.
+// The three-step add flow: name and exchange, key, secret. The exchange
+// decides what the two credentials are and is fixed for the bot's life. A 409
+// for an existing name is shown as an overwrite confirmation and retried with
+// `overwrite: true`.
 export function AddBot() {
   const t = useT();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
+  const [exchange, setExchange] = useState<ExchangeId>("bybit");
   const [apiKey, setApiKey] = useState("");
   const [secret, setSecret] = useState("");
   const [conflict, setConflict] = useState<string | null>(null);
@@ -20,12 +24,14 @@ export function AddBot() {
 
   const egress = import.meta.env.VITE_EGRESS_IP as string | undefined;
   const steps = [t.bots.add.steps.name, t.bots.add.steps.apiKey, t.bots.add.steps.secret];
+  const creds = t.bots.add.creds[exchange];
 
   const submit = (overwrite: boolean) =>
     action.run(async () => {
       try {
         const r = await api.addBot({
           name: name.trim(),
+          exchange,
           api_key: apiKey.trim(),
           secret_key: secret.trim(),
           ...(overwrite ? { overwrite: true } : {}),
@@ -93,16 +99,46 @@ export function AddBot() {
                 </div>
               )}
             </div>
+            <div className="field">
+              <label htmlFor="bot-exchange">{t.bots.add.exchangeLabel}</label>
+              {step === 0 ? (
+                <select
+                  id="bot-exchange"
+                  className="select"
+                  value={exchange}
+                  onChange={(e) => {
+                    setExchange(e.target.value as ExchangeId);
+                    setApiKey("");
+                    setSecret("");
+                  }}
+                >
+                  {EXCHANGES.map((e) => (
+                    <option key={e} value={e}>
+                      {exchangeLabel(e)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="input ro" style={{ display: "flex", alignItems: "center", color: "var(--text)" }}>
+                  {exchangeLabel(exchange)}
+                </div>
+              )}
+              {step === 0 && (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {t.bots.add.exchangeHint}
+                </div>
+              )}
+            </div>
             {step >= 1 && (
               <div className="field">
-                <label htmlFor="bot-key">{t.bots.add.keyLabel}</label>
+                <label htmlFor="bot-key">{creds.keyLabel}</label>
                 {step === 1 ? (
                   <input
                     id="bot-key"
                     className="input mono"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={t.bots.add.keyPlaceholder}
+                    placeholder={creds.keyPlaceholder}
                     autoFocus
                     autoComplete="off"
                     spellCheck={false}
@@ -113,7 +149,7 @@ export function AddBot() {
                   </div>
                 )}
                 <div className="hint" style={{ marginTop: 6 }}>
-                  {t.bots.add.keyHint(
+                  {creds.keyHint(
                     egress ? <span className="mono">{egress}</span> : t.bots.add.egressFallback,
                   )}
                 </div>
@@ -121,19 +157,19 @@ export function AddBot() {
             )}
             {step >= 2 && (
               <div className="field">
-                <label htmlFor="bot-secret">{t.bots.add.secretLabel}</label>
+                <label htmlFor="bot-secret">{creds.secretLabel}</label>
                 <input
                   id="bot-secret"
                   className="input mono"
                   type="password"
                   value={secret}
                   onChange={(e) => setSecret(e.target.value)}
-                  placeholder={t.bots.add.secretPlaceholder}
+                  placeholder={creds.secretPlaceholder}
                   autoFocus
                   autoComplete="off"
                 />
                 <div className="hint" style={{ marginTop: 6 }}>
-                  {t.bots.add.secretHint}
+                  {creds.secretHint}
                 </div>
               </div>
             )}

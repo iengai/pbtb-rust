@@ -139,20 +139,35 @@ export const bots: typeof en = {
   // --- AddBot：名称、API Key、API Secret ---
   add: {
     title: "添加机器人",
-    lead: "每个交易所子账户对应一个机器人。密钥加密存储，不会再次显示。",
+    lead: "每个交易所账户对应一个机器人。密钥加密存储，不会再次显示。",
     steps: {
       name: "名称",
-      apiKey: "API Key",
-      secret: "API Secret",
+      apiKey: "账户",
+      secret: "密钥",
     },
     nameLabel: "机器人名称",
-    keyLabel: "Bybit API Key",
-    keyPlaceholder: "粘贴 API Key",
-    keyHint: (ip) => <>需要读取 + 交易权限。IP 白名单：{ip}。</>,
+    exchangeLabel: "交易所",
+    exchangeHint: "添加后不可更改：机器人的配置和密钥都属于同一个交易所。",
     egressFallback: "账户页面上显示的出口 IP",
-    secretLabel: "API Secret",
-    secretPlaceholder: "粘贴 API Secret",
-    secretHint: "通过 TLS 一次性发送给 API，加密存储，不会回显。",
+    creds: {
+      bybit: {
+        keyLabel: "Bybit API Key",
+        keyPlaceholder: "粘贴 API Key",
+        keyHint: (ip) => <>需要读取 + 交易权限。IP 白名单：{ip}。</>,
+        secretLabel: "API Secret",
+        secretPlaceholder: "粘贴 API Secret",
+        secretHint: "通过 TLS 一次性发送给 API，加密存储，不会回显。",
+      },
+      hyperliquid: {
+        keyLabel: "账户地址",
+        keyPlaceholder: "0x…（存放资金的钱包）",
+        keyHint: () => <>机器人交易所用账户的地址。Hyperliquid 没有 IP 白名单。</>,
+        secretLabel: "API 钱包私钥",
+        secretPlaceholder: "0x…（64 位十六进制）",
+        secretHint:
+          "在 app.hyperliquid.xyz（More → API）创建 API 钱包并粘贴它的私钥，不要用账户本身的私钥：API 钱包能交易但不能提币。每个机器人用一个独立的 API 钱包。通过 TLS 一次性发送，加密存储，不会回显。",
+      },
+    },
     replaceKey: "替换已存储的密钥",
     conflict: (name) => (
       <>

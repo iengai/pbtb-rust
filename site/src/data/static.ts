@@ -7,6 +7,8 @@
 // showcase sample and no overlay. A signed-in account's own return curves are
 // not here: they come through the API.
 
+import { exchangeLink } from "./exchange";
+
 const BASE = import.meta.env.BASE_URL;
 const SHOWCASE = (import.meta.env.VITE_SHOWCASE_URL || `${BASE}data/`).replace(/\/?$/, "/");
 
@@ -62,8 +64,8 @@ export type TemplateBacktest = TemplateSummary & {
 };
 
 // One showcase bot in the showcase `index.json`: an opaque id (the collector's
-// hash, stable across renames), the copy-trading page it links to (null on a
-// bot shown without one), and the last 30 daily returns as a sparkline.
+// hash, stable across renames), its page on its exchange (null on a bot shown
+// without one), and the last 30 daily returns as a sparkline.
 export type ShowcaseEntry = {
   id: string;
   name: string;
@@ -93,24 +95,8 @@ export type ShowcaseBot = {
   capital_resets: ShowcaseReset[];
 };
 
-// A bot's copy-trading link as a page may put it in an href: an https URL on
-// bybit.com, or null. The link is typed in by the operator, and an href runs
-// whatever scheme it is given.
-export function bybitLink(url: string | null | undefined): string | null {
-  if (!url) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  const host = parsed.hostname.toLowerCase();
-  const onBybit = host === "bybit.com" || host.endsWith(".bybit.com");
-  return parsed.protocol === "https:" && onBybit ? parsed.href : null;
-}
-
-function withBybitLink<T extends { public_url: string | null }>(item: T): T {
-  return { ...item, public_url: bybitLink(item.public_url) };
+function withExchangeLink<T extends { public_url: string | null; exchange: string }>(item: T): T {
+  return { ...item, public_url: exchangeLink(item.public_url, item.exchange) };
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -131,12 +117,12 @@ async function getJSONOrNull<T>(url: string): Promise<T | null> {
 
 async function showcaseIndex(): Promise<ShowcaseIndex | null> {
   const index = await getJSONOrNull<ShowcaseIndex>(`${SHOWCASE}index.json`);
-  return index && { ...index, bots: index.bots.map(withBybitLink) };
+  return index && { ...index, bots: index.bots.map(withExchangeLink) };
 }
 
 async function showcaseBot(id: string): Promise<ShowcaseBot | null> {
   const bot = await getJSONOrNull<ShowcaseBot>(`${SHOWCASE}bots/${encodeURIComponent(id)}.json`);
-  return bot && withBybitLink(bot);
+  return bot && withExchangeLink(bot);
 }
 
 // The ids in the showcase CDN's `templates/audience.json`, the overlay the

@@ -28,6 +28,7 @@ export const configs = {
     // The operator's two catalogues; everyone else sees the published one alone.
     tabs: { published: "Published", retired: "Retired" },
     allPositions: "All",
+    allExchanges: "All exchanges",
     templates: "templates",
     empty: { published: "No templates published yet.", retired: "No retired templates." },
     maxDd: "Max DD",

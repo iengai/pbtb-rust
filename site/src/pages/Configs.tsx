@@ -15,6 +15,7 @@ import {
   templateTitle,
 } from "../components/ui";
 import { currentTemplate } from "../chart/showcase";
+import { exchangeLabel } from "../data/exchange";
 import { SLOW_EDGE_MS, isRetired, staticData, type TemplateSummary } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { SORTS, SORT_KEYS, type SortKey, fmtGain, fmtMetric, sortTemplates, tradedLabels, wipedOut } from "./metrics";
@@ -36,6 +37,9 @@ export function Configs() {
   const [tab, setTab] = useState<Catalogue>("published");
   // The list's first split: templates that hold one position at a time, and those that hold several.
   const [positions, setPositions] = useState<string>("all");
+  // A template is made for one exchange and applies to that exchange's bots
+  // alone, so the list splits by it once it holds more than one.
+  const [exchange, setExchange] = useState<string>("all");
   // The key the list is sorted by, and whether its own direction is reversed:
   // a second press on the chosen key turns the list around.
   const [sort, setSort] = useState<{ key: SortKey; flip: boolean }>({ key: "gain", flip: false });
@@ -68,14 +72,22 @@ export function Configs() {
     () => POSITION_CLASSES.filter((c) => offered.some((tpl) => tpl.positions === c)),
     [offered],
   );
+  const offeredExchanges = useMemo(
+    () => Array.from(new Set(offered.map((tpl) => tpl.exchange))).sort(),
+    [offered],
+  );
   const shown = useMemo(
     () =>
       sortTemplates(
-        offered.filter((tpl) => positions === "all" || tpl.positions === positions),
+        offered.filter(
+          (tpl) =>
+            (positions === "all" || tpl.positions === positions) &&
+            (exchange === "all" || tpl.exchange === exchange),
+        ),
         sort.key,
         sort.flip,
       ),
-    [offered, positions, sort],
+    [offered, positions, exchange, sort],
   );
   // The bots holding each template now. The account's own come from the API,
   // one read per bot since the list carries no config; the showcase's from the
@@ -153,9 +165,31 @@ export function Configs() {
                   onClick={() => {
                     setTab(c);
                     setPositions("all");
+                    setExchange("all");
                   }}
                 >
                   {t.configs.list.tabs[c]}
+                </button>
+              ))}
+            </div>
+          )}
+          {offeredExchanges.length > 1 && (
+            <div className="ranges">
+              <button
+                type="button"
+                className={`range${exchange === "all" ? " on" : ""}`}
+                onClick={() => setExchange("all")}
+              >
+                {t.configs.list.allExchanges}
+              </button>
+              {offeredExchanges.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className={`range${exchange === e ? " on" : ""}`}
+                  onClick={() => setExchange(e)}
+                >
+                  {exchangeLabel(e)}
                 </button>
               ))}
             </div>

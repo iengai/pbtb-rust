@@ -1,3 +1,4 @@
+import { exchangeLabel } from "../data/exchange";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLoad } from "../api/hooks";
@@ -150,7 +151,7 @@ export function ConfigChart({ template }: { template: TemplateBacktest }) {
               </Link>
               {bot.public_url ? (
                 <a href={bot.public_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
-                  {t.showcase.onBybit} ↗
+                  {t.showcase.onExchange(exchangeLabel(bot.exchange))} ↗
                 </a>
               ) : (
                 <span />

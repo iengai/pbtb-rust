@@ -31,7 +31,7 @@ export const account: typeof en = {
   egress: {
     title: "交易所出口地址",
     unpublished: "未公布",
-    hint: "在你添加的每个 Bybit API Key 上，把这个 IP 加入白名单。",
+    hint: "在你添加的每个 Bybit API Key 上，把这个 IP 加入白名单。Hyperliquid 的密钥没有 IP 白名单。",
     askOperator: "向运维索取 NAT 出口 IP，并在你添加的每个 Bybit API Key 上加入白名单。",
   },
   session: {
