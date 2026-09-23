@@ -60,7 +60,15 @@ is the console's, `lab` is ours.
   The operator switches it on the console's Configs page
   (`PUT /api/v1/templates/{id}/audience`); `annotate_templates.py` keeps the
   mark the object carries.
-- `exchange` — whose market data the strategy was tuned on.
+- `exchange` — the exchange the template is for: whose market data the
+  strategy was tuned on, and the one exchange whose bots may apply it. The
+  Telegram chooser offers a bot its own exchange's templates, the server
+  refuses any other at the preview and at every launch, and the site's
+  catalogue splits by it once it holds more than one. The transfer refuses a
+  config that names no exchange this service trades on. A Hyperliquid template
+  is tuned and backtested on Hyperliquid data, its `capital_usdt` is in USDC,
+  and its title may repeat a Bybit one: titles are told apart within an
+  exchange only.
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
   `annotate_templates.py` stamps the list from the config — a side with an

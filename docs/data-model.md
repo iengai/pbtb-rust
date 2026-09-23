@@ -25,13 +25,13 @@ The bot's configured identity and desired state.
 | Attribute | Description |
 |-----------|-------------|
 | `name` | Bot display name |
-| `exchange` | Target exchange (currently Bybit) |
-| `api_key` | Exchange API key |
-| `secret_key` | Exchange API secret |
+| `exchange` | `bybit` or `hyperliquid`. Fixed for the bot's life: an overwrite that names another exchange is refused |
+| `api_key` | Bybit: the API key. Hyperliquid: the account address (`0x` + 40 hex, lowercase) |
+| `secret_key` | Bybit: the API secret. Hyperliquid: the private key of an API wallet approved for the account (`0x` + 64 hex); the account's own key is refused, and so is a wallet another of the account's bots signs with |
 | `enabled` | Desired state (user intent) — whether the user turned the bot on |
 | `runtime` | Which image runs the bot's engine line: `py` (passivbot, Python) or `rs` (pb-runner, Rust). Optional; a row without it reads as `py`. Read at launch only (`/runtime <bot_id> py\|rs` sets it; applies on the next Run or Restart) |
-| `public_url` | The bot's Bybit copy-trading page, an https URL on `bybit.com`. Optional; written by `/public <bot_id> <url>` (the operator's account only) or by the ops `set-public-url` (any account; the collector publishes only an operator's bots, so on a member's bot the link is inert); `off` removes it. Read as stored |
-| `showcase` | Whether the bot is on the public showcase page: a boolean the operator sets from the console (`PUT /api/v1/bots/{id}/showcase`). Optional; absent means no choice was made, and the bot is shown exactly when it carries `public_url`. Independent of the link: hiding keeps `public_url`, and a bot without one can be shown (its page has no Bybit button) |
+| `public_url` | The bot's page on its exchange: an https URL on `bybit.com` (a copy-trading page) or `hyperliquid.xyz` (a vault), or a subdomain of either, matching the bot's `exchange`. Optional; written by `/public <bot_id> <url>` (the operator's account only) or by the ops `set-public-url` (any account; the collector publishes only an operator's bots, so on a member's bot the link is inert); `off` removes it. Read as stored |
+| `showcase` | Whether the bot is on the public showcase page: a boolean the operator sets from the console (`PUT /api/v1/bots/{id}/showcase`). Optional; absent means no choice was made, and the bot is shown exactly when it carries `public_url`. Independent of the link: hiding keeps `public_url`, and a bot without one can be shown (its page has no exchange button) |
 | `created_at` | Creation timestamp |
 | `updated_at` | Last-modified timestamp |
 
@@ -145,7 +145,9 @@ Bucket: {project}-{env}-bot-configs
   [config-transfer.md](config-transfer.md)). The template's own metadata sits
   under its top-level `pbtb` object: `title` / `title_zh`, what a reader is
   shown it as; the naming properties they are composed from (`universe`,
-  `capital_usdt`, `style`, `profile`, `generation`, `engine`); `exchange`,
+  `capital_usdt`, `style`, `profile`, `generation`, `engine`); `exchange`, the
+  exchange the template is for (absent reads as `bybit`; a template is applied
+  to, and launched on, a bot of that exchange only),
   `description`, `strategies`; `min_vip_level`, the lowest account level
   that may apply it (absent = open to all); and `audience`, `"operator"` on a
   retired template, offered to the operator's account only (absent =
@@ -164,9 +166,14 @@ Bucket: {project}-{env}-bot-configs
   intact. `scripts/archive_templates.py` moves an id either way and refuses to
   archive one a bot's stored config still names.
 - `{user_id}/{bot_id}/{bot_id}.json` — the bot's configuration.
-- `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials.
+- `{user_id}/{bot_id}/api-keys.json` — the bot's exchange API credentials, in
+  the shape passivbot reads: `{"<bot_id>": {"exchange": "bybit", "key", "secret"}}`,
+  or on Hyperliquid `{"<bot_id>": {"exchange": "hyperliquid", "wallet_address",
+  "private_key", "is_vault": false}}`. A file without `exchange` is Bybit's.
 
 ## S3 (return curves)
+
+The collector reads each exchange its own way into one neutral ledger: Bybit's signed transaction log, which carries the balance after every entry, and on Hyperliquid the public `info` queries keyed by the account address (fills' closed PnL net of fees, funding, the non-funding ledger's transfers), with the balance walked back from the account's cash at the time of the read. Money fields named `usdt` hold the exchange's quote coin: USDC on Hyperliquid.
 
 The chart bucket (`{project}-{env}-return-charts`) is the daily collector's, keyed by tenant like the config bucket: `charts/{user_id}/{bot_id}.json` is the series the API serves to the bot's owner (`GET /api/v1/bots/{id}/returns`), `_state/{user_id}/{bot_id}.json` the accumulated ledger only the collector reads. The prefix is one Terraform local shared by the collector and the API function. The console reads a tenant's curves through the API after sign-in.
 

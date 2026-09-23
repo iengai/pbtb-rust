@@ -188,7 +188,7 @@ Core business entities and repository interfaces, with no external dependencies:
 - `BotRuntime` (`runtime.rs`) — the **observed state** aggregate (`RuntimePhase::{Starting, Running, Stopping, Stopped}`, `task_id`, `version`, `observed_at`). Kept separate from desired state.
 - `BotConfig` — user-specific bot configuration. Owns its business rules: `apply_risk_level` sets the risk and derives leverage (`= max(long, short) + 1`) atomically; `from_template` / `set_live_user` bind the `live.user` field.
 - `ConfigTemplate` — reusable configuration templates.
-- `Exchange` — supported exchanges (currently Bybit).
+- `Exchange` — the exchanges a bot trades on (Bybit, Hyperliquid): what the two credentials are and how they are checked (`validate_credentials`), the quote coin, the site a public link may point at. A template or config declares its exchange in `pbtb.exchange` (`declared_exchange`); applying one to a bot of another exchange is refused at the preview, and every launch re-checks it together with `Runtime::ensure_trades_on` (pb-runner trades on Bybit only).
 - Value objects: `RiskLevel`, `Leverage`, `Coins`. `RiskLevel` / `Leverage` validate on construction (`::new` returns `Result`), so an instance is always in range.
 - Errors: `DomainError` (a `thiserror` enum) is the domain failure type.
 - Repository ports: `BotRepository`, `BotRuntimeRepository`, `StartLockRepository`, `ApiKeyRepository`, plus the `Clock` port (`SystemClock` in production).
