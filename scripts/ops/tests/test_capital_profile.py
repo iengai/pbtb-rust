@@ -33,7 +33,13 @@ class CapitalProfile(unittest.TestCase):
         self.assertEqual(ladder_for(300), [300.0, 500.0, 700.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 10000.0])
         self.assertEqual(ladder_for(100)[:2], [100.0, 300.0])
         self.assertEqual(ladder_for(2500), [2500.0, 3000.0, 5000.0, 10000.0])
-        self.assertEqual(ladder_for(10000), [10000.0])
+
+    def test_a_template_from_the_ladders_top_runs_at_the_large_ladder(self):
+        # Without it a $10k template's profile is its own row, which the page does not show.
+        self.assertEqual(ladder_for(10000), [10000.0, 20000.0, 30000.0, 50000.0, 100000.0, 333000.0])
+        self.assertEqual(ladder_for(50000), [50000.0, 100000.0, 333000.0])
+        # Below the top rung the ladder stops at $10k; the large ladder never applies.
+        self.assertEqual(ladder_for(5000), [5000.0, 10000.0])
 
     def test_fill_shares_are_percentages_of_the_fill_count_largest_first(self):
         with tempfile.TemporaryDirectory() as tmp:
