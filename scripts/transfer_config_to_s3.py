@@ -59,10 +59,11 @@ Usage:
 A new id is generated; --name overwrites an existing template instead.
 
 `capital_usdt` is the least capital the tuning holds up at, so a tuning is one
-template: the transfer refuses a config whose parameters (`params_sha`, the
-strategy without its `backtest` block) a template in site/templates/index.json
-already carries. --allow-same-params lets it through, for the tuning moving to
-a lower capital; the template it replaces is then retired.
+template per exchange: the transfer refuses a config whose parameters
+(`params_sha`, the strategy without its `backtest` block) a template of the
+same exchange in site/templates/index.json already carries.
+--allow-same-params lets it through, for the tuning moving to a lower capital;
+the template it replaces is then retired.
 
 Before an upload the config passes the cold-start gate (scripts/stress_gate.py):
 every stress window run on its own from `capital_usdt`, completed inside its
@@ -94,11 +95,14 @@ EXCHANGES = ("bybit", "hyperliquid")
 SITE_INDEX = Path(__file__).resolve().parent.parent / "site" / "templates" / "index.json"
 
 
-def same_params(raw: dict, name: str, index: list[dict]) -> list[dict]:
-    """The index rows of other templates that trade `raw`'s parameters. None for
-    a template that carries them itself: overwriting it adds no template."""
+def same_params(raw: dict, name: str, index: list[dict], exchange: str = "bybit") -> list[dict]:
+    """The index rows of other templates for `exchange` that trade `raw`'s
+    parameters. None for a template that carries them itself: overwriting it
+    adds no template. A tuning is one template per exchange: its Hyperliquid
+    copy (scripts/hyperliquid_copy.py) trades the Bybit template's parameters."""
     sha = params_sha(raw)
-    carriers = [row for row in index if row.get("params_sha") == sha]
+    carriers = [row for row in index
+                if row.get("params_sha") == sha and (row.get("exchange") or "bybit") == exchange]
     if any(row.get("name") == name for row in carriers):
         return []
     return carriers
@@ -220,7 +224,8 @@ def main() -> int:
         index = []
         print(f"warning: {SITE_INDEX} is missing; not checked against the listed templates",
               file=sys.stderr)
-    twins = same_params(raw, name, index)
+    exchange = args.exchange or next(iter((raw.get("backtest") or {}).get("exchanges") or []), None)
+    twins = same_params(raw, name, index, exchange or "bybit")
     if twins and not args.allow_same_params:
         listed = ", ".join(f"{row['name']} (${row.get('starting_balance')})" for row in twins)
         print(f"error: these parameters are already a template: {listed}. capital_usdt is the "

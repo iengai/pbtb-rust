@@ -461,6 +461,21 @@ def pick_metrics(analysis: dict) -> dict:
     return metrics
 
 
+def completed(metrics: dict, template: Template) -> dict:
+    """`metrics` with a window run to its last candle read as complete: at a
+    candle wider than a minute passivbot counts one candle fewer than the
+    window holds (0.99976 over Hyperliquid's 175 days at 1 hour), which the
+    site and the descriptions would read as a liquidation."""
+    ratio = metrics.get("backtest_completion_ratio")
+    minutes = template.backtest.get("candle_interval_minutes") or 1
+    start, end = template.backtest.get("start_date"), template.end_date
+    if ratio is None or ratio >= 1 or minutes <= 1 or not (start and end):
+        return metrics
+    days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+    candles = days * 1440 / minutes
+    return {**metrics, "backtest_completion_ratio": 1.0} if (1 - ratio) * candles <= 1.5 else metrics
+
+
 def parse_timestamp(value: str) -> int:
     """Row index of balance_and_equity.csv.gz as unix seconds (UTC)."""
     text = value.strip()
@@ -612,11 +627,14 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         "starting_balance": template.backtest.get("starting_balance"),
         # The candle directory the run read, relative to the passivbot checkout.
         "ohlcv_source_dir": candle_dir(template, source_dir),
+        # The candle the run stepped by, in minutes: 60 on Hyperliquid's
+        # candles, which reach back about 208 days at 1 hour and not at all at 1.
+        "candle_minutes": template.backtest.get("candle_interval_minutes") or 1,
         # No description: the artifacts are public and the authors' notes name
         # leverage, position counts and exposure caps. The description reaches
         # a signed-in user through the API instead.
         "strategies": template.strategies,
-        "metrics": pick_metrics(analysis),
+        "metrics": completed(pick_metrics(analysis), template),
         # The coins the fills went to, which for a config that holds one
         # position are far fewer than the basket `coins` names.
         "traded": fill_shares(result_dir),

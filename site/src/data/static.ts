@@ -35,6 +35,9 @@ export type TemplateSummary = {
   end: string;
   /** The balance the backtest started with: the least capital the template is offered for. */
   starting_balance?: number | null;
+  /** The candle the backtest stepped by, in minutes: 60 on Hyperliquid's candles, which reach back
+   *  about 208 days at 1 hour and not at all at 1 minute. Absent: 1. */
+  candle_minutes?: number | null;
   description: string;
   metrics: Record<string, number>;
   /** The coins the backtest's fills went to, largest share first: for a template that holds one

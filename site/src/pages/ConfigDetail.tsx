@@ -119,6 +119,11 @@ export function ConfigDetail() {
           </div>
 
           <ConfigChart key={data.name} template={data} />
+          {(data.candle_minutes ?? 1) > 1 && (
+            <div className="hint" style={{ marginTop: 6 }}>
+              {t.configs.detail.candleNote((data.candle_minutes ?? 60) / 60)}
+            </div>
+          )}
 
           <div className="two-col">
             <div className="stack">
