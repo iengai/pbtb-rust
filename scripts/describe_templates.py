@@ -12,6 +12,14 @@ ones that chart shows::
     🎚 默认钱包敞口约 <exposure> 倍（杠杆倍数只是保证金档位）
     回测结果不代表未来收益。
 
+A Hyperliquid copy of a Bybit template (scripts/hyperliquid_copy.py) is
+backtested on Hyperliquid's 1-hour candles, about six months of them, and its
+📈 line says so. Its PUBLIC entry names the Bybit template (``bybit``), whose
+multi-year 1-minute backtest follows as a second 📈 line, and the lab's
+transfer check (``transfer``: both exchanges at 1 hour over one window, as
+``(gain, drawdown)``) as a 🔁 line. Its 🧪 windows ran on Bybit's candles, which
+reach back before Hyperliquid's (scripts/stress_gate.py), and say so.
+
 The 📈 line is the site backtest (``site/templates/<id>.json``); a backtest
 that did not complete its window is a liquidation and is said so, with no
 multiple, as the site does. Basket, style and capital come from ``pbtb``. The
@@ -35,6 +43,7 @@ Run it after ``backtest_templates.py``, or after adding a template to PUBLIC::
 
     python scripts/describe_templates.py                  # dry run
     python scripts/describe_templates.py --apply --profile dev
+    python scripts/describe_templates.py --apply --profile dev --only tpl-ca5bm3kv
 """
 
 from __future__ import annotations
@@ -70,6 +79,8 @@ BEAR_2026 = "2025-11-01～2026-03-01 熊市"
 CRASH_2026 = "2026-06 崩盘"
 SINCE_CRASH_2026 = "2026-06-06～09-04"
 SINCE_JUL_2026 = "2026-07-15～09-11"
+FEB_2026 = "2026-01-10～02-20"
+EXCHANGE_NAMES = {"bybit": "Bybit", "hyperliquid": "Hyperliquid"}
 
 
 def window(label: str, drawdown: float | str, gain: float | None = None) -> dict:
@@ -153,6 +164,25 @@ PUBLIC: dict[str, dict] = {
     "tpl-tavc364d": {"capital": 500, "character": "换币不频繁",
                      "stress": [window(CRASH_2025, 0.202),
                                 window(BEAR_2026, 0.505, 0.204)]},
+    # The Hyperliquid copies of the round-22 $10k templates tpl-wjcxjbar and
+    # tpl-jmx3u265: their windows are the Bybit templates' `lab.stress` runs,
+    # the transfer check passivbot strategy_lab/results/round22/hl_check_K_10k.json.
+    "tpl-ca5bm3kv": {"capital": 10000, "bybit": "tpl-wjcxjbar",
+                     "character": "同时持多仓轮动，资金从 $10k 放大到 $333k 表现几乎不变，回撤控制优先",
+                     "stress": [window(CRASH_2025, 0.025, 0.026),
+                                window(BEAR_2026, 0.047, 0.091),
+                                window(FEB_2026, 0.049, 0.058),
+                                window(SINCE_JUL_2026, 0.001, 0.003)],
+                     "transfer": {"window": "2026-03-30～09-12",
+                                  "bybit": (1.025, 0.265), "hyperliquid": (1.037, 0.134)}},
+    "tpl-wcr63g8b": {"capital": 10000, "bybit": "tpl-jmx3u265",
+                     "character": "同时持多仓轮动，收益比极保守版高，参数稍有扰动时回撤可到 17%",
+                     "stress": [window(CRASH_2025, 0.047, 0.073),
+                                window(BEAR_2026, 0.065, 0.166),
+                                window(FEB_2026, 0.070, 0.074),
+                                window(SINCE_JUL_2026, 0.001, 0.003)],
+                     "transfer": {"window": "2026-03-30～09-12",
+                                  "bybit": (1.013, 0.297), "hyperliquid": (1.071, 0.301)}},
     "tpl-xhdfc2ws": {"capital": 1000, "character": "换币不频繁",
                      "stress": [window(CRASH_2025, 0.155),
                                 window(BEAR_2026, 0.667, 0.229),
@@ -196,7 +226,26 @@ def stale_windows(meta: dict, entry: dict) -> str | None:
             f"${capital}: run them at that capital and update PUBLIC")
 
 
-def describe(config: dict, artifact: dict, entry: dict) -> str:
+def backtest_line(artifact: dict, candles: str = "") -> str:
+    metrics = artifact["metrics"]
+    span = f"{artifact['start']}～{artifact['end']}{candles}"
+    completion = metrics.get("backtest_completion_ratio")
+    if completion is not None and completion < 1:
+        return f"📈 回测 {span}：跑到区间的 {completion:.1%} 时爆仓"
+    return (f"📈 回测 {span}：{multiple(metrics['gain'])} 倍"
+            f" · 📉 最大回撤 {metrics['drawdown_worst']:.1%}")
+
+
+def candles_of(artifact: dict) -> str:
+    """What the 📈 line says of a backtest not stepped by the minute."""
+    minutes = artifact.get("candle_minutes") or 1
+    if minutes == 1:
+        return ""
+    step = f"{minutes // 60} 小时" if minutes % 60 == 0 else f"{minutes} 分钟"
+    return f"（{EXCHANGE_NAMES.get(artifact.get('exchange'), artifact.get('exchange'))} {step}K线）"
+
+
+def describe(config: dict, artifact: dict, entry: dict, bybit: dict | None = None) -> str:
     meta = config["pbtb"]
     sides = traded_sides(config)
     lines = [
@@ -205,15 +254,18 @@ def describe(config: dict, artifact: dict, entry: dict) -> str:
         f"建议本金 {capital_label(int(meta['capital_usdt']))} 起。"
     ]
 
-    metrics = artifact["metrics"]
-    span = f"{artifact['start']}～{artifact['end']}"
-    completion = metrics.get("backtest_completion_ratio")
-    if completion is not None and completion < 1:
-        lines.append(f"📈 回测 {span}：跑到区间的 {completion:.1%} 时爆仓")
-    else:
-        lines.append(f"📈 回测 {span}：{multiple(metrics['gain'])} 倍"
-                     f" · 📉 最大回撤 {metrics['drawdown_worst']:.1%}")
+    lines.append(backtest_line(artifact, candles_of(artifact)))
+    if bybit is not None:
+        lines.append(backtest_line(bybit, "（同参数，Bybit 1 分钟K线）"))
+    transfer = entry.get("transfer")
+    if transfer:
+        (by_gain, by_dd), (hl_gain, hl_dd) = transfer["bybit"], transfer["hyperliquid"]
+        lines.append(f"🔁 迁移检验 {transfer['window']}（两边都用 1 小时K线）："
+                     f"Bybit {multiple(by_gain)} 倍 · 回撤 {by_dd:.1%}，"
+                     f"Hyperliquid {multiple(hl_gain)} 倍 · 回撤 {hl_dd:.1%}；"
+                     "1 小时K线模拟出的回撤比 1 分钟的明显偏高")
 
+    stressed = "（单独起跑，Bybit K线）" if bybit is not None else "（单独起跑）"
     for run in entry.get("stress", []):
         if run["drawdown"] == LIQUIDATED:
             result = "爆仓"
@@ -221,7 +273,7 @@ def describe(config: dict, artifact: dict, entry: dict) -> str:
             result = f"回撤 {run['drawdown']:.1%}"
             if run["gain"] is not None:
                 result = f"{run['gain']:+.1%} · {result}"
-        lines.append(f"🧪 压力测试（单独起跑）· {run['window']}：{result}")
+        lines.append(f"🧪 压力测试{stressed}· {run['window']}：{result}")
 
     if sides == ("long", "short"):
         held = (f"：多头约 {number(exposure(config, 'long'))} 倍"
@@ -239,6 +291,7 @@ def main() -> int:
     )
     parser.add_argument("--apply", action="store_true", help="write (default is a dry run)")
     parser.add_argument("--profile", default=None, help="AWS CLI profile")
+    parser.add_argument("--only", nargs="+", metavar="ID", help="compose these templates' alone")
     args = parser.parse_args()
 
     metas: dict[str, dict] = {}
@@ -258,6 +311,8 @@ def main() -> int:
             if prefix != PREFIX:
                 continue
             listed.add(tid)
+            if args.only and tid not in args.only:
+                continue
             entry = PUBLIC.get(tid)
             path = SITE_DIR / key
             if entry is None or not path.exists() or not traded_sides(raw):
@@ -279,7 +334,9 @@ def main() -> int:
                 continue
 
             artifact = json.loads(path.read_text(encoding="utf-8"))
-            meta = ordered({**raw["pbtb"], "description": describe(raw, artifact, entry)})
+            bybit = (json.loads((SITE_DIR / f"{entry['bybit']}.json").read_text(encoding="utf-8"))
+                     if entry.get("bybit") else None)
+            meta = ordered({**raw["pbtb"], "description": describe(raw, artifact, entry, bybit)})
             out = {**raw, "pbtb": meta}
             assert trading(out) == trading(raw), f"{tid}: would change what passivbot reads"
             metas[tid] = meta

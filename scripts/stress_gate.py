@@ -51,6 +51,19 @@ WINDOWS = (
     Window("LIVE26b", "2026-07-15", "2026-09-11", 0.35),
 )
 COMPLETE = 0.999
+# Hyperliquid serves only its latest 5000 candles, which begin after most of
+# the windows, so a Hyperliquid template (hyperliquid_copy.py) runs them on
+# Bybit's 1-minute candles: the same strategy, fees and order floor.
+BYBIT_CANDLES = {"exchanges": ["bybit"], "ohlcv_source_dir": "caches/ohlcv_combined",
+                 "candle_interval_minutes": 1}
+
+
+def stress_config(config: dict) -> dict:
+    """`config` on the candles its windows run on."""
+    backtest = config.get("backtest") or {}
+    if (backtest.get("exchanges") or ["bybit"])[0] != "hyperliquid":
+        return config
+    return {**config, "backtest": {**backtest, **BYBIT_CANDLES}}
 
 
 def window_config(config: dict, window: Window, capital: int) -> dict:
@@ -79,6 +92,7 @@ def run(config: dict, name: str, capital: int, pb_dirs: dict[str, Path], cache_d
     """Run every window; the record `lab.stress` keeps, `passed` among its fields."""
     templates = cache_dir / "templates"
     templates.mkdir(parents=True, exist_ok=True)
+    config = stress_config(config)
     windows = {}
     for window in WINDOWS:
         # Short: passivbot nests its output under the name, and Windows caps a path at 260.
@@ -124,10 +138,11 @@ def covers(record: dict | None, config: dict, capital: int) -> bool:
         label: (w.get("start"), w.get("end"), w.get("drawdown_cap"))
         for label, w in (record.get("windows") or {}).items()
     } == {w.label: (w.start, w.end, w.drawdown_cap) for w in WINDOWS}
+    source = (stress_config(config).get("backtest") or {}).get("ohlcv_source_dir")
     return (same_windows and record.get("capital") == capital
             and record.get("params_sha") == bt.params_sha(config)
             and record.get("engine") == bt.ENGINE_VERSION[bt.detect_engine(config)]
-            and record.get("ohlcv_source_dir") == (config.get("backtest") or {}).get("ohlcv_source_dir"))
+            and record.get("ohlcv_source_dir") == source)
 
 
 def add_engine_args(parser: argparse.ArgumentParser) -> None:

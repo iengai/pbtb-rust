@@ -60,15 +60,15 @@ is the console's, `lab` is ours.
   The operator switches it on the console's Configs page
   (`PUT /api/v1/templates/{id}/audience`); `annotate_templates.py` keeps the
   mark the object carries.
-- `exchange` — the exchange the template is for: whose market data the
-  strategy was tuned on, and the one exchange whose bots may apply it. The
-  Telegram chooser offers a bot its own exchange's templates, the server
-  refuses any other at the preview and at every launch, and the site's
-  catalogue splits by it once it holds more than one. The transfer refuses a
-  config that names no exchange this service trades on. A Hyperliquid template
-  is tuned and backtested on Hyperliquid data, its `capital_usdt` is in USDC,
-  and its title may repeat a Bybit one: titles are told apart within an
-  exchange only.
+- `exchange` — the exchange the template is for: the one exchange whose bots
+  may apply it, and whose candles its site backtest runs on. The Telegram
+  chooser offers a bot its own exchange's templates, the server refuses any
+  other at the preview and at every launch, and the site's catalogue splits by
+  it once it holds more than one. The transfer refuses a config that names no
+  exchange this service trades on. A Hyperliquid template's `capital_usdt` is
+  in USDC, and its title may repeat a Bybit one: titles are told apart within
+  an exchange only. A tuning is one template per exchange, so a tuning offered
+  on both is two templates (see *Hyperliquid copies* below).
 - `strategies` (array of `{name, side}`) — every side this strategy drives. A
   single-direction strategy lists one entry, a dual-sided one both.
   `annotate_templates.py` stamps the list from the config — a side with an
@@ -207,6 +207,40 @@ may pass. `--allow-failed-stress` uploads it retired (`audience: operator`)
 with the failed run on record, and publishing it is the owner's switch.
 `python scripts/stress_gate.py --config <raw.json> --capital <n>` runs the
 gate alone.
+
+### Hyperliquid copies
+
+Hyperliquid serves only its latest 5000 candles per interval: about 208 days
+at 1 hour, nothing older at 1 minute. A tuning the strategy lab built to run on
+both exchanges — every coin listed on both, Hyperliquid's $10 order floor in
+every backtest, and a passed transfer check (passivbot
+`strategy_lab/scripts/hl_check.py`) — reaches Hyperliquid bots as a copy of
+its Bybit template:
+
+```bash
+python scripts/hyperliquid_copy.py --from tpl-wjcxjbar --out hl.json --lab-out hl-lab.json
+python scripts/transfer_config_to_s3.py --config hl.json --lab hl-lab.json --exchange hyperliquid \
+    --universe mix24 --capital 10000 --risk-profile guard --generation 22 --sides long \
+    --pb-v8 E:/projects/passivbot --upload --profile dev
+```
+
+The copy is the Bybit template's strategy with one `backtest` block changed:
+Hyperliquid's candles (`caches/ohlcv_hl`, the lab's 1-hour candles written as
+1-minute rows), `candle_interval_minutes` 60, over the days every coin has
+less a 30-day warm-up. Fees stay the Bybit template's, above both exchanges'
+base tiers. `lab` is the Bybit template's plus `copied_from`. The transfer's
+`params_sha` refusal counts templates of the copy's own exchange only.
+
+The site shows the copy's own backtest, at 1 hour, and its page says so: a
+drawdown read at 1 hour runs higher than at 1 minute (0.30 against 0.08 for
+the same run of tpl-jmx3u265). Its description (`describe_templates.py`, whose
+PUBLIC entry names the Bybit template and the transfer check) adds the Bybit
+template's multi-year 1-minute backtest and the check. The cold-start windows
+predate Hyperliquid's candles, so `stress_gate.py` runs a Hyperliquid config's
+windows on Bybit's 1-minute candles, which are the Bybit template's run: its
+`lab.stress` stands for the copy and the gate is not run again. Rerun
+`hyperliquid_copy.py` and the backtest only after the lab has fetched newer
+candles.
 
 > A combined bot mixes strategies per side (e.g. one strategy's `long`, another's
 > `short`). Each predefined file still describes only its own strategy; the

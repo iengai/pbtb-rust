@@ -45,7 +45,11 @@ export const configs = {
   detail: {
     template: "template",
     lead: (exchange: string, start: string, end: string, coins: number) =>
-      `Tuned on ${exchange} data · backtest ${start} → ${end} · ${coins} coin${coins === 1 ? "" : "s"}`,
+      `Backtested on ${exchange} data · ${start} → ${end} · ${coins} coin${coins === 1 ? "" : "s"}`,
+    // A backtest stepped by a candle wider than a minute: Hyperliquid's, which serves no
+    // 1-minute history.
+    candleNote: (hours: number) =>
+      `${hours}-hour candles: the exchange keeps no longer 1-minute history, and a drawdown read at ${hours} hour${hours === 1 ? "" : "s"} runs higher than at 1 minute. The description quotes the same parameters' multi-year 1-minute backtest on Bybit.`,
     liquidatedNote:
       "the account was liquidated before the window ended; the metrics describe the run up to that point",
     retiredNote: "retired: offered to the operator's account only",

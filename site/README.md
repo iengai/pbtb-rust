@@ -225,9 +225,13 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   `generated_at` the pipeline uses to skip unchanged templates (`trading_sha`
   covers what passivbot reads alone, less the candle directory, which the
   artifact's `ohlcv_source_dir` records, so an audience switch does not re-run
-  a backtest). `metrics` follow passivbot's
+  a backtest), and `candle_minutes`, the candle the run stepped by (60 on a
+  Hyperliquid template, whose page says so; docs/config-transfer.md,
+  *Hyperliquid copies*). `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
-  `drawdown_worst` are fractions). **Never put strategy parameters in these
+  `drawdown_worst` are fractions; `backtest_completion_ratio` is 1 for a run
+  one candle short of its window, which passivbot reports at a candle wider
+  than a minute). **Never put strategy parameters in these
   files** (the owner chose to publish two parameter-derived facts: the coins a
   capital profile's balances traded, which bound the first order's size from
   the rung an expensive coin first fills at, and `positions`: `single` says a template holds one position at a time, `multi`
