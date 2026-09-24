@@ -397,8 +397,9 @@ impl BotConfig {
             .filter(|s| !s.is_empty())
     }
 
-    /// Exchange whose market data the strategy was tuned/backtested on (e.g.
-    /// `"bybit"`), read from `pbtb.exchange` as written. `None` on legacy
+    /// Exchange the template is for (e.g. `"bybit"`): whose bots may apply it
+    /// and whose candles its site backtest ran on, read from `pbtb.exchange`
+    /// as written. `None` on legacy
     /// templates. For the parsed value a launch is checked against, see
     /// [`BotConfig::exchange`].
     pub fn data_exchange(&self) -> Option<&str> {

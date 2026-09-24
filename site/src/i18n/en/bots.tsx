@@ -64,7 +64,7 @@ export const bots = {
       "Orange dot: config switch. The band behind the curve is that config's active period; hover to highlight it, click its name to open the config.",
     configuration: "Configuration",
     template: "Template",
-    tunedOn: "Tuned on",
+    tunedOn: "Backtested on",
     tunedOnValue: (source: string) => `${source} data`,
     strategy: "Strategy",
     strategyEntry: (name: string, side: string) => `${name} (${side})`,

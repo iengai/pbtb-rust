@@ -123,11 +123,12 @@ async fn handle_start_state(
                         // 1b. Strategies involved + per-side on/off state.
                         let strategy_info = super::views::format_strategies(&config.strategies());
                         let description_info = config.description().unwrap_or("—");
-                        // Exchange the strategy was tuned on (pbtb.exchange),
-                        // the bot's own: a config for another never launches.
+                        // Exchange whose candles the template was backtested
+                        // on (pbtb.exchange), the bot's own: a config for
+                        // another never launches.
                         let tuned_on = config
                             .data_exchange()
-                            .map(|e| format!("\n   • Tuned on: {e} data"))
+                            .map(|e| format!("\n   • Backtested on: {e} data"))
                             .unwrap_or_default();
                         let sides_info = format!(
                             "Long {}, Short {}",

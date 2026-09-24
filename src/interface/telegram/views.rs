@@ -107,12 +107,13 @@ pub fn format_template_confirm(template_name: &str, preview: &BotConfig) -> Stri
     let template = format_template_label(template_name, preview.title());
     let strategies = format_strategies(&preview.strategies());
     let description = preview.description().unwrap_or("—");
-    // Exchange whose data the strategy was tuned on (pbtb.exchange), which
-    // is the bot's own: a template for another is refused before this preview.
+    // Exchange whose candles the template was backtested on (pbtb.exchange),
+    // which is the bot's own: a template for another is refused before this
+    // preview.
     // Legacy templates don't carry it; omit the line.
     let data_source = preview
         .data_exchange()
-        .map(|e| format!("🏦 Tuned on: {e} data\n"))
+        .map(|e| format!("🏦 Backtested on: {e} data\n"))
         .unwrap_or_default();
     // The passivbot engine line this config will run on (config_version major).
     // The launch is routed by it, so it is worth seeing before confirming.

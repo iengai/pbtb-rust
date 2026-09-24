@@ -17,10 +17,10 @@ passivbot schema is one top-level `pbtb` object:
     composed from universe, profile and capital unless --title is given. The
     suffix that tells two identical titles apart is added by
     scripts/annotate_templates.py, which sees the whole catalogue.
-  * `exchange` (string) — the exchange the template is for: whose market data
-    the strategy was tuned on, and the one exchange whose bots may apply it
-    (the chooser offers a bot its own exchange's templates and the server
-    refuses any other). Taken from --exchange, else the config's
+  * `exchange` (string) — the exchange the template is for: the one exchange
+    whose bots may apply it (the chooser offers a bot its own exchange's
+    templates and the server refuses any other), and whose candles its site
+    backtest runs on. Taken from --exchange, else the config's
     `backtest.exchanges`; a config that names none, or names one this service
     does not trade on, is refused rather than read as Bybit's.
   * `strategies` (array of {name, side}) — every side this strategy drives. A

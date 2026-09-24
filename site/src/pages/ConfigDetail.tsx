@@ -119,9 +119,10 @@ export function ConfigDetail() {
           </div>
 
           <ConfigChart key={data.name} template={data} />
-          {(data.candle_minutes ?? 1) > 1 && (
+          {data.candle_minutes != null && data.candle_minutes > 1 && (
             <div className="hint" style={{ marginTop: 6 }}>
-              {t.configs.detail.candleNote((data.candle_minutes ?? 60) / 60)}
+              {t.configs.detail.candleNote(data.candle_minutes / 60)}
+              {data.exchange === "hyperliquid" && ` ${t.configs.detail.copyNote}`}
             </div>
           )}
 
