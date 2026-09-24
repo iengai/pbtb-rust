@@ -29,8 +29,8 @@ export const configs: typeof en = {
   detail: {
     template: "模板",
     lead: (exchange, start, end, coins) => `基于 ${exchange} 数据回测 · ${start} → ${end} · ${coins} 个币种`,
-    candleNote: (hours) =>
-      `${hours} 小时K线：该交易所没有更长的 1 分钟历史，按 ${hours} 小时模拟出的回撤比 1 分钟的偏高。描述里附有同参数在 Bybit 上多年的 1 分钟回测。`,
+    candleNote: (hours) => `按 ${hours} 小时K线回测：该交易所不提供更早的 1 分钟历史。按 ${hours} 小时模拟出的回撤比 1 分钟的偏高。`,
+    copyNote: "描述里附有同参数在 Bybit 上多年的 1 分钟回测。",
     liquidatedNote: "账户在回测窗口结束前爆仓，以下指标只描述爆仓之前的表现",
     retiredNote: "已退役，仅运营者账户可用",
     applyCta: "应用到机器人…",

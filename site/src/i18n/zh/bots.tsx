@@ -60,7 +60,7 @@ export const bots: typeof en = {
     switchDot: "橙色圆点表示切换配置。曲线后的色带是该配置的生效期间：悬停高亮，点击名称打开配置页。",
     configuration: "配置",
     template: "模板",
-    tunedOn: "调优于",
+    tunedOn: "回测于",
     tunedOnValue: (source) => `${source} 数据`,
     strategy: "策略",
     strategyEntry: (name, side) => `${name}（${side}）`,
