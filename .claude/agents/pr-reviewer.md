@@ -63,4 +63,10 @@ A REPEAT says so after the severity and names the merged PR it repeats; its Fix 
 
 ## Verified clean
 <the risky spots you checked and found correct — brief, only the notable ones>
+
+Review-verdict: pass|fail @ <`git rev-parse --short=7 HEAD`> — pr-reviewer <tally>
 ```
+
+The last line is `pass` only when the tally counts 0 important; the `contract`
+check reads it from the PR body and fails it for any other commit than the
+head (docs/governance.md § What GitHub enforces).

@@ -29,7 +29,7 @@ Detailed docs are flat leaves under `docs/` — open the one for your task direc
 | **Something is broken / an error ref / a bot not running / CI red** | skill `pbtb-triage` (`.claude/skills/pbtb-triage/`) |
 | Verifying a change before commit/PR/merge | skill `verify` (`bash .claude/skills/verify/scripts/gate.sh`) |
 | Rolling a change out, adding a passivbot engine line | skill `pbtb-deploy` (order + coupling rules) |
-| Review passes (`REVIEW.md`), branch / rebase / PR / merge, accounts | skill `pbtb-ship` |
+| Review passes, branch / rebase / PR / merge, accounts | skill `pbtb-ship` · [governance](docs/governance.md) |
 
 ## Critical invariants (do not violate)
 

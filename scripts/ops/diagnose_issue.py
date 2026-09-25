@@ -238,7 +238,7 @@ def run(a: argparse.Namespace) -> int:
                                                  "trail": trail, "commands": commands}, indent=1, ensure_ascii=False),
                                      encoding="utf-8")
     # An issue an agent filed at "diagnose only" is raised one tier when the
-    # diagnosis finds it self-evident (docs/conventions.md § Issues); a
+    # diagnosis finds it self-evident (docs/governance.md § Autonomy tiers); a
     # person's tier is never changed. The label alone starts nothing: an
     # event raised with the repository token runs no workflow, so the fix
     # workflow is dispatched by number.
