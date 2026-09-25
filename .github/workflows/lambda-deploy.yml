@@ -11,8 +11,8 @@ name: lambda-deploy
 # above GLIBC_2.34 — exactly the glibc AL2023 ships. A plain `cargo build` on the
 # ubuntu-24.04 runner links against glibc 2.39 and could fail on the Lambda host.
 #
-# Manual only: every target here can act on live bots, so deploys are deliberate
-# (mirrors telebot-deploy).
+# Manual only, so deploys are deliberate (mirrors telebot-deploy): the restart
+# lambda and mcp-http can act on live bots.
 
 on:
   workflow_dispatch:
@@ -24,6 +24,7 @@ on:
         options:
           - task-state-change-handler
           - mcp-http
+          - hl-candle-collector
       publish:
         description: 'Publish an immutable Lambda version for rollback'
         type: boolean
@@ -54,6 +55,10 @@ jobs:
             mcp-http)
               echo "FUNCTION_NAME=scalable-cluster-dev-mcp-http" >> "$GITHUB_ENV"
               echo "BIN_NAME=mcp_http" >> "$GITHUB_ENV"
+              ;;
+            hl-candle-collector)
+              echo "FUNCTION_NAME=scalable-cluster-dev-hl-candle-collector" >> "$GITHUB_ENV"
+              echo "BIN_NAME=hl_candle_collector" >> "$GITHUB_ENV"
               ;;
             *)
               echo "FUNCTION_NAME=scalable-cluster-dev-task-state-change-handler" >> "$GITHUB_ENV"
@@ -147,10 +152,12 @@ jobs:
           [ "$LOCAL_SHA" = "${{ steps.update.outputs.remote_sha }}" ] \
             || { echo "CodeSha256 mismatch (upload corrupted?)"; exit 1; }
 
-      # Neither payload can act on a bot. The task-state event is a benign
+      # No payload can act on a bot. The task-state event is a benign
       # non-aws.ecs one, which hits the source/detail-type guard in
       # event_handler.rs and returns before any ECS or DynamoDB call — NEVER
-      # smoke-test that function with a real STOPPED event. The MCP payload
+      # smoke-test that function with a real STOPPED event. The candle
+      # collector takes the same event and returns before any S3 or
+      # Hyperliquid call. The MCP payload
       # carries no bearer, so it is refused at the edge; a 401 is the pass.
       - name: Smoke invoke
         run: |
