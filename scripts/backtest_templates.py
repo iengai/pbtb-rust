@@ -490,6 +490,28 @@ def parse_timestamp(value: str) -> int:
     return int(number / 1000) if number > 1e11 else int(number)
 
 
+def downsample(rows: list[tuple]) -> list[tuple]:
+    """At most MAX_POINTS of the `(ts, balance, equity)` rows: the first, the last, and each
+    span's lowest and highest equity in time order.
+
+    Evenly spaced samples would miss the troughs between them and draw a
+    shallower drawdown than the metric beside the curve. Keeping every span's extremes
+    keeps the running peak and the trough, so the curve's worst drawdown is the
+    run's. The first and last rows are the real ones because the chart rebases
+    every period on the first point inside it.
+    """
+    if len(rows) <= MAX_POINTS:
+        return rows
+    inner = range(1, len(rows) - 1)
+    spans = (MAX_POINTS - 2) // 2
+    kept = {0, len(rows) - 1}
+    for i in range(spans):
+        span = inner[len(inner) * i // spans:len(inner) * (i + 1) // spans]
+        kept.add(min(span, key=lambda j: rows[j][2]))
+        kept.add(max(span, key=lambda j: rows[j][2]))
+    return [rows[j] for j in sorted(kept)]
+
+
 def load_points(result_dir: Path) -> list[dict]:
     rows = []
     with gzip.open(result_dir / "balance_and_equity.csv.gz", "rt", encoding="utf-8") as fh:
@@ -502,10 +524,7 @@ def load_points(result_dir: Path) -> list[dict]:
     if not rows:
         return []
 
-    if len(rows) > MAX_POINTS:
-        step = (len(rows) - 1) / (MAX_POINTS - 1)
-        rows = [rows[round(i * step)] for i in range(MAX_POINTS)]
-
+    rows = downsample(rows)
     base_balance = rows[0][1] or 1.0
     base_equity = rows[0][2] or 1.0
     return [
