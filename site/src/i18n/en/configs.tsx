@@ -51,6 +51,8 @@ export const configs = {
     candleNote: (hours: number) =>
       `Run on ${hours}-hour candles: the exchange serves no older 1-minute history. A drawdown read at ${hours} hour${hours === 1 ? "" : "s"} runs higher than at 1 minute.`,
     copyNote: "The description quotes the same parameters' multi-year 1-minute backtest on Bybit.",
+    tierNote: (lab: string, source: string, hourly: string) =>
+      `Risk tier ${lab}: the strategy lab's, from 1-minute runs on Bybit of the same parameters (${source}). This hourly run alone would read ${hourly}.`,
     liquidatedNote:
       "the account was liquidated before the window ended; the metrics describe the run up to that point",
     retiredNote: "retired: offered to the operator's account only",
@@ -86,6 +88,26 @@ export const configs = {
       "The same parameters over the same window, started from each balance. The min capital is the least the template is offered for, not a promise that more behaves the same: a small balance cannot place the first order on an expensive coin, and a template that holds one position can take a different path at one balance. Read the worst row as the risk.",
     balance: "Capital",
     traded: "Coins traded (share of fills)",
+  },
+
+  // The strategy lab's risk tiers, as template titles name them (scripts/template_naming.py).
+  tiers: {
+    guard: "Guarded",
+    steady: "Steady",
+    balanced: "Balanced",
+    bold: "Bold",
+    extreme: "Extreme",
+  } as Record<string, string>,
+
+  // A Hyperliquid copy's runs beside the same parameters on Bybit.
+  reference: {
+    title: "Same parameters on Bybit",
+    hint: "The same parameters, window and capital on Bybit's candles. Beside this page's run, the Bybit hourly row shows what the exchange changes and the Bybit minute row what the hourly step does.",
+    run: "Run",
+    label: (exchange: string, minutes: number, own: boolean) =>
+      `${exchange === "hyperliquid" ? "Hyperliquid" : exchange === "bybit" ? "Bybit" : exchange} · ${
+        minutes >= 60 ? `${minutes / 60}-hour` : `${minutes}-minute`
+      } candles${own ? " (this page)" : ""}`,
   },
 
   // The chart card: the backtest and the live runs on one chart.

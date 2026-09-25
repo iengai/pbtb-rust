@@ -48,6 +48,13 @@ it again without the flag, so a profile never sits beside metrics of another
 run. A rung that fails leaves the template without a profile; its own run is
 still written.
 
+A Hyperliquid copy (a template whose ``lab.copied_from`` names the Bybit
+template it was made from) also carries a ``reference``: the same body over
+the same window and balance on Bybit's candles in ``REFERENCE_CANDLES``, at 60
+and at 1 minute. Hyperliquid's hourly candles overstate a drawdown against
+minute ones; the pair shows by how much. It is rerun whenever it is missing or
+was run on another engine, strategy or window end.
+
 A run reads candles from its ``backtest.ohlcv_source_dir`` when one is set
 (the mainstream templates name ``caches/ohlcv_combined``; the XRP templates
 that set none read passivbot's own data), and passivbot does not fail when the
@@ -107,6 +114,13 @@ LARGE_CAPITAL_LADDER = (20000, 30000, 50000, 100000, 333000)
 # not produce.
 FILL_SHARES_REV = 2
 MAX_POINTS = 500
+# A Hyperliquid copy's reference runs: its body on Bybit's candles over its own
+# window, at the copy's hourly step and at the minute. Hyperliquid serves about
+# 5000 candles, so its runs step by the hour; beside Bybit at both steps the
+# page separates what the exchange changes from what the hour does.
+REFERENCE_EXCHANGE = "bybit"
+REFERENCE_CANDLES = "caches/ohlcv_combined"
+REFERENCE_MINUTES = (60, 1)
 
 # Canonical metric name -> raw analysis.json keys, first present wins.
 #
@@ -365,17 +379,22 @@ def artifact_is_current(template: Template, source_dir: str | None = None) -> bo
 
 def run_backtest(
     template: Template, pb_dir: Path, cache_dir: Path, timeout: float, source_dir: str | None = None,
-    balance: float | None = None,
+    balance: float | None = None, reference_minutes: int | None = None,
 ) -> tuple[Path, str]:
     """Run one template through passivbot; return the result directory and the attempt label that produced it.
-    With `balance`, the run starts from it instead of the template's own and keeps its own run directory."""
-    source = candle_dir(template, source_dir)
+    With `balance`, the run starts from it instead of the template's own and keeps its own run directory.
+    With `reference_minutes`, it runs on REFERENCE_EXCHANGE's candles at that step instead."""
+    source = REFERENCE_CANDLES if reference_minutes else candle_dir(template, source_dir)
+    exchange = REFERENCE_EXCHANGE if reference_minutes else template.exchange or "bybit"
     if source and template.end_date:
-        gap = source_dir_gap(pb_dir / source, template.exchange or "bybit", template.coins, template.end_date)
+        gap = source_dir_gap(pb_dir / source, exchange, template.coins, template.end_date)
         if gap:
             raise RuntimeError(gap)
 
-    run_dir = cache_dir / "runs" / (template.name if balance is None else f"{template.name}@{balance:g}")
+    run_name = template.name if balance is None else f"{template.name}@{balance:g}"
+    if reference_minutes:
+        run_name = f"{run_name}@{REFERENCE_EXCHANGE}{reference_minutes}m"
+    run_dir = cache_dir / "runs" / run_name
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True)
@@ -388,6 +407,11 @@ def run_backtest(
         config["backtest"]["ohlcv_source_dir"] = source_dir
     if balance is not None:
         config["backtest"]["starting_balance"] = balance
+    if reference_minutes:
+        config["backtest"].update(
+            exchanges=[REFERENCE_EXCHANGE], ohlcv_source_dir=REFERENCE_CANDLES,
+            candle_interval_minutes=reference_minutes,
+        )
 
     log_dir = cache_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -623,6 +647,40 @@ def wants_profile(flag: bool, force: bool, had: bool, kept: bool) -> bool:
     return (flag or had) and (force or not kept)
 
 
+def copied_from(template: Template) -> str | None:
+    """The Bybit template a Hyperliquid copy was made from (scripts/hyperliquid_copy.py)."""
+    return (template.config.get("lab") or {}).get("copied_from")
+
+
+def reference_key(template: Template) -> str:
+    """What a reference was run on: the engine, the strategy, the window end and the candle directory."""
+    ran_on = (ENGINE_VERSION[template.engine], template.trading_sha, template.end_date, REFERENCE_CANDLES)
+    return ":".join(str(part) for part in ran_on)
+
+
+def reference(template: Template, pb_dir: Path, cache_dir: Path, timeout: float) -> dict:
+    rows = []
+    for minutes in REFERENCE_MINUTES:
+        result_dir, _ = run_backtest(template, pb_dir, cache_dir, timeout, reference_minutes=minutes)
+        metrics = pick_metrics(json.loads((result_dir / "analysis.json").read_text(encoding="utf-8")))
+        rows.append({
+            "exchange": REFERENCE_EXCHANGE,
+            "candle_minutes": minutes,
+            "gain": metrics.get("gain"),
+            "drawdown_worst": metrics.get("drawdown_worst"),
+        })
+    return {"key": reference_key(template), "rows": rows}
+
+
+def kept_reference(template: Template) -> dict | None:
+    """The reference on the template's artifact, while it was run on what a run now would read."""
+    try:
+        kept = json.loads((OUTPUT_DIR / f"{template.name}.json").read_text(encoding="utf-8")).get("reference")
+    except (OSError, ValueError):
+        return None
+    return kept if isinstance(kept, dict) and kept.get("key") == reference_key(template) else None
+
+
 def capital_drawdown(profile: dict | None) -> dict | None:
     """The median and the worst of a profile's drawdowns: what the list shows beside a template's own."""
     values = [row["drawdown_worst"] for row in (profile or {}).get("rows", []) if row.get("drawdown_worst") is not None]
@@ -642,6 +700,11 @@ def build_artifact(template: Template, result_dir: Path, source_dir: str | None 
         # Naming properties a card shows as tags beside the title.
         "style": template.pbtb.get("style"),
         "generation": template.pbtb.get("generation"),
+        # The risk tier the strategy lab measured, and for a Hyperliquid copy
+        # the Bybit template it was measured on: the copy's own hourly run can
+        # sit in a higher tier than the lab's minute runs.
+        "profile": template.pbtb.get("profile"),
+        "copied_from": copied_from(template),
         # How many coins it holds at once, as a class: the catalogue's first split.
         "positions": position_class(template.config),
         "engine": ENGINE_VERSION[template.engine],
@@ -681,7 +744,7 @@ def write_json(path: Path, data) -> None:
 def write_index() -> None:
     """Rebuild index.json from every per-template artifact on disk."""
     index_fields = (
-        "name", "title", "title_zh", "style", "generation", "positions", "engine", "audience", "exchange",
+        "name", "title", "title_zh", "style", "generation", "profile", "positions", "engine", "audience", "exchange",
         "coins", "start", "end", "starting_balance", "params_sha", "metrics", "traded",
     )
     rows = []
@@ -803,7 +866,10 @@ def main(argv=None) -> int:
         profiling = bool(template.backtest.get("starting_balance")) and wants_profile(
             args.capital_profile, args.force, artifact_profile(template.name) is not None, kept is not None
         )
-        if not args.force and not profiling and artifact_is_current(template, args.ohlcv_source_dir):
+        kept_ref = kept_reference(template)
+        referencing = bool(copied_from(template)) and (args.force or kept_ref is None)
+        if (not args.force and not profiling and not referencing
+                and artifact_is_current(template, args.ohlcv_source_dir)):
             summary.append((template.name, engine, 0.0, "skipped"))
             print(f"[skip] {template.name} ({engine}) artifact is current")
             continue
@@ -826,6 +892,15 @@ def main(argv=None) -> int:
                     status = f"{status} (no capital profile: {exc})"
             if profile:
                 artifact["capital_profile"] = profile
+            ref = kept_ref
+            if referencing:
+                try:
+                    ref = reference(template, pb_dirs[template.engine], cache_dir, args.timeout)
+                except Exception as exc:  # a failed reference costs the reference, not the template's own run
+                    ref = None
+                    status = f"{status} (no reference: {exc})"
+            if ref:
+                artifact["reference"] = ref
             write_json(OUTPUT_DIR / f"{template.name}.json", artifact)
         except Exception as exc:  # a failed template must not abort the run
             status = f"failed: {exc}"

@@ -45,6 +45,8 @@ export type TemplateSummary = {
   traded?: CoinShare[] | null;
   /** The median and the worst drawdown over the template's capital profile; null without one. */
   capital_drawdown?: { median: number; worst: number } | null;
+  /** The risk tier the strategy lab measured (`guard` … `extreme`); absent on an older artifact. */
+  profile?: string | null;
 };
 
 /** One coin's share of a backtest's fills, in percent. */
@@ -58,7 +60,19 @@ export type CapitalRow = {
   coins: CoinShare[];
 };
 
+/** One reference run of a Hyperliquid copy: the same body, window and balance on another
+ *  exchange's candles at `candle_minutes`. */
+export type ReferenceRow = {
+  exchange: string;
+  candle_minutes: number;
+  gain: number | null;
+  drawdown_worst: number | null;
+};
+
 export type TemplateBacktest = TemplateSummary & {
+  /** The Bybit template a Hyperliquid copy was made from, whose minute runs set its risk tier. */
+  copied_from?: string | null;
+  reference?: { rows: ReferenceRow[] } | null;
   /** What the template does from its own capital up. A template's capital is the least it is
    *  offered for, not a promise that a larger balance behaves the same. */
   capital_profile?: { rows: CapitalRow[] } | null;

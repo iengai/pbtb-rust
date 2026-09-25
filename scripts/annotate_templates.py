@@ -76,7 +76,7 @@ SITE_DIR = REPO_ROOT / "site" / "templates"
 LAB_KEY = "lab"
 OURS = ("pbtb", LAB_KEY)
 LEAD = ("name", "title", "title_zh", *FACETS, "audience")
-ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "strategies", "audience")
+ARTIFACT_FIELDS = ("title", "title_zh", "style", "generation", "profile", "strategies", "audience")
 # What annotate writes into `lab` itself, beside the lineage.
 LAB_OWN = ("original_name", "readable_id", "status", "notes", "stress")
 

@@ -31,6 +31,8 @@ export const configs: typeof en = {
     lead: (exchange, start, end, coins) => `基于 ${exchange} 数据回测 · ${start} → ${end} · ${coins} 个币种`,
     candleNote: (hours) => `按 ${hours} 小时K线回测：该交易所不提供更早的 1 分钟历史。按 ${hours} 小时模拟出的回撤比 1 分钟的偏高。`,
     copyNote: "描述里附有同参数在 Bybit 上多年的 1 分钟回测。",
+    tierNote: (lab, source, hourly) =>
+      `风险档「${lab}」来自策略实验室：同参数在 Bybit 上的 1 分钟回测（${source}）。仅按本页的小时级回测则为「${hourly}」。`,
     liquidatedNote: "账户在回测窗口结束前爆仓，以下指标只描述爆仓之前的表现",
     retiredNote: "已退役，仅运营者账户可用",
     applyCta: "应用到机器人…",
@@ -60,6 +62,24 @@ export const configs: typeof en = {
     hint: "同一套参数、同一段回测窗口，分别从各个本金起步。最低资金只表示从这个本金起可以使用，不代表更大的本金表现相同：小本金下不了贵币的第一单；只持一个仓位的模板在某个本金上可能走出不同的路径。请把最差的一行当作风险。",
     balance: "本金",
     traded: "实际交易的币（占成交）",
+  },
+
+  tiers: {
+    guard: "极保守",
+    steady: "稳健",
+    balanced: "平衡",
+    bold: "进取",
+    extreme: "极限",
+  },
+
+  reference: {
+    title: "同参数在 Bybit 上",
+    hint: "同一套参数、窗口和本金，改用 Bybit 的K线。和本页对照：Bybit 小时级这一行显示交易所带来的差别，Bybit 1 分钟这一行显示小时级步长带来的差别。",
+    run: "回测",
+    label: (exchange, minutes, own) =>
+      `${exchange === "hyperliquid" ? "Hyperliquid" : exchange === "bybit" ? "Bybit" : exchange} · ${
+        minutes >= 60 ? `${minutes / 60} 小时` : `${minutes} 分钟`
+      }K线${own ? "（本页）" : ""}`,
   },
 
   chart: {
