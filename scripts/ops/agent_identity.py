@@ -64,8 +64,10 @@ PLACEHOLDER = "pbtb-agent-no-token"
 # (a `gh pr checks --watch` on the gate, a `gh run watch`) gets at least this.
 REFRESH_MARGIN_S = 50 * 60
 API = "https://api.github.com"
-# What the installation must grant, exactly: secrets, variables and
-# administration stay with the person.
+# What the installation must grant, exactly: secrets, variables,
+# administration and workflows stay with the person. A workflow the App could
+# push would run with a token able to post the checks that gate a merge
+# (docs/governance.md § What GitHub enforces).
 PERMISSIONS = {
     "actions": "write",
     "checks": "read",
@@ -74,7 +76,6 @@ PERMISSIONS = {
     "metadata": "read",
     "pull_requests": "write",
     "statuses": "read",
-    "workflows": "write",
 }
 # Relative, so it resolves in whichever checkout git runs it from: git runs a
 # helper from the top of the worktree. A checkout without this script fails
