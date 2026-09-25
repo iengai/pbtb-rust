@@ -31,6 +31,9 @@ description: Get a change onto main: branch naming, the verify gate, the review 
   PowerShell `@'…'@` form, which in bash produces a literal `@` subject.
 - One logical change per commit; a rollout that touches domain, wiring, and
   infra is three commits (`feat(domain)`, `feat`, `infra`) so each is reviewable.
+- A change under `.github/workflows/` goes in its own commit at the branch tip:
+  the App cannot push it (docs/agents.md § Local agents). Push the commits
+  below it, then hand the owner the command that pushes the tip.
 
 ## Design review, for a change to what agents load
 
@@ -125,8 +128,9 @@ Arm only PRs the App authored; the owner's are theirs to merge.
 - GitHub recomputes mergeability asynchronously after a force-push; `CONFLICTING`
   right after pushing is stale — poll `gh pr view --json mergeable` until it
   settles rather than trusting the first answer.
-- Merge with `gh pr merge <n> --rebase --delete-branch` to keep the linear
-  history this repo has; squash only for a single-commit PR.
-- After merging: `git checkout main && git reset --hard origin/main`, delete the
-  local temp branch, and — if the change is deployable — hand off to the
-  `pbtb-deploy` skill in the same session.
+- Merge with `--rebase` to keep the linear history this repo has; squash only
+  for a single-commit PR.
+- When the change is deployable, the deploy waits for the merge: `gh pr checks
+  <n> --watch`, then `gh pr view <n> --json state` reads `MERGED` before you
+  hand off to the `pbtb-deploy` skill in the same session. Afterwards `git
+  checkout main && git reset --hard origin/main` and delete the local branch.

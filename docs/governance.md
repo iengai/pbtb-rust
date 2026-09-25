@@ -58,8 +58,8 @@ What this does not prove, by design:
 
 - The `Review-verdict` line is written by the session that wrote the code: it records that the review ran on this commit, not that someone other than the author approved it.
 - A session can leave `closes #<n>` out of a PR, or file its own issue at a merge tier; `gate`, the code-owner paths and the PR record bound both.
-- `Bash(gh pr merge:*)` in `.claude/settings.json` lets a session merge without asking, which reaches the owner's own PRs too; a PR of the owner's merged by the App (`mergedBy`) breaks this policy.
-- The boundary rests on the App's grant ([agents.md](agents.md) § Local agents). It has `checks: read`, but with `workflows: write` a workflow it pushes to any branch runs anyway and can ask its own token for `checks: write`, then post a green `contract` or `gate` on another PR's head. Only an App without `workflows: write` closes that; until then this boundary keeps an honest session inside the rules, not a hostile one.
+- An allow rule for `Bash(gh pr merge * --auto *)`, set in Claude Code settings by the owner, lets a session arm a merge without asking, which reaches the owner's own PRs too; a PR of the owner's merged by the App (`mergedBy`) breaks this policy.
+- The boundary rests on the App's grant ([agents.md](agents.md) § Local agents): `checks: read` and no `workflows: write`. With `workflows: write`, a workflow it pushes to any branch runs before any review and can ask its own token for `checks: write`, then post a green `contract` or `gate` on another PR's head; that grant is never given back.
 
 ## Issues
 
