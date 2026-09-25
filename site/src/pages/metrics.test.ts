@@ -86,6 +86,20 @@ describe("tradedLabels", () => {
   });
 });
 
+// A field a published file carries is one the README documents (docs/conventions.md).
+describe("the site README", () => {
+  const readme = readFileSync(fileURLToPath(new URL("../../README.md", import.meta.url)), "utf-8");
+  it("names every top-level field of the committed artifacts and index", () => {
+    const keys = new Set<string>();
+    for (const f of files) {
+      const data = JSON.parse(readFileSync(join(dir, f), "utf-8"));
+      for (const row of Array.isArray(data) ? data : [data]) Object.keys(row).forEach((k) => keys.add(k));
+    }
+    const missing = [...keys].filter((k) => !new RegExp(`\\b${k}\\b`).test(readme));
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("tierOf", () => {
   it("reads a drawdown against the lab's bands, each limit inclusive", () => {
     expect(tierOf(0.12)).toBe("guard");
