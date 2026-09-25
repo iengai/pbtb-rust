@@ -20,7 +20,7 @@ Refusals worth knowing when reading a trail: `ls`, `grep`, `find` (Read / Grep /
 
 ## Rules the model gets
 
-Each script appends a `RULES` string as the system prompt: the answer shape the script parses, the whitelist in words, and the habits seen twice. That string is the layer of rules the agent has loaded for every run, whatever the checkout it works on. A habit seen once is a `[cat:agent-habit] Lesson:` line in the run's PR body or comment (docs/conventions.md § Issues); seen twice, it goes into `RULES`, and nowhere else.
+Each script appends a `RULES` string as the system prompt: the answer shape the script parses, the whitelist in words, and the habits seen twice. That string is the layer of rules the agent has loaded for every run, whatever the checkout it works on. A habit seen once is a `[cat:agent-habit] Lesson:` line in the run's PR body or comment ([governance.md](governance.md) § Issues); seen twice, it goes into `RULES`, and nowhere else.
 
 ## Trying a change
 

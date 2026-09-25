@@ -12,6 +12,8 @@ Paste the `GATE …` lines from `bash .claude/skills/verify/scripts/gate.sh`.
 
 The tally line from each reviewer run (`pr-reviewer`; `comment-reviewer` / `architecture-reviewer` when the diff called for them), then one line per finding in `REVIEW.md`'s shape with `taken` or `overruled` at the end. Policy: `REVIEW.md`.
 
+With no Important open, the verdict line for the head commit (the `contract` check reads it): `Review-verdict: pass @ <sha7> — pr-reviewer <tally>[, <reviewer> <tally>]`.
+
 ## Rollout
 
 Only if the deployed shape changes: the order and the window (see the `pbtb-deploy` skill).

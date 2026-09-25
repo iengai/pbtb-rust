@@ -49,10 +49,10 @@ thread.
 
 Run the project `verify` skill (`bash .claude/skills/verify/scripts/gate.sh`)
 and quote its `GATE …` lines in the PR. `verify.yml` runs the same script on
-every PR, so a green local gate is enough to merge without waiting for CI —
-except when the change touches a workflow, `rust-toolchain.toml`, a Dockerfile,
-or `tests/common/`: the DynamoDB fixture has a testcontainers branch that only
-CI exercises, and PR #49 was green locally while 13 tests failed there. Never
+every PR as the `gate` check the ruleset requires. A change to a workflow,
+`rust-toolchain.toml`, a Dockerfile or `tests/common/` can pass locally and
+fail there: the DynamoDB fixture has a testcontainers branch that only CI
+exercises, and PR #49 was green locally while 13 tests failed there. Never
 push a red gate "to fix in CI".
 
 ## Review before the PR
@@ -70,13 +70,18 @@ than the review asked for.
    it is not one. 🟡 Nits are yours to take or leave. A 🟣 Pre-existing bug
    becomes an Intent issue (`gh issue create --label intent,bug,source:agent
    --body-file`, the template's fields), not part of this PR. When it is
-   self-evident (docs/conventions.md § Issues: confirmed at file:line,
+   self-evident (docs/governance.md § Autonomy tiers: confirmed at file:line,
    self-contained, bounded, too large to inline) add `agent:fix` to the
    labels and set the tier field to *Merge when the verify gate and CI are
    green*; the fix workflow takes it from there.
 3. The PR body's **Review** section carries each reviewer's tally line and
    what was done with the findings; a finding you overruled is named there, so
-   the PR stays the audit record.
+   the PR stays the audit record. When no Important is open, it also carries
+   the verdict `pr-reviewer` printed for the head commit, with the other
+   reviewers' tallies appended: `Review-verdict: pass @ <sha7> — pr-reviewer
+   0 important, 2 nit, 0 pre-existing, comment-reviewer 0 important`. A push
+   after the review changes the head, and the `contract` check fails until the
+   passes run again on it and the line is updated.
 4. A finding the reviewer marked REPEAT carries its correction into the layer
    it names, in this PR; `REVIEW.md` owns that rule. Any other finding is
    fixed in the file it cites (docs/conventions.md § Knowledge placement).
@@ -84,16 +89,16 @@ than the review asked for.
    made this PR shorter or safer, with the slug it belongs to, or `none`. It
    is a candidate, not a doc edit; a slug seen again is what promotes it.
 
-## The merge-when-green tier
+## Merging your own PR
 
-A task that arrived as a suggested-task chip, or an issue whose *How far the
-agent may go* is *Merge when the verify gate and CI are green*, does not
-wait for a person at the PR: run the review passes and the gate as above,
-open the PR with `closes #<n>`, wait for the `gate` check (`gh pr checks
-<n> --watch`), and merge it yourself with `gh pr merge <n> --rebase
---delete-branch`. An 🔴 Important finding you cannot resolve, a red check,
-or a diff that grew past the task's four tests (docs/conventions.md §
-Issues) drops the task back to *open a PR*: say so in the PR body and stop.
+A PR the App authored merges itself: once the verdict line is in, arm it with
+`gh pr merge <n> --auto --rebase --delete-branch` and move on. GitHub merges
+it when `gate`, `contract` and, for a path in `.github/CODEOWNERS`, the
+owner's review hold (docs/governance.md § What GitHub enforces). A red
+`contract` says why in its log. Do not arm, and say why in the PR body, when
+the owner asked in the session to hold it, when it closes an issue at *Open a
+PR*, when an Important is still open, or when the diff grew past the task.
+Arm only PRs the App authored; the owner's are theirs to merge.
 
 ## Rebasing a stale PR
 
