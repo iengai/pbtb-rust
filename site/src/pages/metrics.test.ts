@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { metricRows, sortTemplates, tradedLabels } from "./metrics";
+import { metricRows, sortTemplates, tierOf, tradedLabels } from "./metrics";
 
 // The committed backtests are the input the card is built from, so every one is
 // checked: no row may render a raw float or a raw JSON literal.
@@ -83,5 +83,16 @@ describe("tradedLabels", () => {
       ]),
     ).toEqual(["DOGE >99%", "BTC <1%"]);
     expect(tradedLabels([{ coin: "DOGE", share: 100 }])).toEqual(["DOGE 100%"]);
+  });
+});
+
+describe("tierOf", () => {
+  it("reads a drawdown against the lab's bands, each limit inclusive", () => {
+    expect(tierOf(0.12)).toBe("guard");
+    expect(tierOf(0.134)).toBe("steady");
+    expect(tierOf(0.2)).toBe("steady");
+    expect(tierOf(0.2007)).toBe("balanced");
+    expect(tierOf(0.3007)).toBe("bold");
+    expect(tierOf(0.41)).toBe("extreme");
   });
 });

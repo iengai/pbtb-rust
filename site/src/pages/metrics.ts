@@ -51,6 +51,20 @@ export function tradedLabels(traded: { coin: string; share: number }[]): string[
   });
 }
 
+// The strategy lab's risk bands (strategy_lab/scripts/round22_accept.py BANDS): the most
+// a tier's worst drawdown reaches.
+const TIER_BANDS: [number, string][] = [
+  [0.12, "guard"],
+  [0.2, "steady"],
+  [0.28, "balanced"],
+  [0.4, "bold"],
+];
+
+/** The tier a worst drawdown falls in by the lab's bands. */
+export function tierOf(drawdown: number): string {
+  return TIER_BANDS.find(([limit]) => drawdown <= limit)?.[1] ?? "extreme";
+}
+
 export function fmtGain(gain: number | undefined, digits: number): string {
   if (gain == null || !Number.isFinite(gain)) return "—";
   const pct = (gain - 1) * 100;

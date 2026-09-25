@@ -18,7 +18,7 @@ import { fmtCap } from "../chart/showcase";
 import { isRetired, staticData, type TemplateBacktest } from "../data/static";
 import { useLang, useT } from "../i18n/locale";
 import { ConfigChart } from "./ConfigChart";
-import { fmtGain, fmtMetric, metricRows, tradedLabels, wipedOut } from "./metrics";
+import { fmtGain, fmtMetric, metricRows, tierOf, tradedLabels, wipedOut } from "./metrics";
 
 export function ConfigDetail() {
   const { name = "" } = useParams();
@@ -123,6 +123,48 @@ export function ConfigDetail() {
             <div className="hint" style={{ marginTop: 6 }}>
               {t.configs.detail.candleNote(data.candle_minutes / 60)}
               {data.exchange === "hyperliquid" && ` ${t.configs.detail.copyNote}`}
+            </div>
+          )}
+          {data.copied_from && data.profile && data.metrics.drawdown_worst != null && (
+            <div className="hint" style={{ marginTop: 4 }}>
+              {t.configs.detail.tierNote(
+                t.configs.tiers[data.profile] ?? data.profile,
+                data.copied_from,
+                t.configs.tiers[tierOf(data.metrics.drawdown_worst)] ?? tierOf(data.metrics.drawdown_worst),
+              )}
+            </div>
+          )}
+          {data.reference && data.reference.rows.length > 0 && (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-title" style={{ marginBottom: 4 }}>
+                {t.configs.reference.title}
+              </div>
+              <div className="hint" style={{ marginBottom: 10 }}>
+                {t.configs.reference.hint}
+              </div>
+              <div className="table reference">
+                <div className="th">
+                  <span>{t.configs.reference.run}</span>
+                  <span>{t.configs.metric.gain}</span>
+                  <span>{t.configs.list.maxDd}</span>
+                </div>
+                {[
+                  {
+                    exchange: data.exchange,
+                    candle_minutes: data.candle_minutes ?? 1,
+                    gain: data.metrics.gain ?? null,
+                    drawdown_worst: data.metrics.drawdown_worst ?? null,
+                    own: true,
+                  },
+                  ...data.reference.rows.map((row) => ({ ...row, own: false })),
+                ].map((row) => (
+                  <div key={`${row.exchange}-${row.candle_minutes}`} className="tr">
+                    <span>{t.configs.reference.label(row.exchange, row.candle_minutes, row.own)}</span>
+                    <span className="tnum">{fmtGain(row.gain ?? undefined, 1)}</span>
+                    <span className="tnum">{fmtMetric("drawdown_worst", row.drawdown_worst ?? undefined)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
