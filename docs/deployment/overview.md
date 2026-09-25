@@ -42,10 +42,12 @@ sweeps the NAT in by accident.
 ### 2. Build the Lambda bootstrap before any plan/apply in this env
 
 The Lambda base module's `data.archive_file` (`terraform/modules/lambda/base/main.tf`)
-zips `target/lambda/task_state_change_handler/bootstrap`. That data source is
-evaluated on **every** `terraform plan`, `apply`, or `import` in `envs/dev`. If the
-bootstrap file does not exist, the command errors on the missing file. Build the
-Lambda first.
+zips each function's `target/lambda/<bin>/bootstrap` (`task_state_change_handler`,
+`daily_pnl_snapshot`, `hl_candle_collector`, and `mcp_http` while it is enabled).
+That data source is evaluated on **every** `terraform plan`, `apply`, or `import`
+in `envs/dev` whose graph reaches the function; a scoped command needs only the
+bootstraps of the modules its `-target`s reach. If one does not exist, the command
+errors on the missing file. Build the Lambdas first.
 
 ### 3. Never let Terraform recreate the ECR repos
 

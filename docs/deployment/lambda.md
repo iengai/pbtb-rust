@@ -50,7 +50,11 @@ docker build --target lambda-export \
 
 Run the **lambda-deploy** workflow manually (`workflow_dispatch`). The
 `publish` input (default `true`) controls whether an immutable Lambda version is
-published for rollback.
+published for rollback. The `target` input picks the function:
+`task-state-change-handler` (default), `mcp-http`, or `hl-candle-collector`
+(the Hyperliquid 1m candle collector, `terraform/envs/dev/hl-candles.tf`; its
+smoke invoke is the same ignored event, which returns before any S3 or
+Hyperliquid call).
 
 The workflow:
 
@@ -122,7 +126,9 @@ terraform import 'module.lambda_task_state_change_handler.module.base.aws_cloudw
 ```
 
 The collector follows the same pattern
-(`module.lambda_daily_pnl_snapshot.module.base.aws_cloudwatch_log_group.this`);
+(`module.lambda_daily_pnl_snapshot.module.base.aws_cloudwatch_log_group.this`),
+as does the candle collector
+(`module.lambda_hl_candle_collector.module.base.aws_cloudwatch_log_group.this`);
 `mcp-http` instantiates `base` directly, so its address has one module segment
 (`module.lambda_mcp_http[0].aws_cloudwatch_log_group.this`). Two groups from
 retired function names (`bot-restarter`, `task-stopped-event-handler`) are

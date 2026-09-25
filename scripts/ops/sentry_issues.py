@@ -43,6 +43,7 @@ COMPONENT_WHERE = {
     "telebot": "telebot (Telegram)",
     "task-state-change-handler": "restart lambda (task_state_change_handler)",
     "daily-pnl-snapshot": "collector lambda (daily-pnl-snapshot)",
+    "hl-candle-collector": "candle collector lambda (hl-candle-collector)",
     "mcp-http": "MCP / web API",
     "mcp-stdio": "MCP / web API",
 }

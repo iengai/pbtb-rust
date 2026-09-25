@@ -23,6 +23,7 @@ body:
         - a passivbot bot (ECS task)
         - restart lambda (task_state_change_handler)
         - collector lambda (daily-pnl-snapshot)
+        - candle collector lambda (hl-candle-collector)
         - MCP / web API
         - web console (site)
         - CI (GitHub Actions / CodeBuild)
