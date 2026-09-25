@@ -491,20 +491,28 @@ def parse_timestamp(value: str) -> int:
 
 
 def downsample(rows: list[tuple]) -> list[tuple]:
-    """At most MAX_POINTS of the `(ts, balance, equity)` rows: the first, the last, and each
-    span's lowest and highest equity in time order.
+    """At most MAX_POINTS of the `(ts, balance, equity)` rows: the first, the last, the peak
+    and trough of the worst drawdown, and each span's lowest and highest equity, in time order.
 
     Evenly spaced samples would miss the troughs between them and draw a
-    shallower drawdown than the metric beside the curve. Keeping every span's extremes
-    keeps the running peak and the trough, so the curve's worst drawdown is the
-    run's. The first and last rows are the real ones because the chart rebases
-    every period on the first point inside it.
+    shallower drawdown than the metric beside the curve. The worst drawdown's
+    own peak and trough are kept outright, since a span's extremes lose the
+    peak when the span also holds the trough and a later, higher row. The first
+    and last rows are the real ones because the chart rebases every period on
+    the first point inside it.
     """
     if len(rows) <= MAX_POINTS:
         return rows
+    peak = top = bottom = 0
+    worst = 0.0
+    for j, row in enumerate(rows):
+        if row[2] > rows[peak][2]:
+            peak = j
+        elif rows[peak][2] > 0 and 1 - row[2] / rows[peak][2] > worst:
+            worst, top, bottom = 1 - row[2] / rows[peak][2], peak, j
     inner = range(1, len(rows) - 1)
-    spans = (MAX_POINTS - 2) // 2
-    kept = {0, len(rows) - 1}
+    spans = (MAX_POINTS - 4) // 2
+    kept = {0, len(rows) - 1, top, bottom}
     for i in range(spans):
         span = inner[len(inner) * i // spans:len(inner) * (i + 1) // spans]
         kept.add(min(span, key=lambda j: rows[j][2]))

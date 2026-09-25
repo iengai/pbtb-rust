@@ -53,6 +53,13 @@ class CurvePoints(unittest.TestCase):
         rows[1501] = (1501, 100.0, 60.0)
         self.assertIn(rows[1501], downsample(rows))
 
+    def test_a_peak_sharing_a_span_with_the_trough_and_a_later_high_stays(self):
+        rows = [(i, 100.0, 100.0) for i in range(3001)]
+        for j, equity in ((1205, 110.0), (1211, 70.0), (1216, 120.0)):
+            rows[j] = (j, 100.0, equity)
+        points = downsample(rows)
+        self.assertAlmostEqual(worst_drawdown([r[2] for r in points]), 1 - 70 / 110, places=12)
+
     def test_the_first_and_last_rows_are_the_runs_own(self):
         # The chart rebases every period on the first point inside it and ends on the last.
         rows = walk(4000, 3)
