@@ -26,7 +26,7 @@ impl Telemetry {
     ///
     /// Reads the environment directly rather than the typed config: this runs
     /// before `load_config`, so a config error is itself reported. `component`
-    /// tags every event with the binary that sent it; all four share one
+    /// tags every event with the binary that sent it; every binary shares one
     /// Sentry project.
     pub fn init(component: &'static str) -> Self {
         let dsn = std::env::var(DSN).ok().filter(|s| !s.trim().is_empty());
