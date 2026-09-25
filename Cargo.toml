@@ -123,3 +123,7 @@ path = "src/bin/task_state_change_handler/main.rs"
 [[bin]]
 name = "daily_pnl_snapshot"
 path = "src/bin/daily_pnl_snapshot/main.rs"
+
+[[bin]]
+name = "hl_candle_collector"
+path = "src/bin/hl_candle_collector/main.rs"
