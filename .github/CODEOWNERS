@@ -1,0 +1,17 @@
+# A change here needs the owner's approving review before it merges (the
+# ruleset on main requires code-owner review). These are what agents load,
+# the checks that decide a merge and the scripts behind them, and infra whose
+# apply is a human maintenance act; the local agent App's PRs merge
+# themselves everywhere else (docs/governance.md § Autonomy tiers).
+/.github/                        @iengai
+/.claude/                        @iengai
+/AGENTS.md                       @iengai
+/REVIEW.md                       @iengai
+/terraform/                      @iengai
+/.devcontainer/                  @iengai
+/rust-toolchain.toml             @iengai
+/scripts/ops/contract.py         @iengai
+/scripts/ops/fix_issue.py        @iengai
+/scripts/ops/claude_harness.py   @iengai
+/scripts/ops/diagnose_issue.py   @iengai
+/scripts/ops/agent_identity.py   @iengai

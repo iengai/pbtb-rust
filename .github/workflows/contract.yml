@@ -1,0 +1,46 @@
+name: contract
+
+# Whether a local agent PR may merge itself: a review verdict for its head
+# commit, no owner hold, and closing issues that ask for a merge tier
+# (scripts/ops/contract.py). The ruleset on main requires this check beside
+# `gate`; a PR by anyone else passes it, since a person merges that one.
+#
+# A separate workflow from verify.yml: verify cancels its run in flight on a
+# new event for the ref, and a label or body edit would cancel a `gate` run.
+# No pull_request_review trigger: the App can post a comment review on its own
+# PR, and a PR's run uses the PR's own copy of this file. What keeps an edited
+# copy from passing itself is code-owner review on .github/ (CODEOWNERS).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      # Exactly the files the check runs, all of them code-owned: any other
+      # file in scripts/ops (an `argparse.py`) would shadow the standard
+      # library and could turn the check green.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/ops/contract.py
+            scripts/ops/fix_issue.py
+            scripts/ops/claude_harness.py
+
+      - run: python scripts/ops/contract.py check --pr ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LOCAL_AGENT_USER_ID: ${{ vars.LOCAL_AGENT_USER_ID }}
