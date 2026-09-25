@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
 # GitHub Actions OIDC role for the lambda-deploy workflow.
 #
-# The workflow ships the task_state_change_handler bootstrap straight to the
-# function with `aws lambda update-function-code` — no Terraform, no S3 backend
-# lock, no NAT touch. So this role needs nothing beyond updating/invoking that
-# one function. OIDC provider + github_oidc_arn local live in telebot.tf.
+# The workflow ships a Lambda bootstrap (see its `target` input) straight to
+# the function with `aws lambda update-function-code` — no Terraform, no S3 backend
+# lock, no NAT touch. So this role needs nothing beyond updating/invoking those
+# functions. OIDC provider + github_oidc_arn local live in telebot.tf.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "gh_lambda_deploy" {
@@ -52,7 +52,9 @@ resource "aws_iam_role_policy" "gh_lambda_deploy" {
         Resource = concat(
           [
             module.lambda_task_state_change_handler.function_arn,
-            "${module.lambda_task_state_change_handler.function_arn}:*"
+            "${module.lambda_task_state_change_handler.function_arn}:*",
+            module.lambda_hl_candle_collector.function_arn,
+            "${module.lambda_hl_candle_collector.function_arn}:*"
           ],
           [for arn in module.lambda_mcp_http[*].function_arn : arn],
           [for arn in module.lambda_mcp_http[*].function_arn : "${arn}:*"],
