@@ -22,8 +22,9 @@ Usage::
 Each backtest runs as a subprocess inside its passivbot checkout with the
 checkout's own virtualenv. A template is skipped when its artifact already
 carries the same ``source_sha`` or ``trading_sha``, engine, window end and
-candle directory, and (under ``--capital-profile``, or when the artifact has a
-capital profile) a profile run on the same. ``--force`` reruns it, profile
+candle directory, (under ``--capital-profile``, or when the artifact has a
+capital profile) a profile run on the same, and, for a Hyperliquid copy, a
+``reference`` whose ``key`` matches. ``--force`` reruns it, profile
 included.
 
 ``--end-date`` runs every template from its own start to that date; ``now``
@@ -53,7 +54,9 @@ template it was made from) also carries a ``reference``: the same body over
 the same window and balance on Bybit's candles in ``REFERENCE_CANDLES``, at 60
 and at 1 minute. Hyperliquid's hourly candles overstate a drawdown against
 minute ones; the pair shows by how much. It is rerun whenever it is missing or
-was run on another engine, strategy or window end.
+was run on another engine, strategy or window end. A reference whose runs fail
+(Bybit's candles ending before the window does) is written with no rows under
+the current key, so a plain rerun does not retry it; ``--force`` does.
 
 A run reads candles from its ``backtest.ohlcv_source_dir`` when one is set
 (the mainstream templates name ``caches/ohlcv_combined``; the XRP templates
@@ -897,7 +900,7 @@ def main(argv=None) -> int:
                 try:
                     ref = reference(template, pb_dirs[template.engine], cache_dir, args.timeout)
                 except Exception as exc:  # a failed reference costs the reference, not the template's own run
-                    ref = None
+                    ref = {"key": reference_key(template), "rows": []}
                     status = f"{status} (no reference: {exc})"
             if ref:
                 artifact["reference"] = ref

@@ -184,7 +184,7 @@ that generates it. A small plugin in `vite.config.ts` makes it behave like
 into `dist/` after `vite build`. The build also copies `index.html` to
 `dist/404.html` so GitHub Pages resolves deep links through the SPA router.
 
-- `templates/index.json` — `[{name, title, title_zh, style, generation,
+- `templates/index.json` — `[{name, title, title_zh, style, generation, profile,
   positions, engine, audience, exchange, coins, start, end, starting_balance, params_sha,
   metrics, traded, capital_drawdown}]`, where `name` is the opaque template id, `positions` is `single` or
   `multi` (whether the template holds one position at a time or several; the
@@ -192,7 +192,9 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   and held in no S3 object or `pbtb` block), `traded` is `[{coin, share}]`, the
   coins the backtest's fills went to in percent of the fill count (a card shows
   it instead of `coins` when present: a template that holds one position trades
-  far fewer coins than its basket names), `capital_drawdown` is `{median,
+  far fewer coins than its basket names), `profile` is the strategy lab's risk
+  tier (`guard` … `extreme`, docs/config-transfer.md; null on an artifact
+  not rerun since it was added), `capital_drawdown` is `{median,
   worst}` over the template's capital profile or null without one (a card names
   the worst under its own drawdown), `starting_balance` is the least
   capital the template is offered for (the Configs list sorts by it and the
@@ -227,7 +229,12 @@ into `dist/` after `vite build`. The build also copies `index.html` to
   artifact's `ohlcv_source_dir` records, so an audience switch does not re-run
   a backtest), and `candle_minutes`, the candle the run stepped by (60 on a
   Hyperliquid template, whose page says so; docs/config-transfer.md,
-  *Hyperliquid copies*). `metrics` follow passivbot's
+  *Hyperliquid copies*). A Hyperliquid copy also carries `copied_from`, the
+  Bybit template it was made from, and `reference` (`{key, rows[{exchange,
+  candle_minutes, gain, drawdown_worst}]}`: the same body, window and balance
+  on Bybit's candles at 60 and at 1 minute; `key` works as `capital_profile`'s,
+  and `rows` is empty when the runs failed); its page shows the rows beside its
+  own run and the tier its hourly drawdown alone would read. `metrics` follow passivbot's
   `analysis.json` (`gain` is the final/starting ratio, `adg*` and
   `drawdown_worst` are fractions; `backtest_completion_ratio` is 1 for a run
   one candle short of its window, which passivbot reports at a candle wider
