@@ -77,6 +77,7 @@ def cfg(env: str) -> dict:
         "lambdas": {
             "task-state": f"{p}-task-state-change-handler",
             "daily-pnl": f"{p}-daily-pnl-snapshot",
+            "hl-candles": f"{p}-hl-candle-collector",
             # Created only while `mcp_http_enabled` is set; in an env where it is
             # off the name resolves to a function that does not exist.
             "mcp-http": f"{p}-mcp-http",

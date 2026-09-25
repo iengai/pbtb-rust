@@ -17,6 +17,7 @@ definition of "in sync".
 | telebot binary | `gh workflow run telebot-deploy.yml --ref main -f tag=latest -f passivbot_revisions=latest` (image built automatically by `telebot-build` on push to main) | the local agent App (docs/agents.md § Local agents) |
 | restart lambda code | `gh workflow run lambda-deploy.yml --ref main` | local agent App |
 | collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | local agent App |
+| candle collector lambda code | `gh workflow run lambda-deploy.yml --ref main -f target=hl-candle-collector` | local agent App |
 | lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | `AWS_PROFILE=dev` |
 | passivbot image | `python scripts/build_passivbot_image.py --tag vX.Y.Z-arm64 --no-wait`, then `pbtb_ops.py codebuild-log <build-id>` | dev profile; source at `E:/projects/passivbot` checked out at that tag |
 | web console (site) | `gh workflow run pages-publish.yml --ref main` (also on every push to main touching `site/`; the showcase is not in the build, the pages read it from the showcase CDN, so a switch or a collector run needs no publish) | local agent App |

@@ -171,6 +171,10 @@ Bucket: {project}-{env}-bot-configs
   or on Hyperliquid `{"<bot_id>": {"exchange": "hyperliquid", "wallet_address",
   "private_key", "is_vault": false}}`. A file without `exchange` is Bybit's.
 
+## S3 (market data)
+
+The market-data bucket (`{project}-{env}-market-data`, private, `terraform/envs/dev/hl-candles.tf`) holds Hyperliquid 1m candles for the strategy lab's backtests; Hyperliquid serves only the latest 5000 candles of an interval, so this is the only history. `hyperliquid/1m/{COIN}/{YYYY-MM-DD}.json` is one UTC day of one coin, the `candleSnapshot` rows as served (`t`, `T`, `s`, `i`, `o`, `c`, `h`, `l`, `v`, `n`; prices and volume as strings), written once by the `hl-candle-collector` Lambda for every coin a `predefined/` Hyperliquid template approves. A minute without trades has no row; a day with none at all (a coin Hyperliquid does not list) is stored as `[]`, so it is not fetched again. `scripts/hl_candles_pull.py` mirrors the prefix into the passivbot checkout and writes passivbot shards under `caches/ohlcv_hl_1m`.
+
 ## S3 (return curves)
 
 The collector reads each exchange its own way into one neutral ledger: Bybit's signed transaction log, which carries the balance after every entry, and on Hyperliquid the public `info` queries keyed by the account address (fills' closed PnL net of fees, funding, the non-funding ledger's transfers), with the balance walked back from the account's cash at the time of the read. Money fields named `usdt` hold the exchange's quote coin: USDC on Hyperliquid.

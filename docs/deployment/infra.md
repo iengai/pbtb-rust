@@ -71,10 +71,11 @@ terraform apply
 
 ### Prerequisites that the plan evaluates
 
-- **Lambda bootstrap artifact.** `terraform plan/apply/import` here evaluates the
-  `task_state_change_handler` Lambda's `archive_file` data source, which needs
-  `target/lambda/task_state_change_handler/bootstrap` to exist (built separately).
-  Build the lambda first, or the command errors on a missing file.
+- **Lambda bootstrap artifacts.** `terraform plan/apply/import` here evaluates
+  each reached Lambda's `archive_file` data source, which needs its
+  `target/lambda/<bin>/bootstrap` to exist (built separately; the bins are listed
+  in [overview.md](overview.md) §2). Build them first, or the command errors on a
+  missing file.
 - **`module.ecr` must be present in config.** The live dev state references
   `module.ecr` for both image repos (`telebot` → `scalable-cluster-dev-telebot`,
   `force_delete=true`; `passivbot_v741` → `passivbot-live`, `force_delete=false`,
