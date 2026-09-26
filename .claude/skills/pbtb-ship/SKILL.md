@@ -122,9 +122,9 @@ Arm only PRs the App authored; the owner's are theirs to merge.
 ## PR
 
 - `gh pr create --base main --head <branch> --title "<type>: …" --body "$(cat <<'EOF' … EOF)"`
-  with sections **Why / What / Verification / Review / Rollout** (`closes #<n>`
-  in Why when the change started from an issue, so the merge closes it; rollout
-  only if it changes deployed shape — say the order and the window, see pbtb-deploy).
+  with the sections of `.github/pull_request_template.md` (`closes #<n>` in Why
+  when the change started from an issue, so the merge closes it; rollout only if
+  it changes deployed shape — say the order and the window, see pbtb-deploy).
 - GitHub recomputes mergeability asynchronously after a force-push; `CONFLICTING`
   right after pushing is stale — poll `gh pr view --json mergeable` until it
   settles rather than trusting the first answer.
