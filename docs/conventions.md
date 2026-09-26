@@ -71,7 +71,7 @@ Run `cargo fmt && cargo clippy` before committing.
 
 ### Review before a PR
 
-`REVIEW.md` at the repo root is the review policy: three passes (bugs, security, compliance), what is Important and what is a Nit, what to skip, the evidence a finding needs. The `pbtb-ship` skill runs the passes through the reviewer agents before the PR is opened, and the PR's Review section carries the tally; findings never approve or block on their own.
+`REVIEW.md` at the repo root is the review policy: three passes (bugs, security, compliance), what is Important and what is a Nit, what to skip, the evidence a finding needs. The `pbtb-ship` skill runs the passes through the reviewer agents before the PR is opened, and the PR's Review section carries the tally. An open Important keeps a local agent PR from merging itself: the `Review-verdict` line the `contract` check reads passes only at 0 important ([governance.md](governance.md) § What GitHub enforces).
 
 ### Branch Naming
 
