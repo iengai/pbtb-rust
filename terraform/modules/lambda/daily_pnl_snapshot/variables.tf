@@ -83,3 +83,19 @@ variable "schedule_expression" {
   default     = "cron(0 1 * * ? *)"
   description = "EventBridge schedule; defaults to 01:00 UTC daily"
 }
+
+variable "archive_bucket_name" {
+  type        = string
+  description = "Private bucket the monthly job writes each bot's raw exchange history to"
+}
+
+variable "archive_bucket_arn" {
+  type        = string
+  description = "ARN of the raw-archive bucket"
+}
+
+variable "archive_schedule_expression" {
+  type        = string
+  default     = "cron(0 3 2 * ? *)"
+  description = "EventBridge schedule of the raw archive; 03:00 UTC on the 2nd, a day after the month closes so late settlements are in"
+}

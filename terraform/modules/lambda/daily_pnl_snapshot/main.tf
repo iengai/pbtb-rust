@@ -39,6 +39,8 @@ module "base" {
       # Where the per-bot return series (and private state) are written.
       APP__CHART__BUCKET_NAME = var.chart_bucket_name
       APP__CHART__KEY_PREFIX  = var.chart_key_prefix
+      # Where the monthly job keeps the raw exchange history.
+      APP__ARCHIVE__BUCKET_NAME = var.archive_bucket_name
     }
   )
 }
@@ -102,6 +104,20 @@ resource "aws_iam_role_policy" "s3" {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = var.chart_bucket_arn
+      },
+      {
+        # No read and no delete: the job lists what a bot already has and
+        # only adds months. Bucket versioning keeps any overwrite recoverable.
+        Sid      = "WriteRawArchive"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${var.archive_bucket_arn}/*"
+      },
+      {
+        Sid      = "ListRawArchive"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = var.archive_bucket_arn
       }
     ]
   })
@@ -129,4 +145,34 @@ resource "aws_lambda_permission" "allow_eventbridge_invoke" {
   function_name = module.base.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.daily.arn
+}
+
+# Monthly raw archive, on the same function. The constant input marks the job
+# in `detail`; the handler routes on it and the daily rule's empty detail keeps
+# the return-curve run.
+resource "aws_cloudwatch_event_rule" "monthly_archive" {
+  name                = "${var.project}-${var.env}-raw-archive"
+  description         = "Monthly trigger for the raw exchange-history archive"
+  schedule_expression = var.archive_schedule_expression
+
+  tags = var.common_tags
+}
+
+resource "aws_cloudwatch_event_target" "monthly_archive_to_lambda" {
+  rule      = aws_cloudwatch_event_rule.monthly_archive.name
+  target_id = "raw-archive"
+  arn       = module.base.function_arn
+  input = jsonencode({
+    "detail-type" = "Scheduled Event"
+    source        = "aws.events"
+    detail        = { job = "raw-archive" }
+  })
+}
+
+resource "aws_lambda_permission" "allow_eventbridge_invoke_archive" {
+  statement_id  = "AllowExecutionFromEventBridgeMonthlyArchive"
+  action        = "lambda:InvokeFunction"
+  function_name = module.base.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.monthly_archive.arn
 }
