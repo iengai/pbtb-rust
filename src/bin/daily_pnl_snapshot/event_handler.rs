@@ -12,11 +12,11 @@ use pbtb_rust::domain::showcase::{PublicBotSeries, is_published, public_id};
 use pbtb_rust::domain::user::UserRepository;
 
 use crate::AppState;
-use crate::{bybit, hyperliquid, model, s3_writer};
+use crate::{archive, bybit, hyperliquid, model, s3_writer};
 
 const DAY_MS: i64 = 86_400_000;
 
-fn wall_ms() -> i64 {
+pub(crate) fn wall_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -27,9 +27,10 @@ pub(crate) async fn function_handler(
     event: LambdaEvent<EventBridgeEvent>,
     state: Arc<AppState>,
 ) -> Result<(), Error> {
+    let deadline_ms = event.context.deadline as i64;
     let payload = event.payload;
 
-    // Only the daily schedule triggers a collection run. Any other invocation —
+    // Only a schedule triggers a run. Any other invocation —
     // notably the deploy pipeline's benign smoke test — returns before any
     // exchange or S3 call, mirroring the task-state handler's guard-clause safety net.
     if payload.detail_type != "Scheduled Event" {
@@ -39,6 +40,13 @@ pub(crate) async fn function_handler(
             payload.detail_type
         );
         return Ok(());
+    }
+
+    // The monthly rule carries its job in the detail; the daily rule's is empty.
+    if archive::is_archive_event(&payload.detail) {
+        return archive::run(&state, wall_ms(), deadline_ms)
+            .await
+            .map_err(|e| Error::from(format!("Raw archive failed: {e:#}")));
     }
 
     // The as-of instant for this run: the schedule's fire time, falling back to

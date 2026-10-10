@@ -10,6 +10,7 @@ use pbtb_rust::infra::client::{create_dynamodb_client, create_s3_client};
 use pbtb_rust::infra::{DynamoBotRepository, S3ApiKeyRepository, S3ShowcaseStore};
 use pbtb_rust::observability::Telemetry;
 
+mod archive;
 mod bybit;
 mod config;
 mod event_handler;

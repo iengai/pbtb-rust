@@ -17,4 +17,13 @@ pub struct DailyPnlSnapshotConfig {
     #[serde(default)]
     pub hyperliquid: HyperliquidConfig,
     pub chart: ChartConfig,
+    /// Where the monthly job keeps the exchange's raw history. Absent, the
+    /// job logs and does nothing, so the daily run never depends on it.
+    #[serde(default)]
+    pub archive: Option<ArchiveConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArchiveConfig {
+    pub bucket_name: String,
 }

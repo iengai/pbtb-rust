@@ -1,6 +1,7 @@
 //! Minimal signed Bybit V5 REST client for the return-curve collector.
 //!
-//! Only the two read endpoints the collector needs are implemented. Requests are
+//! Only read endpoints are called: the transaction log the return curve is built
+//! from, and the raw history the monthly archive keeps. Requests are
 //! signed with `HMAC-SHA256(secret, timestamp + api_key + recv_window + query)`
 //! per Bybit V5. The key/secret are never logged: errors carry only the HTTP
 //! status or Bybit's own `retMsg`, never request headers (which hold the key).
@@ -140,6 +141,57 @@ struct TxnRow {
     cash_balance: String,
     #[serde(default, deserialize_with = "de_null_string")]
     currency: String,
+}
+
+#[derive(Deserialize)]
+struct RawPage {
+    #[serde(default)]
+    list: Vec<Box<serde_json::value::RawValue>>,
+    #[serde(
+        rename = "nextPageCursor",
+        default,
+        deserialize_with = "de_null_string"
+    )]
+    next_page_cursor: String,
+}
+
+/// Every row a V5 history endpoint returns for `[from_ms, to_ms)`, exactly as
+/// Bybit sent it, in 7-day windows walked forward with cursor pagination.
+/// `base_query` carries the endpoint's own filters and page size; the time
+/// bounds and cursor are appended here.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_raw_rows(
+    http: &reqwest::Client,
+    cfg: &BybitConfig,
+    api_key: &str,
+    secret: &str,
+    path: &str,
+    base_query: &str,
+    from_ms: i64,
+    to_ms: i64,
+) -> Result<Vec<Box<serde_json::value::RawValue>>> {
+    let mut rows = Vec::new();
+    let mut win_start = from_ms;
+    while win_start < to_ms {
+        let win_end = (win_start + WINDOW_MS).min(to_ms);
+        let mut cursor = String::new();
+        loop {
+            // Bybit's endTime is inclusive, so a window stops a millisecond
+            // short of where the next one starts.
+            let mut query = format!("{base_query}&startTime={win_start}&endTime={}", win_end - 1);
+            if !cursor.is_empty() {
+                query.push_str(&format!("&cursor={cursor}"));
+            }
+            let page: RawPage = signed_get(http, cfg, api_key, secret, path, &query).await?;
+            rows.extend(page.list);
+            if page.next_page_cursor.is_empty() {
+                break;
+            }
+            cursor = page.next_page_cursor;
+        }
+        win_start = win_end;
+    }
+    Ok(rows)
 }
 
 /// Collect settlement-coin transaction-log entries in `[from_ms, to_ms]`, in
