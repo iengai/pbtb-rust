@@ -11,17 +11,10 @@ use pbtb_rust::domain::exchange::Exchange;
 use pbtb_rust::domain::showcase::{PublicBotSeries, is_published, public_id};
 use pbtb_rust::domain::user::UserRepository;
 
-use crate::AppState;
+use crate::{AppState, wall_ms};
 use crate::{archive, bybit, hyperliquid, model, s3_writer};
 
 const DAY_MS: i64 = 86_400_000;
-
-pub(crate) fn wall_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 
 pub(crate) async fn function_handler(
     event: LambdaEvent<EventBridgeEvent>,

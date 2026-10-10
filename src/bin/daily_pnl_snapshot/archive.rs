@@ -160,7 +160,7 @@ struct Tally {
     written: u32,
     rows: usize,
     failed: u32,
-    /// Bot-months left for the next run because the deadline came first.
+    /// Dataset-months left for the next run because the deadline came first.
     pending: u32,
 }
 
@@ -227,7 +227,7 @@ async fn archive_bot(
             if have.contains(&key) {
                 continue;
             }
-            if crate::event_handler::wall_ms() > deadline_ms - DEADLINE_MARGIN_MS {
+            if crate::wall_ms() > deadline_ms - DEADLINE_MARGIN_MS {
                 tally.pending += 1;
                 continue;
             }
