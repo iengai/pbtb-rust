@@ -11,8 +11,9 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.4", features = ["v4"] }
 serde = { version = "1.0", features = ["derive"] }
 # float_roundtrip: a template written back (the audience switch) keeps every
-# strategy float bit-exact.
-serde_json = { version = "1.0", features = ["float_roundtrip"] }
+# strategy float bit-exact. raw_value: the raw exchange archive stores each row
+# byte for byte as the exchange sent it.
+serde_json = { version = "1.0", features = ["float_roundtrip", "raw_value"] }
 config = "0.13"
 teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls", "ctrlc_handler"] }
 anyhow = "1.0.99"

@@ -10,6 +10,7 @@ use pbtb_rust::infra::client::{create_dynamodb_client, create_s3_client};
 use pbtb_rust::infra::{DynamoBotRepository, S3ApiKeyRepository, S3ShowcaseStore};
 use pbtb_rust::observability::Telemetry;
 
+mod archive;
 mod bybit;
 mod config;
 mod event_handler;
@@ -28,13 +29,21 @@ pub struct AppState {
     /// key and secret, or the Hyperliquid account address (its API wallet key
     /// is never used here).
     api_keys: Arc<S3ApiKeyRepository>,
-    /// Writes the per-bot chart JSON (to the chart bucket, not the S3 config
-    /// above — the client is shared, the bucket name is not).
+    /// Writes the per-bot chart JSON to the chart bucket and the raw history
+    /// to the archive bucket (the client is shared with the config store
+    /// above, the bucket names are not).
     s3: aws_sdk_s3::Client,
     /// The chart bucket's showcase halves, in the layout the API's showcase
     /// switch writes too.
     showcase: Arc<S3ShowcaseStore>,
     http: reqwest::Client,
+}
+
+pub(crate) fn wall_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 #[tokio::main]

@@ -43,6 +43,8 @@ module "lambda_daily_pnl_snapshot" {
   chart_bucket_name   = module.chart_bucket.bucket_name
   chart_bucket_arn    = module.chart_bucket.bucket_arn
   chart_key_prefix    = local.chart_key_prefix
+  archive_bucket_name = aws_s3_bucket.exchange_archive.bucket
+  archive_bucket_arn  = aws_s3_bucket.exchange_archive.arn
 
   # In-VPC egress via the NAT instance's fixed EIP (IP-whitelisted Bybit keys).
   # Reuses the same subnet/SG references the ECS module consumes; does NOT touch
