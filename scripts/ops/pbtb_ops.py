@@ -914,10 +914,6 @@ ENV_SHAPE = ("src/config.rs", "src/config/*", "src/main.rs", "src/bin/*/main.rs"
              "src/bin/shared/*", "src/observability.rs")
 # What telebot-build hashes: a commit touching one of these changes the image.
 TELEBOT_SOURCE = ("src", "Cargo.toml", "Cargo.lock", ".devcontainer/Dockerfile", ".dockerignore")
-# Binaries an agent may redeploy itself during a rollback; the rest are named
-# for the owner. The restart lambda launches live tasks, mcp-http serves every
-# tenant's tools, the candle collector feeds the lab.
-AGENT_BINARIES = {"telebot", "daily_pnl_snapshot"}
 BINARY_DEPLOY = {
     "telebot": "gh workflow run telebot-deploy.yml --ref main -f tag={sha} -f passivbot_revisions=latest",
     "daily_pnl_snapshot": "gh workflow run daily-pnl-snapshot-deploy.yml --ref main",
@@ -1038,7 +1034,14 @@ def telebot_pin_problem(running_sha: str | None, pin_is_ancestor: bool, pr_shas:
     return ""
 
 
+# What every Rust binary's build reads besides src/ and Cargo.*: the builder
+# image and the toolchain.
+BUILD_INPUTS = (".devcontainer/Dockerfile", ".dockerignore", "rust-toolchain.toml")
+
+
 def binaries_touched(files: list[str]) -> set[str]:
+    if any(f in BUILD_INPUTS for f in files):
+        return set(BINARY_DEPLOY)
     rust = [f for f in files if f.startswith("src/") or f.startswith("Cargo.")]
     if not rust:
         return set()
@@ -1072,10 +1075,8 @@ def rollback_plan(pr: dict, shas: list[str], running_sha: str | None) -> list[st
     if "telebot" in touched:
         lines.append(f"telebot, at once (needs no merge; :latest stays on the bad image, telebot-build skips a "
                      f"source it has built): {BINARY_DEPLOY['telebot'].format(sha=sha)}")
-    for b in sorted(touched & AGENT_BINARIES - {"telebot"}):
+    for b in sorted(touched - {"telebot"}):
         lines.append(f"{b}, after the revert merges: {BINARY_DEPLOY[b]}")
-    for b in sorted(touched - AGENT_BINARIES):
-        lines.append(f"{b}: the owner's call, not the agent's: {BINARY_DEPLOY[b]}")
     if len(lines) == 4:
         lines.append("nothing deployed to redeploy")
     return lines

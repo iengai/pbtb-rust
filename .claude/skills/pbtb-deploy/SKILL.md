@@ -114,7 +114,6 @@ is the order.
    verdict line, PR, auto-merge). After it merges: the collector redeploy if
    the plan lists it; the site rides the push.
 6. Re-run the checks against the baseline and put the result on the Incident.
-   A lambda the plan names as the owner's call is left for the owner.
 
 ## Rebuilding the NAT (sole egress + telebot host)
 

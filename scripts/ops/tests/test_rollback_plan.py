@@ -127,17 +127,22 @@ class PlanTest(unittest.TestCase):
         self.assertIn("telebot-deploy.yml --ref main -f tag=" + "a" * 40, out)
         self.assertNotIn("tag=latest", out)
 
-    def test_a_shared_rust_change_names_the_lambdas_for_the_owner(self):
+    def test_a_shared_rust_change_redeploys_every_lambda_after_the_merge(self):
         out = self.plan(("src/usecase/runbot.rs",))
-        self.assertIn("task_state_change_handler: the owner's call", out)
-        self.assertIn("mcp_http: the owner's call", out)
-        self.assertIn("daily_pnl_snapshot, after the revert merges", out)
+        for b in ("task_state_change_handler", "mcp_http", "hl_candle_collector", "daily_pnl_snapshot"):
+            self.assertIn(f"{b}, after the revert merges", out)
 
     def test_a_collector_only_change_redeploys_the_collector_only(self):
         out = self.plan(("src/bin/daily_pnl_snapshot/archive.rs",))
         self.assertIn("daily-pnl-snapshot-deploy.yml", out)
         self.assertNotIn("telebot", out)
-        self.assertNotIn("owner's call", out)
+        self.assertNotIn("mcp_http", out)
+
+    def test_a_builder_or_toolchain_change_redeploys_every_binary(self):
+        for f in (".devcontainer/Dockerfile", ".dockerignore", "rust-toolchain.toml"):
+            out = self.plan((f,), sha="a" * 40)
+            self.assertIn("telebot-deploy.yml", out, f)
+            self.assertIn("mcp_http, after the revert merges", out, f)
 
     def test_site_rides_the_push(self):
         self.assertIn("pages-publish runs on the push", self.plan(("site/src/a.tsx",)))

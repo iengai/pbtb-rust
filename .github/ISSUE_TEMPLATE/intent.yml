@@ -53,7 +53,7 @@ body:
         - Open a PR; I review and merge
         - Merge when the verify gate and CI are green
         - Merge and deploy to dev (per the pbtb-deploy skill; never trading actions)
-      default: 0
+      default: 2
     validations:
       required: true
   - type: textarea
