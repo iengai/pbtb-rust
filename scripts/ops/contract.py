@@ -49,6 +49,10 @@ REVIEWER = "pr-reviewer"
 VERDICT = re.compile(r"^Review-verdict:\s*pass\s*@\s*([0-9a-f]{7,40})\b(.*)$", re.M)
 TALLY = re.compile(r"(\d+) important\b|no important findings", re.I)
 EVENTS = 100
+# A compare lists at most this many files; a list at the cap may hide one the
+# review did not cover. Its commits list is capped too, and `total_commits`
+# says when it was.
+COMPARE_FILES = 300
 
 ACTOR = "... on User { databaseId } ... on Bot { databaseId }"
 QUERY = f"""
@@ -100,6 +104,12 @@ def followup_problem(sha: str, head: str, after: dict, reviewed: set[str], agent
     """
     if after.get("status") not in ("ahead", "identical"):
         return f"the review verdict is for {sha}, which is not an ancestor of the head {head[:7]}: review again"
+    listed = after.get("commits", [])
+    if after.get("total_commits", len(listed)) > len(listed):
+        return (f"{after['total_commits']} commits follow the reviewed one, more than GitHub lists "
+                f"({len(listed)}): review again")
+    if len(after.get("files", [])) >= COMPARE_FILES:
+        return f"the commits after the review change {COMPARE_FILES} files or more, more than GitHub lists: review again"
     for c in after.get("commits", []):
         if str((c.get("author") or {}).get("id")) != agent_id:
             return f"{c['sha'][:7]} after the reviewed commit is not the App's: review the new commits"
