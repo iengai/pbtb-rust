@@ -84,7 +84,10 @@ than the review asked for.
    reviewers' tallies appended: `Review-verdict: pass @ <sha7> — pr-reviewer
    0 important, 2 nit, 0 pre-existing, comment-reviewer 0 important`. A push
    after the review changes the head, and the `contract` check fails until the
-   passes run again on it and the line is updated.
+   passes run again on it and the line is updated, unless every commit after
+   the reviewed one is a nit fix: subject `review: <what it takes>`, only
+   files the reviewed diff already changed. Take nits that way after the
+   verdict; a nit never sends the PR round the review again.
 4. A finding the reviewer marked REPEAT carries its correction into the layer
    it names, in this PR; `REVIEW.md` owns that rule. Any other finding is
    fixed in the file it cites (docs/conventions.md § Knowledge placement).
