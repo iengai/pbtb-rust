@@ -11,11 +11,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/ops/agent_identity.py\" refresh"
+            "command": "python -P \"$CLAUDE_PROJECT_DIR/scripts/ops/agent_identity.py\" refresh"
           },
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.py\""
+            "command": "python -P \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-shell.py\""
           }
         ]
       }

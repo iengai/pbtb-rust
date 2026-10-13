@@ -195,7 +195,9 @@ def write_settings(path: Path, script: Path, *, bash: tuple[str, ...], edits: bo
     Bash is allowed by family so that a command never prompts (`dontAsk`
     mode denies whatever would): the hook decides the exact command.
     """
-    hook_cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(script.resolve()))} hook"
+    # -P keeps the checkout off the hook's path: the model writes files there,
+    # and one named like a standard module would run inside the gate.
+    hook_cmd = f"{shlex.quote(sys.executable)} -P {shlex.quote(str(script.resolve()))} hook"
     allow = list(READ_TOOLS) + ["Skill"] + [f"Bash({b} *)" for b in bash]
     if edits:
         allow += ["Edit", "Write", "MultiEdit"]

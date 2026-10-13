@@ -36,7 +36,7 @@ import shutil
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.append(str(Path(__file__).resolve().parent))
 import claude_harness as h  # noqa: E402
 
 ROOT = h.ROOT
