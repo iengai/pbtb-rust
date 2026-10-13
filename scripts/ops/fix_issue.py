@@ -369,16 +369,17 @@ def tier_allows_merge(tier: str) -> bool:
     return tier in MERGE_TIERS
 
 
-# What agents load, and the rules they are held to: a change there is read by
-# a person before it merges, whatever tier the issue granted.
-LOADED_BY_AGENTS = (".claude/*", "docs/*")
+# The hooks and settings that refuse an agent's commands: a change there is
+# read by a person before it merges, whatever tier the issue granted. Skills,
+# agent definitions and docs merge at the issue's tier after the review pass.
+GUARD_PATHS = (".claude/hooks/*", ".claude/settings*.json")
 
 
 def held_for(tier: str, staged: list[str]) -> tuple[str, str]:
-    """The tier a patch is published at, and why, when it touches what agents load."""
-    hit = sorted(f for f in staged if any(fnmatch.fnmatch(f, p) for p in LOADED_BY_AGENTS))
+    """The tier a patch is published at, and why, when it touches the hooks or settings."""
+    hit = sorted(f for f in staged if any(fnmatch.fnmatch(f, p) for p in GUARD_PATHS))
     if tier in HELD_TIER and hit:
-        return HELD_TIER[tier], (f"The issue grants *{tier}*, but the change touches what agents load "
+        return HELD_TIER[tier], (f"The issue grants *{tier}*, but the change touches the hooks or settings that refuse an agent's commands "
                                  f"({', '.join(hit[:3])}{', …' if len(hit) > 3 else ''}); held at *{HELD_TIER[tier]}*.")
     return tier, ""
 

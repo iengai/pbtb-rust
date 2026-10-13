@@ -24,13 +24,13 @@ Each script appends a `RULES` string as the system prompt: the answer shape the 
 
 ## Trying a change
 
-- `gh workflow run issue-fix.yml --ref <branch> -f issue_number=<n> -f dry_run=true` runs the model and the gate on the branch and prints the PR as `run` sees it (the tier hold on what agents load is `publish`'s); nothing is pushed or commented. A real fix runs on `main` only.
+- `gh workflow run issue-fix.yml --ref <branch> -f issue_number=<n> -f dry_run=true` runs the model and the gate on the branch and prints the PR as `run` sees it (the tier hold on the hooks and settings is `publish`'s); nothing is pushed or commented. A real fix runs on `main` only.
 - `gh workflow run incident-diagnose.yml --ref <branch> -f issue_number=<n> -f dry_run=true` prints the comment in the log. Off `main` there is no AWS side: the `gh-diagnose` role trusts `refs/heads/main` alone, so the OIDC step is skipped and the ops probes answer with the missing credentials.
 - The local `claude` CLI is a different login from the one CI uses; the scripts are tried in CI, not on a workstation. The offline tests of the scripts drive the real hook subcommand with a fake harness; the tests under `scripts/ops/tests/` (the trust rule below among them) run in the verify gate.
 
 ## Publishing
 
-`issue-fix`'s second job runs no model code: it re-derives the tier from the issue, applies the patch on `fix/issue-<n>`, opens the PR with the secret `FIX_PUBLISH_TOKEN` (a member's fine-grained token, so the PR's own checks run and a merge closes the issue) or, without it, the repository token (the run waits for a maintainer's approval and a merge closes nothing). A merge tier is held at "open a PR" when the issue's author is outside the repository (the local agent App counts as inside, below), and when the patch touches `.claude/**` or `docs/**`: a change to what agents load is read by a person before it merges.
+`issue-fix`'s second job runs no model code: it re-derives the tier from the issue, applies the patch on `fix/issue-<n>`, opens the PR with the secret `FIX_PUBLISH_TOKEN` (a member's fine-grained token, so the PR's own checks run and a merge closes the issue) or, without it, the repository token (the run waits for a maintainer's approval and a merge closes nothing). A merge tier is held at "open a PR" when the issue's author is outside the repository (the local agent App counts as inside, below), and when the patch touches `.claude/hooks/` or `.claude/settings*.json`: a change to what refuses an agent's commands is read by a person before it merges.
 
 ## Local agents
 
