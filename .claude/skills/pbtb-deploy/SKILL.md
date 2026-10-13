@@ -83,6 +83,39 @@ to remove the key again. Verify after each step with `smoke-lambda task-state`.
 - Running bots: `bot-status all --memory` — the count of RUNNING tasks did not
   change, and no task is above 85% of its limit.
 
+## Rolling back
+
+Who may roll back without asking is docs/governance.md § Autonomy tiers; this
+is the order.
+
+1. **Before every deploy**, keep the baseline: `deploy-audit` (its findings,
+   and the `telebot running sha` line, which is the rollback point) and
+   `bot-status all` (the RUNNING count). A check "fails" only against this
+   baseline: a standing finding (`:latest` behind main) is not a regression.
+2. **When a check in "After you apply / deploy" fails**, file an Incident first
+   (`gh issue create --label incident,source:agent`, at *Diagnose only*, with
+   the failing output): the revert PR carries `refs #<incident>`, never
+   `closes`, since `contract` fails a PR closing an issue below a merge tier.
+3. `python scripts/ops/pbtb_ops.py rollback-plan <pr> --running-sha <sha from 1>`
+   prints the revert range and the redeploys, or exits 2 with why an agent may
+   not do it alone: a revert range it cannot verify, terraform, a code-owned
+   path, a stored-shape or env-shape change, a ticked invariant, a revert of a
+   revert, or a telebot pin that would take other image changes back with it.
+   A rollback is a rollout to an older binary: the coupling rule above holds
+   for every commit between the pinned sha and main, not only the reverted
+   PR's, and state a binary reads and writes back (the collector's `_state/`)
+   is a stored shape like a bot row.
+4. **telebot first, without waiting for the merge**: `telebot-deploy -f
+   tag=<recorded sha>`. Never `tag=latest`: `telebot-build` skips a source
+   hash it has built, so after a revert `:latest` would still be the bad image.
+   The deploy re-points `:latest` at the recorded sha, and `deploy-audit` then
+   reports `:latest` behind main until the next telebot change; expected.
+5. The revert, as `rollback-plan` prints it, through pbtb-ship (gate, review,
+   verdict line, PR, auto-merge). After it merges: the collector redeploy if
+   the plan lists it; the site rides the push.
+6. Re-run the checks against the baseline and put the result on the Incident.
+   A lambda the plan names as the owner's call is left for the owner.
+
 ## Rebuilding the NAT (sole egress + telebot host)
 
 Any change to the NAT `user_data` or AMI replaces `module.network.aws_instance.nat`

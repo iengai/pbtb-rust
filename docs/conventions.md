@@ -95,6 +95,7 @@ Use `<type>/<kebab-summary>`, where `<type>` is the same set as commit types
 - `test` — adding or updating tests
 - `chore` — build, config, dependency updates
 - `docs` — documentation only
+- `revert` — undoes a merged PR; the subject is the one `pbtb_ops.py rollback-plan` prints
 
 **Rules:**
 - Summary line: lowercase, imperative mood, no period, ≤72 chars
