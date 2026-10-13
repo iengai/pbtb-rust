@@ -1,15 +1,17 @@
 # A change here needs the owner's approving review before it merges (the
-# ruleset on main requires code-owner review). These are what agents load,
-# the checks that decide a merge and the scripts behind them, and infra whose
-# apply is a human maintenance act; the local agent App's PRs merge
-# themselves everywhere else (docs/governance.md § Autonomy tiers).
+# ruleset on main requires code-owner review). These are the merge judge and
+# the hard guards: a PR's own checks run its own copy of the workflows, of the
+# gate script (check `gate`) and of contract.py with the modules it imports
+# (check `contract`); a session runs under the hooks and the settings, acts
+# through the identity script, and the diagnose model under its command
+# whitelist; terraform's apply is a human maintenance act. The local agent
+# App's PRs merge themselves everywhere else (docs/governance.md § Autonomy
+# tiers).
 /.github/                        @iengai
-/.claude/                        @iengai
-/AGENTS.md                       @iengai
-/REVIEW.md                       @iengai
+/.claude/hooks/                  @iengai
+/.claude/settings*.json          @iengai
+/.claude/skills/verify/          @iengai
 /terraform/                      @iengai
-/.devcontainer/                  @iengai
-/rust-toolchain.toml             @iengai
 /scripts/ops/contract.py         @iengai
 /scripts/ops/fix_issue.py        @iengai
 /scripts/ops/claude_harness.py   @iengai

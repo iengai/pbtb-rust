@@ -369,16 +369,17 @@ def tier_allows_merge(tier: str) -> bool:
     return tier in MERGE_TIERS
 
 
-# What agents load, and the rules they are held to: a change there is read by
-# a person before it merges, whatever tier the issue granted.
-LOADED_BY_AGENTS = (".claude/*", "docs/*")
+# The guards a session runs under and the gate that judges a PR: a change
+# there is read by a person before it merges, whatever tier the issue granted.
+# The same paths are code-owned (.github/CODEOWNERS).
+GUARD_PATHS = (".claude/hooks/*", ".claude/settings*.json", ".claude/skills/verify/*")
 
 
 def held_for(tier: str, staged: list[str]) -> tuple[str, str]:
-    """The tier a patch is published at, and why, when it touches what agents load."""
-    hit = sorted(f for f in staged if any(fnmatch.fnmatch(f, p) for p in LOADED_BY_AGENTS))
+    """The tier a patch is published at, and why, when it touches the guards or the gate."""
+    hit = sorted(f for f in staged if any(fnmatch.fnmatch(f, p) for p in GUARD_PATHS))
     if tier in HELD_TIER and hit:
-        return HELD_TIER[tier], (f"The issue grants *{tier}*, but the change touches what agents load "
+        return HELD_TIER[tier], (f"The issue grants *{tier}*, but the change touches the guards or the gate "
                                  f"({', '.join(hit[:3])}{', …' if len(hit) > 3 else ''}); held at *{HELD_TIER[tier]}*.")
     return tier, ""
 

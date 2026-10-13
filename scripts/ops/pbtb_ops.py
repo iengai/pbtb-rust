@@ -934,8 +934,12 @@ def matches(path: str, patterns) -> bool:
 
 
 def codeowned(path: str, owned: list[str]) -> bool:
-    """`owned` holds .github/CODEOWNERS entries without the leading slash; a trailing slash is a directory."""
-    return any(path.startswith(o) if o.endswith("/") else path == o for o in owned)
+    """`owned` holds .github/CODEOWNERS entries without the leading slash; a trailing slash is a directory.
+
+    A wildcard entry is matched with fnmatch, whose `*` also crosses `/`: wider than GitHub's, so a refusal errs safe.
+    """
+    import fnmatch
+    return any(path.startswith(o) if o.endswith("/") else fnmatch.fnmatch(path, o) for o in owned)
 
 
 def codeowners(text: str) -> list[str]:
@@ -1039,7 +1043,8 @@ def telebot_pin_problem(running_sha: str | None, pin_is_ancestor: bool, pr_shas:
 
 
 def binaries_touched(files: list[str]) -> set[str]:
-    rust = [f for f in files if f.startswith("src/") or f.startswith("Cargo.")]
+    # The build Dockerfile and .dockerignore change every image, like Cargo.lock.
+    rust = [f for f in files if f.startswith("src/") or f.startswith("Cargo.") or f in TELEBOT_SOURCE]
     if not rust:
         return set()
     if all(f.startswith("src/bin/") for f in rust):

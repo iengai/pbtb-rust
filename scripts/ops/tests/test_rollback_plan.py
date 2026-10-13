@@ -71,6 +71,13 @@ class RefusalTest(unittest.TestCase):
         found = pbtb_ops.rollback_refusals(pr(files=(".github/workflows/x.yml",)), OWNED, [])
         self.assertTrue(any("code-owned" in f for f in found))
 
+    def test_a_wildcard_code_owner_entry_refuses(self):
+        owned = pbtb_ops.codeowners("/.claude/hooks/ @o\n/.claude/settings*.json @o\n")
+        for f in (".claude/settings.json", ".claude/settings.local.json"):
+            found = pbtb_ops.rollback_refusals(pr(files=(f, "src/usecase/runbot.rs")), owned, [])
+            self.assertTrue(any("code-owned" in x for x in found), f)
+        self.assertFalse(pbtb_ops.codeowned(".claude/skills/pbtb-ship/SKILL.md", owned))
+
     def test_the_stored_shape_refuses(self):
         for f in ("src/domain/bot.rs", "src/infra/botrepository.rs", "src/infra/showcasestore.rs", "docs/data-model.md",
                   "src/bin/daily_pnl_snapshot/model.rs", "src/bin/daily_pnl_snapshot/s3_writer.rs",
@@ -138,6 +145,12 @@ class PlanTest(unittest.TestCase):
         self.assertIn("daily-pnl-snapshot-deploy.yml", out)
         self.assertNotIn("telebot", out)
         self.assertNotIn("owner's call", out)
+
+    def test_a_dockerfile_only_change_names_every_binary(self):
+        out = self.plan((".devcontainer/Dockerfile",), sha="a" * 40)
+        self.assertIn("telebot-deploy.yml --ref main -f tag=" + "a" * 40, out)
+        self.assertIn("task_state_change_handler: the owner's call", out)
+        self.assertNotIn("nothing deployed to redeploy", out)
 
     def test_site_rides_the_push(self):
         self.assertIn("pages-publish runs on the push", self.plan(("site/src/a.tsx",)))
