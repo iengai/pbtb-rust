@@ -80,7 +80,9 @@ PERMISSIONS = {
 # Relative, so it resolves in whichever checkout git runs it from: git runs a
 # helper from the top of the worktree. A checkout without this script fails
 # to authenticate rather than falling back.
-CREDENTIAL_HELPER = "!python scripts/ops/agent_identity.py credential"
+# -P keeps the script's own directory off the path: the helper holds the App
+# key, and a file in scripts/ops named like a standard module would run in it.
+CREDENTIAL_HELPER = "!python -P scripts/ops/agent_identity.py credential"
 
 
 # ---------------------------------------------------------------- plumbing

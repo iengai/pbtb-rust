@@ -103,8 +103,13 @@ NO_IDENTITY_RULE = (
 
 
 def has_identity() -> bool:
-    """Whether this session runs with the identity env; agent_identity.py owns the check."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "ops"))
+    """Whether this session runs with the identity env; agent_identity.py owns the check.
+
+    scripts/ops goes at the end of the path: a file there named like a standard
+    module (argparse.py) is not code-owned, and first on the path it would run
+    inside this hook and could change its verdict.
+    """
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "scripts" / "ops"))
     try:
         import agent_identity
     except ImportError:
