@@ -11,7 +11,8 @@ tiers):
     every tally on the line at 0 important, for the PR's head commit or for an
     ancestor of it when every later commit is the App's, has a subject starting
     `review:`, and changes only files the reviewed diff already changed (a fix for a
-    finding the review raised needs no second review);
+    finding the review raised needs no second review), and GitHub's compare of
+    those commits fits in one read;
   - the owner has not held it: no `hold` label on it, and the owner's last
     `hold` event on it is not an add. The label must exist and be older than
     the PR, and every label event must fit in one read: deleting and
@@ -109,7 +110,7 @@ def followup_problem(sha: str, head: str, after: dict, reviewed: set[str], agent
         return (f"{after['total_commits']} commits follow the reviewed one, more than GitHub lists "
                 f"({len(listed)}): review again")
     if len(after.get("files", [])) >= COMPARE_FILES:
-        return f"the commits after the review change {COMPARE_FILES} files or more, more than GitHub lists: review again"
+        return f"the commits after the review change {COMPARE_FILES} files or more, as many as GitHub lists, so one may be unseen: review again"
     for c in after.get("commits", []):
         if str((c.get("author") or {}).get("id")) != agent_id:
             return f"{c['sha'][:7]} after the reviewed commit is not the App's: review the new commits"

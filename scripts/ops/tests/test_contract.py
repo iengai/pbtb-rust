@@ -168,7 +168,7 @@ class FollowupTest(unittest.TestCase):
     def test_a_file_list_at_the_cap_fails(self):
         files = [f"docs/{i}.md" for i in range(contract.COMPARE_FILES)]
         after = compared(("aaaaaaa", AGENT, "review: x"), files=files)
-        self.assertIn("more than GitHub lists", self.judge(after, reviewed=files))
+        self.assertIn("as many as GitHub lists", self.judge(after, reviewed=files))
 
     def test_a_verdict_sha_off_the_head_line_fails(self):
         self.assertIn("not an ancestor", self.judge(compared(status="diverged")))
