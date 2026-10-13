@@ -5,7 +5,10 @@ One file, several subcommands, so every skill and every human can get the
 same answers with one command instead of re-deriving where things live:
 
   bot-status [BOT_ID|all] [--memory]   desired vs observed state per bot
-  deploy-audit                         what is deployed vs what main/terraform say
+  deploy-audit                         what is deployed vs what main/terraform say (and the
+                                       sha telebot runs: the rollback point)
+  rollback-plan PR [--running-sha SHA] how to revert a merged PR and redeploy, or why an agent
+                                       may not do it alone (exit 2)
   telebot-logs [--since 30m] [--grep X] [--app] telebot logs on the NAT host (journald, or the app with --app)
   lambda-logs NAME [--since 30m] [--pattern X]
   codebuild-log BUILD_ID [--tail N]    tolerant of the corrupt JSON CloudWatch emits
@@ -42,6 +45,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -404,6 +408,13 @@ def cmd_deploy_audit(a):
             findings.append("telebot container is not running on the NAT host")
         else:
             print(f"NAT host container: started {utc(created)}  digest {(host_digest or '?')[7:19]}")
+            if host_digest:
+                running = aws(["ecr", "describe-images", "--repository-name", c["telebot_repo"],
+                               "--image-ids", f"imageDigest={host_digest}",
+                               "--query", "imageDetails[0].imageTags"], a.profile, a.region) or []
+                running_sha = next((t for t in running if re.fullmatch(r"[0-9a-f]{40}", t)), None)
+                print(f"telebot running sha: {running_sha or '?'}  (record it before a telebot-deploy: "
+                      f"the rollback point, pbtb-deploy § Rolling back)")
             # Digest is the truth: a rebuild that changes no bytes (docs-only commit) still
             # re-tags :latest, and timestamps alone would call that "stale".
             if host_digest and latest.get("imageDigest") and host_digest != latest["imageDigest"]:
@@ -885,12 +896,258 @@ def cmd_user_status(a):
         raise RuntimeError(f"no account row for {a.user_id} (user-create first)")
 
 
+# ---------------------------------------------------------------- rollback-plan
+#
+# What reverting a merged PR takes, and whether an agent may do it alone
+# (docs/governance.md § Autonomy tiers; the procedure is pbtb-deploy § Rolling
+# back). Read-only: it prints the commands, it runs none of them.
+
+# A binary built past one of these and then rolled back can erase or misread
+# what it stores (an older whole-row save drops attributes it does not know, an
+# older reader calls a new value a CorruptRecord, the collector reads its state
+# and writes it back without the fields it does not know), or fail at config
+# load against the env the newer one shipped with (pbtb-deploy, the coupling rule).
+STORED_SHAPE = ("src/domain.rs", "src/domain/*", "src/infra/*repository.rs", "src/infra/*store.rs",
+                "src/bin/*/model.rs", "src/bin/*/s3_writer.rs", "src/bin/*/store.rs",
+                "src/bin/daily_pnl_snapshot/archive.rs", "docs/data-model.md")
+ENV_SHAPE = ("src/config.rs", "src/config/*", "src/main.rs", "src/bin/*/main.rs", "src/bin/*/config.rs",
+             "src/bin/shared/*", "src/observability.rs")
+# What telebot-build hashes: a commit touching one of these changes the image.
+TELEBOT_SOURCE = ("src", "Cargo.toml", "Cargo.lock", ".devcontainer/Dockerfile", ".dockerignore")
+# Binaries an agent may redeploy itself during a rollback; the rest are named
+# for the owner. The restart lambda launches live tasks, mcp-http serves every
+# tenant's tools, the candle collector feeds the lab.
+AGENT_BINARIES = {"telebot", "daily_pnl_snapshot"}
+BINARY_DEPLOY = {
+    "telebot": "gh workflow run telebot-deploy.yml --ref main -f tag={sha} -f passivbot_revisions=latest",
+    "daily_pnl_snapshot": "gh workflow run daily-pnl-snapshot-deploy.yml --ref main",
+    "task_state_change_handler": "gh workflow run lambda-deploy.yml --ref main -f target=task-state-change-handler",
+    "mcp_http": "gh workflow run lambda-deploy.yml --ref main -f target=mcp-http",
+    "hl_candle_collector": "gh workflow run lambda-deploy.yml --ref main -f target=hl-candle-collector",
+}
+SQUASHED = re.compile(r"\(#(\d+)\)$")
+
+
+def matches(path: str, patterns) -> bool:
+    import fnmatch
+    return any(fnmatch.fnmatch(path, p) for p in patterns)
+
+
+def codeowned(path: str, owned: list[str]) -> bool:
+    """`owned` holds .github/CODEOWNERS entries without the leading slash; a trailing slash is a directory."""
+    return any(path.startswith(o) if o.endswith("/") else path == o for o in owned)
+
+
+def codeowners(text: str) -> list[str]:
+    return [line.split()[0].lstrip("/") for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def ticked_invariants(body: str) -> list[str]:
+    m = re.search(r"^### Invariants this change comes near\s*\n(.*?)(?=^### |\Z)", body or "", re.S | re.M)
+    return re.findall(r"^- \[[xX]\] (.+)$", m.group(1), re.M) if m else []
+
+
+def same_subjects(subjects: list[str], headlines: list[str]) -> bool:
+    """Whether the commits on main carry the PR's headlines; GitHub cuts a long
+    headline and ends it with an ellipsis, which then matches as a prefix."""
+    left = list(subjects)
+    for h in headlines:
+        cut = h[:-1] if h.endswith("\u2026") else None
+        hit = next((s for s in left if s == h or (cut is not None and s.startswith(cut))), None)
+        if hit is None:
+            return False
+        left.remove(hit)
+    return not left
+
+
+def revert_range(pr: dict, history: list[dict], range_files: set[str]) -> tuple[list[str], str]:
+    """The commits on main that the PR became, newest first, or [] and why not.
+
+    `history` is main from the merge commit backwards, each {sha, parents, subject};
+    `range_files` is the files changed across the commits the PR became (one for
+    a squash merge, the PR's commit count otherwise).
+    A squash merge is one commit whose subject ends in `(#n)`; a rebase merge is
+    the PR's commits replayed, which is only trusted when the subjects and the
+    file set both match the PR.
+    """
+    if not history or history[0]["sha"] != pr["merge_sha"]:
+        return [], "main's history does not start at the PR's merge commit"
+    head = history[0]
+    m = SQUASHED.search(head["subject"])
+    if m and int(m.group(1)) == pr["number"]:
+        if len(head["parents"]) != 1:
+            return [], "the merge commit has two parents"
+        if range_files != set(pr["files"]):
+            return [], "the squash commit changes other files than the PR did"
+        return [head["sha"]], ""
+    n = len(pr["headlines"])
+    span = history[:n]
+    if len(span) < n:
+        return [], "main is shorter than the PR's commit count"
+    if any(len(c["parents"]) != 1 for c in span):
+        return [], "a merge commit sits inside the range"
+    if not same_subjects([c["subject"] for c in span], pr["headlines"]):
+        return [], "the commits ending at the merge commit are not the PR's (subjects differ)"
+    if range_files != set(pr["files"]):
+        return [], "the range changes other files than the PR did"
+    return [c["sha"] for c in span], ""
+
+
+def rollback_refusals(pr: dict, owned: list[str], invariants: list[str]) -> list[str]:
+    files = pr["files"]
+    found = []
+    if re.match(r"(?i)revert\b", pr["title"]):
+        found.append("the PR is itself a revert; a revert of a revert is a forward fix for a person")
+    if any(f.startswith("terraform/") for f in files):
+        found.append("it changed terraform/: never revert and apply (a reverted user_data rebuilds the NAT); fix forward")
+    hit = sorted(f for f in files if codeowned(f, owned))
+    if hit:
+        found.append(f"it changed code-owned paths ({', '.join(hit[:3])}{', …' if len(hit) > 3 else ''}): "
+                     f"the revert waits on the owner, and the App cannot push .github/workflows/")
+    for name, patterns, risk in (
+            ("stored shape", STORED_SHAPE, "an older binary can erase what it does not know or misread new values"),
+            ("env shape", ENV_SHAPE, "an older binary can fail at config load against the env the newer one shipped with")):
+        hit = sorted(f for f in files if matches(f, patterns))
+        if hit:
+            found.append(f"it changed the {name} ({', '.join(hit[:3])}{', …' if len(hit) > 3 else ''}): "
+                         f"{risk}; the owner decides")
+    if invariants:
+        found.append(f"its issue ticks an invariant ({invariants[0]}); the owner decides")
+    return found
+
+
+def telebot_pin_problem(running_sha: str | None, pin_is_ancestor: bool, pr_shas: list[str],
+                        image_commits: list[str]) -> str:
+    """Why pinning telebot to `running_sha` is not this PR's rollback, or "".
+
+    A rollback is a rollout to an older binary: every commit between the pin and
+    main that changed the image goes back with it, and the coupling rule holds
+    for each of them, so the pin is the PR's rollback only when the PR's own
+    commits are the only ones (`image_commits`: telebot-source commits in
+    running_sha..origin/main).
+    """
+    if not running_sha:
+        return "it changes telebot: pass --running-sha, the sha deploy-audit printed before the deploy"
+    if not pin_is_ancestor:
+        return f"{running_sha[:7]} is not an ancestor of the PR's base: it is not a sha from before this PR"
+    others = [c for c in image_commits if c not in pr_shas]
+    if others:
+        return (f"{len(others)} other commit(s) changed telebot's source after {running_sha[:7]} "
+                f"({', '.join(c[:7] for c in others[:3])}): pinning it rolls those back too; the owner decides")
+    return ""
+
+
+def binaries_touched(files: list[str]) -> set[str]:
+    rust = [f for f in files if f.startswith("src/") or f.startswith("Cargo.")]
+    if not rust:
+        return set()
+    if all(f.startswith("src/bin/") for f in rust):
+        return {f.split("/")[2] for f in rust} & set(BINARY_DEPLOY)
+    return set(BINARY_DEPLOY)
+
+
+def revert_subject(title: str, n: int) -> str:
+    """`revert: <summary> (#n)` within the 72-character subject rule; the
+    reverted PR's own type prefix is dropped, a long summary is cut."""
+    summary = re.sub(r"^[a-z]+(\([^)]*\))?: ", "", title)
+    tail = f" (#{n})"
+    room = 72 - len("revert: ") - len(tail)
+    if len(summary) > room:
+        summary = summary[:room - 1].rstrip() + "\u2026"
+    return f"revert: {summary}{tail}"
+
+
+def rollback_plan(pr: dict, shas: list[str], running_sha: str | None) -> list[str]:
+    n = pr["number"]
+    sha = running_sha or "<the sha deploy-audit printed before the deploy>"
+    subject = shlex.quote(revert_subject(pr["title"], n))
+    lines = [f"git switch -c revert/pr-{n} origin/main",
+             f"git revert -n {' '.join(shas)}",
+             f"git commit -m {subject}   # body: why, and `refs #<incident>`, never `closes`",
+             "then pbtb-ship: gate, pr-reviewer, Review-verdict line, PR, gh pr merge <n> --auto --rebase --delete-branch"]
+    if any(f.startswith("site/") for f in pr["files"]):
+        lines.append("site: pages-publish runs on the push to main")
+    touched = binaries_touched(pr["files"])
+    if "telebot" in touched:
+        lines.append(f"telebot, at once (needs no merge; :latest stays on the bad image, telebot-build skips a "
+                     f"source it has built): {BINARY_DEPLOY['telebot'].format(sha=sha)}")
+    for b in sorted(touched & AGENT_BINARIES - {"telebot"}):
+        lines.append(f"{b}, after the revert merges: {BINARY_DEPLOY[b]}")
+    for b in sorted(touched - AGENT_BINARIES):
+        lines.append(f"{b}: the owner's call, not the agent's: {BINARY_DEPLOY[b]}")
+    if len(lines) == 4:
+        lines.append("nothing deployed to redeploy")
+    return lines
+
+
+def gh_json(args: list[str]):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8")
+    if r.returncode != 0:
+        raise RuntimeError(f"gh {' '.join(args[:3])}: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+def cmd_rollback_plan(a):
+    got = gh_json(["pr", "view", str(a.pr), "--json",
+                   "number,title,state,mergeCommit,commits,files,closingIssuesReferences"])
+    if got["state"] != "MERGED":
+        raise RuntimeError(f"#{a.pr} is {got['state']}, not merged")
+    pr = {"number": got["number"], "title": got["title"], "merge_sha": got["mergeCommit"]["oid"],
+          "headlines": [c["messageHeadline"] for c in got["commits"]],
+          "files": [f["path"] for f in got["files"]]}
+    git(["fetch", "origin", "main", "-q"])
+    if subprocess.run(["git", "merge-base", "--is-ancestor", pr["merge_sha"], "origin/main"]).returncode:
+        raise RuntimeError(f"{pr['merge_sha'][:7]} is not on origin/main")
+    n = max(len(pr["headlines"]), 1)
+    history = [dict(zip(("sha", "parents", "subject"), (s, p.split(), subj)))
+               for s, p, subj in (l.split("\t", 2) for l in
+                                  git(["log", f"-{n}", "--format=%H%x09%P%x09%s", pr["merge_sha"]]).splitlines())]
+    m = SQUASHED.search(history[0]["subject"]) if history else None
+    span = 1 if m and int(m.group(1)) == pr["number"] else len(pr["headlines"])
+    base = f"{pr['merge_sha']}~{span}"
+    range_files = set(git(["diff", "--name-only", base, pr["merge_sha"]]).splitlines())
+    shas, why = revert_range(pr, history, range_files)
+    owned = codeowners(git(["show", "origin/main:.github/CODEOWNERS"]))
+    if not owned:
+        raise RuntimeError("could not read .github/CODEOWNERS on origin/main; the code-owned refusal would be off")
+    invariants = []
+    for issue in got.get("closingIssuesReferences") or []:
+        body = gh_json(["issue", "view", str(issue["number"]), "--json", "body"])["body"]
+        invariants += ticked_invariants(body)
+    refusals = ([why] if why else []) + rollback_refusals(pr, owned, invariants)
+    if "telebot" in binaries_touched(pr["files"]):
+        pin = a.running_sha
+        ancestor = bool(pin) and subprocess.run(
+            ["git", "merge-base", "--is-ancestor", pin, base], capture_output=True).returncode == 0
+        image_commits = git(["log", "--format=%H", f"{pin}..origin/main", "--", *TELEBOT_SOURCE]).split() \
+            if ancestor else []
+        problem = telebot_pin_problem(pin, ancestor, shas, image_commits)
+        if problem:
+            refusals.append(problem)
+    print(f"#{pr['number']} {pr['title']}")
+    print(f"merge {pr['merge_sha'][:7]}, {len(pr['headlines'])} PR commit(s), {len(pr['files'])} file(s)")
+    if refusals:
+        print("\nNOT for an agent to roll back alone:")
+        for r in refusals:
+            print(f"  - {r}")
+    print("\nplan:" if not refusals else "\nplan, for the owner to weigh:")
+    for line in rollback_plan(pr, shas or ["<range: see above>"], a.running_sha):
+        print(f"  {line}")
+    raise SystemExit(2 if refusals else 0)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--profile", default=DEFAULT_PROFILE)
     p.add_argument("--region", default=DEFAULT_REGION)
     p.add_argument("--env", default=DEFAULT_ENV)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("rollback-plan", help="the revert range, refusals and redeploy commands for a merged PR")
+    s.add_argument("pr", type=int)
+    s.add_argument("--running-sha", help="the telebot sha deploy-audit printed before the deploy")
+    s.set_defaults(fn=cmd_rollback_plan)
 
     s = sub.add_parser("bot-status", help="desired vs observed state per bot")
     s.add_argument("bot", nargs="?", default="all")
