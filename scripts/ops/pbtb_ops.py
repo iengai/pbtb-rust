@@ -930,8 +930,13 @@ def matches(path: str, patterns) -> bool:
 
 
 def codeowned(path: str, owned: list[str]) -> bool:
-    """`owned` holds .github/CODEOWNERS entries without the leading slash; a trailing slash is a directory."""
-    return any(path.startswith(o) if o.endswith("/") else path == o for o in owned)
+    """`owned` holds .github/CODEOWNERS entries without the leading slash; a trailing slash is a directory.
+
+    A wildcard entry (`.claude/settings*.json`) is matched with fnmatch, whose `*`
+    also crosses `/`: wider than GitHub's, so the refusal errs safe.
+    """
+    import fnmatch
+    return any(path.startswith(o) if o.endswith("/") else fnmatch.fnmatch(path, o) for o in owned)
 
 
 def codeowners(text: str) -> list[str]:
@@ -1034,6 +1039,34 @@ def telebot_pin_problem(running_sha: str | None, pin_is_ancestor: bool, pr_shas:
     return ""
 
 
+def lambda_drift_problem(lambdas: set[str], later: list[tuple[str, list[str]]]) -> str:
+    """Why redeploying a lambda after the revert would not be this PR's rollback, or "".
+
+    lambda-deploy builds main's head, so the redeploy also ships every later
+    commit that changed the binary (`later`: (sha, files) for each commit after
+    the PR's merge), and the coupling rule holds for each of them.
+    """
+    for b in sorted(lambdas):
+        others = [sha for sha, files in later if b in binaries_touched(files)]
+        if others:
+            return (f"{len(others)} later commit(s) changed {b} ({', '.join(c[:7] for c in others[:3])}): "
+                    f"redeploying it after the revert ships those too; the owner decides")
+    return ""
+
+
+def later_commits(log: str) -> list[tuple[str, list[str]]]:
+    """(sha, files) per commit of `git log --format=%x00%H --name-only`; an empty or merge commit has no files."""
+    out = []
+    for chunk in log.split("\x00"):
+        if chunk.strip():
+            sha, *files = chunk.strip("\n").split("\n")
+            out.append((sha, [f for f in files if f]))
+    return out
+
+
+# src/bin/ directories that are not a binary of their own, and the deployed
+# binaries that compile them in (`#[path = "../shared/…"]`).
+SHARED_BY = {"shared": {"mcp_http"}}
 # What every Rust binary's build reads besides src/ and Cargo.*: the builder
 # image and the toolchain.
 BUILD_INPUTS = (".devcontainer/Dockerfile", ".dockerignore", "rust-toolchain.toml")
@@ -1046,7 +1079,8 @@ def binaries_touched(files: list[str]) -> set[str]:
     if not rust:
         return set()
     if all(f.startswith("src/bin/") for f in rust):
-        return {f.split("/")[2] for f in rust} & set(BINARY_DEPLOY)
+        dirs = {f.split("/")[2] for f in rust}
+        return set().union(*(SHARED_BY.get(d, {d}) for d in dirs)) & set(BINARY_DEPLOY)
     return set(BINARY_DEPLOY)
 
 
@@ -1124,6 +1158,12 @@ def cmd_rollback_plan(a):
         image_commits = git(["log", "--format=%H", f"{pin}..origin/main", "--", *TELEBOT_SOURCE]).split() \
             if ancestor else []
         problem = telebot_pin_problem(pin, ancestor, shas, image_commits)
+        if problem:
+            refusals.append(problem)
+    lambdas = binaries_touched(pr["files"]) - {"telebot"}
+    if lambdas:
+        log = git(["log", "--format=%x00%H", "--name-only", f"{pr['merge_sha']}..origin/main"])
+        problem = lambda_drift_problem(lambdas, later_commits(log))
         if problem:
             refusals.append(problem)
     print(f"#{pr['number']} {pr['title']}")

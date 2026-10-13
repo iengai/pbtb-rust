@@ -18,11 +18,18 @@ definition of "in sync".
 | restart lambda code | `gh workflow run lambda-deploy.yml --ref main` | local agent App |
 | collector lambda code | `gh workflow run daily-pnl-snapshot-deploy.yml --ref main` | local agent App |
 | candle collector lambda code | `gh workflow run lambda-deploy.yml --ref main -f target=hl-candle-collector` | local agent App |
-| lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | `AWS_PROFILE=dev` |
+| lambda env / IAM, task definitions, base-env | `terraform -chdir=terraform/envs/dev apply -target=… -auto-approve` — **always scoped**; a blanket apply reaches the NAT instance, whose replacement blackholes all trading egress (AGENTS.md invariant) | the owner, `AWS_PROFILE=dev` |
 | passivbot image | `python scripts/build_passivbot_image.py --tag vX.Y.Z-arm64 --no-wait`, then `pbtb_ops.py codebuild-log <build-id>` | dev profile; source at `E:/projects/passivbot` checked out at that tag |
+| mcp-http lambda code | `gh workflow run lambda-deploy.yml --ref main -f target=mcp-http` | local agent App |
 | web console (site) | `gh workflow run pages-publish.yml --ref main` (also on every push to main touching `site/`; the showcase is not in the build, the pages read it from the showcase CDN, so a switch or a collector run needs no publish) | local agent App |
 
 ## The coupling rule (read twice)
+
+A session deploys a binary only when nothing it ships waits on an apply: if
+the merged change, or any undeployed commit on main for that binary, changes
+`terraform/` or the `APP__*` keys a binary reads, the session deploys nothing
+coupled to it and hands the whole order below to the owner in the PR's
+Rollout section; the apply is the owner's.
 
 Two launchers hold the passivbot task-definition table from different sources:
 the lambda gets it baked at `terraform apply`, telebot gets it from
@@ -100,7 +107,8 @@ is the order.
    prints the revert range and the redeploys, or exits 2 with why an agent may
    not do it alone: a revert range it cannot verify, terraform, a code-owned
    path, a stored-shape or env-shape change, a ticked invariant, a revert of a
-   revert, or a telebot pin that would take other image changes back with it.
+   revert, a telebot pin that would take other image changes back with it, or
+   a lambda a later commit changed (its redeploy would ship that commit too).
    A rollback is a rollout to an older binary: the coupling rule above holds
    for every commit between the pinned sha and main, not only the reverted
    PR's, and state a binary reads and writes back (the collector's `_state/`)
@@ -111,8 +119,9 @@ is the order.
    The deploy re-points `:latest` at the recorded sha, and `deploy-audit` then
    reports `:latest` behind main until the next telebot change; expected.
 5. The revert, as `rollback-plan` prints it, through pbtb-ship (gate, review,
-   verdict line, PR, auto-merge). After it merges: the collector redeploy if
-   the plan lists it; the site rides the push.
+   verdict line, PR, auto-merge). After it merges: every lambda the plan
+   lists, in its order; the site rides the push. `rollback-plan` refuses a
+   lambda a later commit changed, since `lambda-deploy` builds main's head.
 6. Re-run the checks against the baseline and put the result on the Incident.
 
 ## Rebuilding the NAT (sole egress + telebot host)

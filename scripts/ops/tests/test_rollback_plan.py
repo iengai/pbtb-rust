@@ -71,6 +71,13 @@ class RefusalTest(unittest.TestCase):
         found = pbtb_ops.rollback_refusals(pr(files=(".github/workflows/x.yml",)), OWNED, [])
         self.assertTrue(any("code-owned" in f for f in found))
 
+    def test_a_wildcard_code_owner_entry_refuses(self):
+        owned = pbtb_ops.codeowners("/.claude/hooks/ @o\n/.claude/settings*.json @o\n")
+        for f in (".claude/settings.json", ".claude/settings.local.json"):
+            found = pbtb_ops.rollback_refusals(pr(files=(f, "src/usecase/runbot.rs")), owned, [])
+            self.assertTrue(any("code-owned" in x for x in found), f)
+        self.assertFalse(pbtb_ops.codeowned(".claude/skills/pbtb-ship/SKILL.md", owned))
+
     def test_the_stored_shape_refuses(self):
         for f in ("src/domain/bot.rs", "src/infra/botrepository.rs", "src/infra/showcasestore.rs", "docs/data-model.md",
                   "src/bin/daily_pnl_snapshot/model.rs", "src/bin/daily_pnl_snapshot/s3_writer.rs",
@@ -116,6 +123,30 @@ class TelebotPinTest(unittest.TestCase):
         found = pbtb_ops.telebot_pin_problem("a" * 40, True, ["c1"], ["c2", "c1"])
         self.assertIn("1 other commit", found)
         self.assertIn("c2", found)
+
+
+class LambdaDriftTest(unittest.TestCase):
+    def test_no_later_change_to_the_lambda_passes(self):
+        later = [("d1", ["docs/x.md"]), ("d2", ["src/bin/daily_pnl_snapshot/archive.rs"])]
+        self.assertEqual(pbtb_ops.lambda_drift_problem({"task_state_change_handler"}, later), "")
+
+    def test_a_later_change_to_the_lambda_refuses(self):
+        later = [("e1" * 20, ["src/bin/task_state_change_handler/main.rs"])]
+        found = pbtb_ops.lambda_drift_problem({"task_state_change_handler", "mcp_http"}, later)
+        self.assertIn("task_state_change_handler", found)
+        self.assertIn("e1e1e1e", found)
+
+    def test_a_later_change_to_shared_mcp_code_refuses_mcp_http(self):
+        found = pbtb_ops.lambda_drift_problem({"mcp_http"}, [("f2", ["src/bin/shared/mcp_deps.rs"])])
+        self.assertIn("mcp_http", found)
+
+    def test_the_log_parses_into_commits_with_their_files(self):
+        log = "\x00aaa\n\nsrc/a.rs\ndocs/b.md\n\x00bbb\n\x00ccc\n\nsrc/bin/mcp_http/main.rs\n"
+        self.assertEqual(pbtb_ops.later_commits(log),
+                         [("aaa", ["src/a.rs", "docs/b.md"]), ("bbb", []), ("ccc", ["src/bin/mcp_http/main.rs"])])
+
+    def test_a_later_shared_change_refuses_every_lambda(self):
+        self.assertIn("ships those too", pbtb_ops.lambda_drift_problem({"mcp_http"}, [("f1", ["src/usecase/runbot.rs"])]))
 
 
 class PlanTest(unittest.TestCase):
