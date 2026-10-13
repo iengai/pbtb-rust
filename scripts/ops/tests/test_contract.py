@@ -131,5 +131,45 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(len(self.check(repo(body="", labels=["hold"], issues=[issue(editor=OTHER)]))), 3)
 
 
+
+def compared(*commits, files=("docs/x.md",), status="ahead") -> dict:
+    return {"status": status, "files": [{"filename": f} for f in files],
+            "commits": [{"sha": sha + "0" * 33, "author": {"id": who}, "commit": {"message": msg}}
+                        for sha, who, msg in commits]}
+
+
+class FollowupTest(unittest.TestCase):
+    def judge(self, after, reviewed=("docs/x.md",)) -> str:
+        return contract.followup_problem("1234567", HEAD, after, set(reviewed), str(AGENT))
+
+    def test_review_fixes_by_the_app_on_reviewed_files_pass(self):
+        self.assertEqual(self.judge(compared(("aaaaaaa", AGENT, "review: take the naming nit"))), "")
+
+    def test_a_commit_without_the_review_prefix_fails(self):
+        self.assertIn("not a `review:` fix", self.judge(compared(("aaaaaaa", AGENT, "feat: more"))))
+
+    def test_a_commit_by_someone_else_fails(self):
+        self.assertIn("not the App's", self.judge(compared(("aaaaaaa", OWNER, "review: x"))))
+
+    def test_a_file_the_review_did_not_cover_fails(self):
+        after = compared(("aaaaaaa", AGENT, "review: x"), files=("docs/x.md", "src/new.rs"))
+        self.assertIn("did not cover (src/new.rs)", self.judge(after))
+
+    def test_a_rename_from_an_unreviewed_file_fails(self):
+        after = compared(("aaaaaaa", AGENT, "review: x"))
+        after["files"] = [{"filename": "docs/x.md", "previous_filename": "src/unseen.rs", "status": "renamed"}]
+        self.assertIn("did not cover (src/unseen.rs)", self.judge(after))
+
+    def test_a_verdict_sha_off_the_head_line_fails(self):
+        self.assertIn("not an ancestor", self.judge(compared(status="diverged")))
+
+    def test_the_verdict_line_defers_to_the_followup_judge(self):
+        stale = VERDICT.replace(HEAD[:7], "1234567")
+        passing = contract.problems(repo(body=stale), str(AGENT), followups=lambda sha: "")
+        self.assertEqual(passing, [])
+        failing = contract.problems(repo(body=stale), str(AGENT), followups=lambda sha: "nope")
+        self.assertEqual(failing, ["nope"])
+
+
 if __name__ == "__main__":
     unittest.main()

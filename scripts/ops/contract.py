@@ -7,8 +7,11 @@ LOCAL_AGENT_USER_ID; unset fails every PR) passes only when all of these hold;
 every other PR passes, since a person merges it (docs/governance.md § Autonomy
 tiers):
 
-  - its body carries `Review-verdict: pass @ <sha>` for the PR's head commit,
-    naming pr-reviewer, with every tally on the line at 0 important;
+  - its body carries `Review-verdict: pass @ <sha>` naming pr-reviewer, with
+    every tally on the line at 0 important, for the PR's head commit or for an
+    ancestor of it when every later commit is the App's, has a subject starting
+    `review:`, and changes only files the reviewed diff already changed (a fix for a
+    finding the review raised needs no second review);
   - the owner has not held it: no `hold` label on it, and the owner's last
     `hold` event on it is not an add. The label must exist and be older than
     the PR, and every label event must fit in one read: deleting and
@@ -19,8 +22,11 @@ tiers):
     the one its author chose.
 
 The verdict line is written by the session that wrote the code: it records
-that the review ran on this commit, not that someone else approved it.
-Paths agents load and infra need the owner's approval, and that is
+that the review ran on this commit, not that someone else approved it; the
+`review:` commits after it are the session's word that they only take what the
+review asked for.
+The workflows, this script and what it imports, the hooks and settings that
+refuse an agent's commands, and infra need the owner's approval, and that is
 `.github/CODEOWNERS` under the ruleset's code-owner review, not this script:
 a PR can rewrite this file or its workflow, and its own run would use them.
 """
@@ -38,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fix_issue  # noqa: E402
 
 HOLD = "hold"
+REVIEW_FIX = re.compile(r"^review: ")
 REVIEWER = "pr-reviewer"
 VERDICT = re.compile(r"^Review-verdict:\s*pass\s*@\s*([0-9a-f]{7,40})\b(.*)$", re.M)
 TALLY = re.compile(r"(\d+) important\b|no important findings", re.I)
@@ -50,7 +57,7 @@ query($owner: String!, $name: String!, $pr: Int!) {{
     owner {{ ... on User {{ databaseId }} ... on Organization {{ databaseId }} }}
     holdLabel: label(name: "{HOLD}") {{ createdAt }}
     pullRequest(number: $pr) {{
-      body headRefOid createdAt
+      body headRefOid baseRefOid createdAt
       author {{ {ACTOR} }}
       labels(first: 50) {{ nodes {{ name }} }}
       timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT], last: {EVENTS}) {{
@@ -74,14 +81,54 @@ def actor_id(node: dict | None) -> object:
     return (node or {}).get("databaseId")
 
 
-def verdict_problem(body: str, head: str) -> str:
-    """Why the body's review verdict does not clear the head commit, or ""."""
+def changed_paths(compared: dict) -> set[str]:
+    """Every path a compare touched; a rename counts its old path too, or a
+    `review:` commit could move an unreviewed file onto a reviewed one."""
+    paths = set()
+    for f in compared.get("files", []):
+        paths.add(f["filename"])
+        if f.get("previous_filename"):
+            paths.add(f["previous_filename"])
+    return paths
+
+
+def followup_problem(sha: str, head: str, after: dict, reviewed: set[str], agent_id: str) -> str:
+    """Why the commits after the reviewed one are not review fixes, or "".
+
+    `after` is GitHub's compare of the reviewed commit with the head; `reviewed`
+    the files the reviewed diff (merge base to the reviewed commit) changed.
+    """
+    if after.get("status") not in ("ahead", "identical"):
+        return f"the review verdict is for {sha}, which is not an ancestor of the head {head[:7]}: review again"
+    for c in after.get("commits", []):
+        if str((c.get("author") or {}).get("id")) != agent_id:
+            return f"{c['sha'][:7]} after the reviewed commit is not the App's: review the new commits"
+        if not REVIEW_FIX.match(c["commit"]["message"]):
+            return (f"{c['sha'][:7]} after the reviewed commit is not a `review:` fix: "
+                    f"review the new commits and update the line")
+    outside = sorted(changed_paths(after) - reviewed)
+    if outside:
+        return (f"commits after the review change files it did not cover "
+                f"({', '.join(outside[:3])}{', …' if len(outside) > 3 else ''}): review again")
+    return ""
+
+
+def verdict_problem(body: str, head: str, followups=None) -> str:
+    """Why the body's review verdict does not clear the head commit, or "".
+
+    `followups(sha)` judges the commits between a reviewed ancestor and the
+    head (followup_problem); without it only the head itself is cleared.
+    """
     found = VERDICT.findall(body or "")
     if not found:
         return "no `Review-verdict: pass @ <sha>` line: run the review passes (pbtb-ship) and add it"
     sha, rest = found[-1]
     if not head.startswith(sha):
-        return f"the review verdict is for {sha}, the head is {head[:7]}: review the new commits and update the line"
+        if followups is None:
+            return f"the review verdict is for {sha}, the head is {head[:7]}: review the new commits and update the line"
+        problem = followups(sha)
+        if problem:
+            return problem
     if REVIEWER not in rest:
         return f"the review verdict does not name {REVIEWER}"
     tallies = TALLY.findall(rest)
@@ -123,14 +170,14 @@ def issue_problem(issue: dict, owner: object) -> str:
     return ""
 
 
-def problems(repo: dict, agent_id: str) -> list[str]:
+def problems(repo: dict, agent_id: str, followups=None) -> list[str]:
     """Everything that stops this PR merging itself; empty when it may."""
     pr, owner = repo["pullRequest"], actor_id(repo["owner"])
     if not agent_id:
         return ["LOCAL_AGENT_USER_ID is unset, so no PR can be told apart from the agent's"]
     if str(actor_id(pr["author"])) != agent_id:
         return []
-    found = [verdict_problem(pr["body"], pr["headRefOid"]), hold_problem(pr, owner, repo["holdLabel"])]
+    found = [verdict_problem(pr["body"], pr["headRefOid"], followups), hold_problem(pr, owner, repo["holdLabel"])]
     found += [issue_problem(i, owner) for i in pr["closingIssuesReferences"]["nodes"]]
     return [p for p in found if p]
 
@@ -144,13 +191,29 @@ def fetch(repo_name: str, pr: int) -> dict:
     return json.loads(out)["data"]["repository"]
 
 
+def compare(repo_name: str, base: str, head: str) -> dict:
+    out = subprocess.run(["gh", "api", f"repos/{repo_name}/compare/{base}...{head}"],
+                         check=True, capture_output=True, text=True, encoding="utf-8").stdout
+    return json.loads(out)
+
+
+def github_followups(repo_name: str, pr: dict, agent_id: str):
+    def judge(sha: str) -> str:
+        after = compare(repo_name, sha, pr["headRefOid"])
+        reviewed = changed_paths(compare(repo_name, pr["baseRefOid"], sha))
+        return followup_problem(sha, pr["headRefOid"], after, reviewed, agent_id)
+    return judge
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     check = sub.add_parser("check", help="exit 1 when an agent PR may not merge itself")
     check.add_argument("--pr", type=int, required=True)
     a = ap.parse_args()
-    found = problems(fetch(os.environ["GH_REPO"], a.pr), os.environ.get("LOCAL_AGENT_USER_ID", "").strip())
+    repo_name, agent_id = os.environ["GH_REPO"], os.environ.get("LOCAL_AGENT_USER_ID", "").strip()
+    repo = fetch(repo_name, a.pr)
+    found = problems(repo, agent_id, github_followups(repo_name, repo["pullRequest"], agent_id))
     for p in found:
         print(f"::error::{p}")
     print("contract: " + ("; ".join(found) if found else "clear"))
