@@ -1,0 +1,3 @@
+# Gitignored files Claude Code copies from the main checkout into each worktree it creates.
+# settings.local.json carries the local agent identity env (docs/agents.md § Local agents).
+.claude/settings.local.json
