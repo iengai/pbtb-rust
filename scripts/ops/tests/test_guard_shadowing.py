@@ -6,12 +6,15 @@ scripts/ops is not code-owned as a whole, so a PR can add `scripts/ops/argparse.
 guard-shell imports agent_identity from there, and the identity hooks and the git
 credential helper run agent_identity.py itself, and the CI agents' gate
 (claude_harness.write_settings) runs fix_issue.py or diagnose_issue.py as a
-hook; each must reach the standard module, never the file beside it.
+hook; each must reach the standard module, never the file beside it. The verify
+gate's stdin scripts run from the repo root, where a root-level `glob.py` would
+shadow theirs.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -87,6 +90,26 @@ class ShadowingTest(unittest.TestCase):
         self.assertTrue(commands)
         for c in commands:
             self.assertIn(" -P ", c)
+
+    def run_stdin(self, *flags: str) -> None:
+        (self.tmp / "glob.py").write_text(SHADOW, encoding="utf-8")
+        subprocess.run([sys.executable, *flags, "-"], input="import glob\n", text=True, cwd=self.tmp,
+                       capture_output=True, env=self.env, timeout=60)
+
+    def test_a_stdin_script_with_safe_path_does_not_import_a_root_shadow(self):
+        self.run_stdin("-P")
+        self.assertFalse(self.marker.exists())
+
+    def test_a_stdin_script_without_safe_path_would(self):
+        self.run_stdin()
+        self.assertTrue(self.marker.exists())
+
+    def test_every_stdin_script_in_the_gate_runs_with_safe_path(self):
+        gate = (ROOT / ".claude" / "skills" / "verify" / "scripts" / "gate.sh").read_text(encoding="utf-8")
+        stdin_runs = [line.strip() for line in gate.splitlines() if re.search(r"\bpython3? (-\w+ )*- ", line + " ")]
+        self.assertTrue(stdin_runs)
+        for line in stdin_runs:
+            self.assertRegex(line, r"\bpython3? -P ", line)
 
 
 if __name__ == "__main__":
