@@ -173,7 +173,7 @@ OUT=$(python .claude/hooks/guard-shell.py --self-test 2>&1); RC=$?
 gate hook-guard-shell $RC; [ $RC -ne 0 ] && show "$OUT" "^FAIL"
 
 # 9. the ops scripts' offline tests (the fix agent's trust rule among them).
-OUT=$(python -m unittest discover -s scripts/ops/tests 2>&1); RC=$?
+OUT=$(python -P -m unittest discover -s scripts/ops/tests 2>&1); RC=$?
 gate ops-tests $RC; [ $RC -ne 0 ] && show "$OUT" "^(FAIL|ERROR)"
 
 # 10. knowledge budgets (docs/conventions.md § Knowledge placement): the files
