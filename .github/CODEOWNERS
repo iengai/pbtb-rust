@@ -1,6 +1,7 @@
 # A change here needs the owner's approving review before it merges (the
 # ruleset on main requires code-owner review). These are the checks that
-# decide a merge and every file they run or import, the scripts that run with
+# decide a merge and every file they run or import (the gate script lives in
+# .github/scripts/ for that reason), the scripts that run with
 # repository secrets, the hooks and settings that
 # refuse an agent's commands, the App's identity, and infra whose apply is a
 # human maintenance act. A PR's own run uses its own copy of these files, so
@@ -13,7 +14,6 @@
 /scripts/ops/claude_harness.py   @iengai
 /scripts/ops/agent_identity.py   @iengai
 /scripts/ops/diagnose_issue.py   @iengai
-/.claude/skills/verify/scripts/  @iengai
 /.claude/hooks/                  @iengai
 /.claude/settings*.json          @iengai
 /terraform/                      @iengai

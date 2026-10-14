@@ -51,7 +51,7 @@ docker exec -it app-node bash
 - **Slow builds:** verify named volumes exist (`docker volume ls` shows `pbtb-rust-cargo-*`) and your network/proxy is configured.
 - **Permission issues:** confirm the container user is `vscode` (`whoami`) and check host file permissions; recreate the container if needed.
 - **Cannot reach DynamoDB Local:** check container network and port usage, or access it from the host at `http://localhost:8000`.
-- **DynamoDB-backed tests slow or timing out with no diff in the test:** the shared instance is degraded. `bash .claude/skills/verify/scripts/gate.sh` prints the endpoint the tests used and warns when `dynamodb-local` is not `-inMemory` (a container created from an older compose file); recreate it with `docker compose -p pbtb-rust_devcontainer -f .devcontainer/docker-compose.yaml up -d --no-deps --force-recreate dynamodb-local` (the project name the Dev Container gave the stack; without `-p` compose derives another one and the name clashes), then run `init-dynamodb.sh` in `app-node`.
+- **DynamoDB-backed tests slow or timing out with no diff in the test:** the shared instance is degraded. `bash .github/scripts/gate.sh` prints the endpoint the tests used and warns when `dynamodb-local` is not `-inMemory` (a container created from an older compose file); recreate it with `docker compose -p pbtb-rust_devcontainer -f .devcontainer/docker-compose.yaml up -d --no-deps --force-recreate dynamodb-local` (the project name the Dev Container gave the stack; without `-p` compose derives another one and the name clashes), then run `init-dynamodb.sh` in `app-node`.
 
 ## Worktree / bind-mount caveat
 

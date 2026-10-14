@@ -105,7 +105,7 @@ class ShadowingTest(unittest.TestCase):
         self.assertTrue(self.marker.exists())
 
     def test_every_stdin_script_in_the_gate_runs_with_safe_path(self):
-        gate = (ROOT / ".claude" / "skills" / "verify" / "scripts" / "gate.sh").read_text(encoding="utf-8")
+        gate = (ROOT / ".github" / "scripts" / "gate.sh").read_text(encoding="utf-8")
         # A stdin (`-`) or `-c` run puts the cwd, the repo root, first on the path.
         stdin_runs = [line.strip() for line in gate.splitlines()
                       if re.search(r"\bpython[\d.]*\b[^|;&]*\s-(c\b|\s|<|$)", line)]

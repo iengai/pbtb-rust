@@ -6,7 +6,7 @@ If this started from an issue: `closes #<n>` (the merge closes it; `refs #<n>` w
 
 ## Verification
 
-Paste the `GATE …` lines from `bash .claude/skills/verify/scripts/gate.sh`.
+Paste the `GATE …` lines from `bash .github/scripts/gate.sh`.
 
 ## Review
 

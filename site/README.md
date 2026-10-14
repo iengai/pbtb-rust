@@ -77,7 +77,7 @@ The language is stored in `localStorage["pbtb.lang"]`; absent that, it defaults 
 | `npm run lint` | `tsc --noEmit` + `eslint .` |
 | `npm test` | vitest, the unit tests beside the pure modules (`src/**/*.test.ts`) |
 
-`.claude/skills/verify/scripts/gate.sh` runs `lint`, `test` and `build` whenever
+`.github/scripts/gate.sh` runs `lint`, `test` and `build` whenever
 `site/package.json` exists.
 
 ## Configuration

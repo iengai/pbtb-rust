@@ -50,7 +50,7 @@ thread.
 
 ## The gate is not optional
 
-Run the project `verify` skill (`bash .claude/skills/verify/scripts/gate.sh`)
+Run the project `verify` skill (`bash .github/scripts/gate.sh`)
 and quote its `GATE …` lines in the PR. `verify.yml` runs the same script on
 every PR as the `gate` check the ruleset requires. A change to a workflow,
 `rust-toolchain.toml`, a Dockerfile or `tests/common/` can pass locally and
