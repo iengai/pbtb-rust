@@ -155,7 +155,7 @@ if echo "$CHANGED" | grep -q '^\.github/workflows/'; then
   RC=0
   for f in $(echo "$CHANGED" | grep '^\.github/workflows/.*\.ya\?ml$' | sort -u); do
     [ -f "$f" ] || continue
-    python - "$f" <<'PY' || RC=1
+    python -P - "$f" <<'PY' || RC=1
 import sys
 try:
     import yaml
@@ -182,7 +182,7 @@ gate ops-tests $RC; [ $RC -ne 0 ] && show "$OUT" "^(FAIL|ERROR)"
 # ceiling gets a headroom line, the prompt to demote before the next
 # promotion has to. A change to the row layout or the infra is a prompt to
 # re-read the leaf that describes it.
-python - <<'PY'; gate knowledge-budget $?
+python -P - <<'PY'; gate knowledge-budget $?
 import glob, os, re, sys
 bad = 0
 for f, lim in [("AGENTS.md", 6144), (".claude/CLAUDE.md", 1536), ("REVIEW.md", 4096)]:
