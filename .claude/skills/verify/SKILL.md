@@ -5,7 +5,7 @@ description: Verification gate for pbtb-rust. Use before committing, pushing, op
 
 # verify
 
-Run `bash .claude/skills/verify/scripts/gate.sh` and read its final summary.
+Run `bash .github/scripts/gate.sh` and read its final summary.
 It decides host vs container automatically, guards every step explicitly, and
 prints one line per gate. Pass `--host` to force the host toolchain (fast
 signal when Docker Desktop is down) or `--container` to insist on the reference

@@ -4,10 +4,10 @@
 # exit code of its first stage. Prints one `GATE <name>: ok|FAIL` line per gate
 # and exits non-zero if any failed.
 #
-#   bash .claude/skills/verify/scripts/gate.sh            # auto: container if up, else host
-#   bash .claude/skills/verify/scripts/gate.sh --host     # host toolchain only
-#   bash .claude/skills/verify/scripts/gate.sh --container
-#   bash .claude/skills/verify/scripts/gate.sh --full     # cargo even when no Rust file changed
+#   bash .github/scripts/gate.sh            # auto: container if up, else host
+#   bash .github/scripts/gate.sh --host     # host toolchain only
+#   bash .github/scripts/gate.sh --container
+#   bash .github/scripts/gate.sh --full     # cargo even when no Rust file changed
 #
 # The cargo gates (check, clippy, test: ten minutes, most of it the
 # DynamoDB-local suites) run only when the branch touches something cargo

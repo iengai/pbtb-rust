@@ -92,7 +92,7 @@ def trusted(association: str, user_id: object) -> bool:
     return association in TRUSTED or (bool(agent) and str(user_id) == agent)
 
 
-GATE = "bash .claude/skills/verify/scripts/gate.sh --host"
+GATE = "bash .github/scripts/gate.sh --host"
 
 # Paths the model may not write. Everything here is either an execution
 # surface of the agent itself (a workflow, a hook, this script), infra whose
@@ -101,7 +101,7 @@ GATE = "bash .claude/skills/verify/scripts/gate.sh --host"
 # `/`, so `terraform/*` covers the whole tree.
 DENY = [
     ".github/*", "terraform/*", ".claude/hooks/*", ".claude/settings*.json",
-    ".claude/skills/verify/scripts/*", "scripts/ops/fix_issue.py",
+    "scripts/ops/fix_issue.py",
     "scripts/ops/diagnose_issue.py", "scripts/ops/sentry_issues.py", "scripts/ops/claude_harness.py",
     "Cargo.toml", "*/Cargo.toml", "Cargo.lock", "rust-toolchain.toml",
     ".devcontainer/*", "site/package.json", "site/package-lock.json",

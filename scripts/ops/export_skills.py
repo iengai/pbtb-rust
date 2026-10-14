@@ -71,7 +71,7 @@ an angle-bracket placeholder.
 ```
 .claude/skills/
   pbtb-triage/   debugging loop, symptom router, component map, playbooks
-  verify/        the verification gate (scripts/gate.sh)
+  verify/        how to run and read the verification gate (the script, .github/scripts/gate.sh, is not exported)
   pbtb-deploy/   rollout order and coupling rules
   pbtb-ship/     branch / rebase / PR / merge mechanics
 scripts/ops/pbtb_ops.py   bot-status, deploy-audit, telebot-logs, lambda-logs, codebuild-log, smoke-lambda
